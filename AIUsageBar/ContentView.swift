@@ -1,0 +1,24 @@
+//
+//  ContentView.swift
+//  AIUsageBar
+//
+//  Created by Kenny Hung on 2026/8/16.
+//
+
+import SwiftUI
+
+struct ContentView: View {
+    var body: some View {
+        VStack {
+            Image(systemName: "globe")
+                .imageScale(.large)
+                .foregroundStyle(.tint)
+            Text("Hello, world!")
+        }
+        .padding()
+    }
+}
+
+#Preview {
+    ContentView()
+}

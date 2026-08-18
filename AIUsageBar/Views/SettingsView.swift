@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
 
@@ -73,6 +74,21 @@ struct SettingsView: View {
                 Text("登入 macOS 後自動在選單列啟動 AIUsageBar")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            HStack {
+
+                Spacer()
+
+                Button("結束 AIUsageBar") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("結束 AIUsageBar")
+                .accessibilityLabel("結束 AIUsageBar")
             }
 
             Spacer()

@@ -85,7 +85,8 @@ struct SettingsView: View {
                 Button("結束 AIUsageBar") {
                     NSApplication.shared.terminate(nil)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 .foregroundStyle(.secondary)
                 .help("結束 AIUsageBar")
                 .accessibilityLabel("結束 AIUsageBar")

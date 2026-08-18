@@ -1,197 +1,101 @@
-//
-//  ModernCard.swift
-//  AIUsageBar
-//
-
 import SwiftUI
 
 struct ModernCard: View {
-
     let title: String
     let session: Int?
     let weekly: Int?
     let reset: String
 
     var body: some View {
-
-        VStack(alignment: .leading, spacing: 14) {
-
+        VStack(alignment: .leading, spacing: 11) {
             Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
 
             if let session {
-
-                ProgressLine(
-                    label: weekly == nil ? "" : "5 小時",
-                    value: session
-                )
+                ProgressLine(label: weekly == nil ? "" : "5 小時", value: session)
             }
 
             if let weekly {
-
-                ProgressLine(
-                    label: "每週",
-                    value: weekly
-                )
+                ProgressLine(label: "每週", value: weekly)
             }
 
             if !reset.isEmpty {
-
                 Text(reset)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
             }
-
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-
         .background {
-
-            RoundedRectangle(
-                cornerRadius: 18,
-                style: .continuous
-            )
-            .fill(
-
-                LinearGradient(
-
-                    colors: [
-
-                        Color.white.opacity(0.07),
-
-                        Color.white.opacity(0.03)
-
-                    ],
-
-                    startPoint: .topLeading,
-
-                    endPoint: .bottomTrailing
-                )
-            )
-
-            .overlay {
-
-                RoundedRectangle(
-                    cornerRadius: 18
-                )
-
-                .stroke(
-                    Color.white.opacity(0.08),
-                    lineWidth: 1
-                )
-
-            }
-
+            RoundedRectangle(cornerRadius: 21, style: .continuous)
+                .fill(Theme.card.opacity(0.96))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 21, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Theme.purple.opacity(0.28),
+                                    Theme.pink.opacity(0.12)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                }
         }
+        .shadow(color: Theme.purple.opacity(0.16), radius: 18, y: 8)
     }
 }
 
-
-
 private struct ProgressLine: View {
-
     let label: String
     let value: Int
 
     private var percent: Int {
-
         min(max(value, 0), 100)
     }
 
     var body: some View {
-
-        VStack(alignment: .leading, spacing: 6) {
-
-            if !label.isEmpty {
-
+        HStack(spacing: 10) {
+            if label.isEmpty {
+                Color.clear
+                    .frame(width: 42)
+            } else {
                 Text(label)
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 42, alignment: .leading)
             }
 
-            HStack(spacing: 10) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Theme.track)
 
-                GeometryReader { geo in
-
-                    ZStack(alignment: .leading) {
-
+                    if percent > 0 {
                         Capsule()
                             .fill(
-                                Color.white.opacity(0.08)
-                            )
-
-                        Capsule()
-
-                            .fill(
-
                                 LinearGradient(
-
-                                    colors: [
-
-                                        Color(
-                                            red: 109/255,
-                                            green: 61/255,
-                                            blue: 255/255
-                                        ),
-
-                                        Color(
-                                            red: 255/255,
-                                            green: 97/255,
-                                            blue: 182/255
-                                        )
-
-                                    ],
-
+                                    colors: [Theme.purple, Theme.pink],
                                     startPoint: .leading,
-
                                     endPoint: .trailing
                                 )
                             )
-
-                            .frame(
-                                width: max(
-                                    10,
-                                    geo.size.width *
-                                    CGFloat(percent) /
-                                    100
-                                )
-                            )
-
-                            .shadow(
-
-                                color: Color(
-                                    red: 109/255,
-                                    green: 61/255,
-                                    blue: 255/255
-                                )
-                                .opacity(0.55),
-
-                                radius: 10
-                            )
-
+                            .frame(width: geometry.size.width * CGFloat(percent) / 100)
+                            .shadow(color: Theme.pink.opacity(0.35), radius: 6)
                     }
-
                 }
-
-                .frame(height: 8)
-
-                Text("\(percent)%")
-                    .font(
-                        .system(
-                            size: 13,
-                            weight: .bold
-                        )
-                        .monospacedDigit()
-                    )
-                    .foregroundStyle(.white)
-                    .frame(width: 42, alignment: .trailing)
-
             }
+            .frame(height: 7)
 
+            Text("\(percent)%")
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: 38, alignment: .trailing)
         }
-
     }
-
 }

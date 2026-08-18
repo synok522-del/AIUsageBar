@@ -7,12 +7,13 @@ struct UsagePanelView: View {
 
     var body: some View {
 
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
 
             HStack {
 
-                Text("AI 用量")
+                Text("AIUsageBar")
                     .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
 
                 Spacer()
 
@@ -32,9 +33,11 @@ struct UsagePanelView: View {
                     } label: {
 
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 14))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
+                    .help("重新整理用量")
                 }
 
 
@@ -45,9 +48,11 @@ struct UsagePanelView: View {
                 } label: {
 
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 15))
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Theme.textSecondary)
                 }
                 .buttonStyle(.plain)
+                .help("設定")
 
             }
 
@@ -67,30 +72,27 @@ struct UsagePanelView: View {
 
                 Text(viewModel.statusMessage)
                     .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
             }
 
 
             Text(lastUpdatedText)
                 .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Theme.textSecondary.opacity(0.75))
 
         }
         .padding(14)
-        .frame(width: 280)
+        .frame(width: 300)
 
         .background {
 
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .fill(.ultraThinMaterial)
-            .shadow(
-                color: .black.opacity(0.15),
-                radius: 20,
-                y: 8
-            )
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Theme.background)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.32), radius: 24, y: 12)
         }
 
         .task {
@@ -105,8 +107,7 @@ struct UsagePanelView: View {
     @ViewBuilder
     private func providerCard(
         title: String,
-        info: UsageInfo,
-        color: Color
+        info: UsageInfo
     ) -> some View {
 
 
@@ -127,11 +128,23 @@ struct UsagePanelView: View {
 
                 Text(title)
                     .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
 
                 Text(error)
                     .font(.system(size: 11))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Theme.pink)
             }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 21, style: .continuous)
+                    .fill(Theme.card.opacity(0.96))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 21, style: .continuous)
+                            .stroke(Theme.pink.opacity(0.28), lineWidth: 1)
+                    }
+            }
+            .shadow(color: Theme.pink.opacity(0.10), radius: 16, y: 7)
 
         } else {
 

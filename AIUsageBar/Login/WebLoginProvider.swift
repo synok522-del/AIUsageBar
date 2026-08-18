@@ -98,16 +98,16 @@ struct WebLoginView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            logger.debug("[\(self.provider.displayName, privacy: .public)] Page: \(webView.url?.absoluteString ?? "nil", privacy: .public)")
+            logger.debug("[\(self.provider.displayName, privacy: .public)] Page: \(webView.url?.absoluteString ?? "nil", privacy: .private(mask: .hash))")
             startPolling()
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            logger.error("[\(self.provider.displayName, privacy: .public)] Navigation failed: \(error.localizedDescription, privacy: .public)")
+            logger.error("[\(self.provider.displayName, privacy: .public)] Navigation failed: \(error.localizedDescription, privacy: .private)")
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            logger.error("[\(self.provider.displayName, privacy: .public)] Initial navigation failed: \(error.localizedDescription, privacy: .public)")
+            logger.error("[\(self.provider.displayName, privacy: .public)] Initial navigation failed: \(error.localizedDescription, privacy: .private)")
         }
 
         private func startPolling() {
@@ -159,7 +159,7 @@ struct WebLoginView: NSViewRepresentable {
                 logger.debug("[\(self.provider.displayName, privacy: .public)] No cookies found")
             } else {
                 for cookie in sortedCookies {
-                    logger.debug("[\(self.provider.displayName, privacy: .public)] name=\(cookie.name, privacy: .public), domain=\(cookie.domain, privacy: .public), path=\(cookie.path, privacy: .public), secure=\(cookie.isSecure), valueLength=\(cookie.value.count)")
+                    logger.debug("[\(self.provider.displayName, privacy: .public)] name=\(cookie.name, privacy: .private(mask: .hash)), domain=\(cookie.domain, privacy: .private(mask: .hash)), path=\(cookie.path, privacy: .private(mask: .hash)), secure=\(cookie.isSecure), valueLength=\(cookie.value.count)")
                 }
             }
         }
@@ -171,7 +171,7 @@ struct WebLoginView: NSViewRepresentable {
     }
 }
 
-private enum CookieTokenAssembler {
+enum CookieTokenAssembler {
     static func value(
         from cookies: [HTTPCookie],
         baseNames: [String],

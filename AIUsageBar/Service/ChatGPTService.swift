@@ -7,6 +7,10 @@ struct ChatGPTService {
         let accessToken = try await fetchAccessToken(sessionToken: sessionToken)
         let usage = try await fetchUsage(accessToken: accessToken)
 
+        return Self.parseUsage(usage)
+    }
+
+    static func parseUsage(_ usage: [String: Any]) -> ChatGPTUsage {
         guard let rateLimit = usage["rate_limit"] as? [String: Any],
               let primaryWindow = rateLimit["primary_window"] as? [String: Any] else {
             return ChatGPTUsage(sessionRemainingPercent: 100, resetText: "無限制資料")

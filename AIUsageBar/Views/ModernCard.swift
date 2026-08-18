@@ -45,7 +45,9 @@ struct ModernCard: View {
                             ),
                             lineWidth: 1
                         )
+                        .accessibilityHidden(true)
                 }
+                .accessibilityHidden(true)
         }
         .shadow(color: Theme.purple.opacity(0.16), radius: 18, y: 8)
     }
@@ -64,17 +66,20 @@ private struct ProgressLine: View {
             if label.isEmpty {
                 Color.clear
                     .frame(width: 42)
+                    .accessibilityHidden(true)
             } else {
                 Text(label)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.textSecondary)
                     .frame(width: 42, alignment: .leading)
+                    .accessibilityHidden(true)
             }
 
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule()
                         .fill(Theme.track)
+                        .accessibilityHidden(true)
 
                     Capsule()
                         .fill(
@@ -87,9 +92,11 @@ private struct ProgressLine: View {
                         .frame(width: geometry.size.width * CGFloat(percent) / 100)
                         .shadow(color: Theme.pink.opacity(0.35), radius: 6)
                         .animation(.easeInOut(duration: 0.5), value: percent)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(height: 7)
+            .accessibilityHidden(true)
 
             Text("\(percent)%")
                 .font(.system(size: 11, weight: .semibold).monospacedDigit())
@@ -97,6 +104,10 @@ private struct ProgressLine: View {
                 .frame(width: 38, alignment: .trailing)
                 .contentTransition(.numericText())
                 .animation(.easeInOut(duration: 0.5), value: percent)
+                .accessibilityHidden(true)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label.isEmpty ? "5 小時" : label)
+        .accessibilityValue("\(percent)% remaining")
     }
 }

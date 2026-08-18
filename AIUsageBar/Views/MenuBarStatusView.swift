@@ -5,13 +5,9 @@ struct MenuBarStatusView: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text("GPT \(displayValue(for: viewModel.chatGPT))")
-            Text("·")
-            Text("C \(displayValue(for: viewModel.claude))")
+            usageBar(label: "GPT", info: viewModel.chatGPT)
+            usageBar(label: "Claude", info: viewModel.claude)
         }
-        .font(.system(size: 12, weight: .medium))
-        .monospacedDigit()
-        .lineLimit(1)
         .fixedSize()
         .help("GPT 與 Claude 剩餘用量")
         .task {
@@ -19,7 +15,20 @@ struct MenuBarStatusView: View {
         }
     }
 
-    private func displayValue(for info: UsageInfo) -> String {
-        info.isLoaded ? "\(info.sessionPercent)%" : "—"
+    private func usageBar(label: String, info: UsageInfo) -> some View {
+        let percent = min(max(info.sessionPercent, 0), 100)
+
+        return ProgressView(
+            value: info.isLoaded ? Double(percent) : 0,
+            total: 100
+        )
+        .progressViewStyle(.linear)
+        .frame(width: 24)
+        .accessibilityLabel(label)
+        .accessibilityValue(
+            info.isLoaded
+            ? "\(percent)% remaining"
+            : "Unavailable"
+        )
     }
 }

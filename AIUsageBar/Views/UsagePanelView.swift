@@ -33,12 +33,14 @@ struct UsagePanelView: View {
                     }
                     .buttonStyle(.plain)
                     .help("重新整理用量")
+                    .accessibilityLabel("Refresh Usage")
                     .opacity(viewModel.isLoading ? 0 : 1)
                     .allowsHitTesting(!viewModel.isLoading)
 
                     ProgressView()
                         .scaleEffect(0.7)
                         .opacity(viewModel.isLoading ? 1 : 0)
+                        .accessibilityLabel("Refreshing Usage")
                 }
                 .frame(width: 18, height: 18)
                 .animation(.easeInOut(duration: 0.25), value: viewModel.isLoading)
@@ -56,6 +58,7 @@ struct UsagePanelView: View {
                 }
                 .buttonStyle(.plain)
                 .help("設定")
+                .accessibilityLabel("Settings")
 
             }
 
@@ -99,7 +102,9 @@ struct UsagePanelView: View {
                 .overlay {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        .accessibilityHidden(true)
                 }
+                .accessibilityHidden(true)
                 .shadow(color: .black.opacity(0.32), radius: 24, y: 12)
         }
         .opacity(isPanelVisible ? 1 : 0)
@@ -158,7 +163,9 @@ struct UsagePanelView: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: 21, style: .continuous)
                             .stroke(Theme.pink.opacity(0.28), lineWidth: 1)
+                            .accessibilityHidden(true)
                     }
+                    .accessibilityHidden(true)
             }
             .shadow(color: Theme.pink.opacity(0.10), radius: 16, y: 7)
 

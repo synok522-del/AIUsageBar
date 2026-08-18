@@ -119,6 +119,126 @@ struct AIUsageBarTests {
         #expect(parsed.resetText == "無限制資料")
     }
 
+    @Test("Low usage notification triggers at the threshold")
+    func lowUsageNotificationTriggersAtTwentyPercent() {
+        var state = UsageNotificationState()
+
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 30,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+    }
+
+    @Test("Low usage notification triggers below the threshold")
+    func lowUsageNotificationTriggersBelowTwentyPercent() {
+        var state = UsageNotificationState()
+
+        #expect(state.shouldNotify(
+            for: .chatGPT,
+            remainingPercent: 30,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .chatGPT,
+            remainingPercent: 19,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+    }
+
+    @Test("Low usage notification does not repeat while usage stays low")
+    func lowUsageNotificationDoesNotRepeatWhileLow() {
+        var state = UsageNotificationState()
+
+        _ = state.shouldNotify(
+            for: .claude,
+            remainingPercent: 30,
+            isLoaded: true,
+            hasError: false
+        )
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 15,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+    }
+
+    @Test("Recovery above the threshold resets notification state")
+    func lowUsageNotificationResetsAfterRecovery() {
+        var state = UsageNotificationState()
+
+        _ = state.shouldNotify(
+            for: .claude,
+            remainingPercent: 30,
+            isLoaded: true,
+            hasError: false
+        )
+        _ = state.shouldNotify(
+            for: .claude,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        )
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 10,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 100,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+    }
+
+    @Test("Unloaded and error states do not trigger notifications")
+    func lowUsageNotificationIgnoresUnavailableUsage() {
+        var state = UsageNotificationState()
+
+        _ = state.shouldNotify(
+            for: .chatGPT,
+            remainingPercent: 30,
+            isLoaded: true,
+            hasError: false
+        )
+        #expect(state.shouldNotify(
+            for: .chatGPT,
+            remainingPercent: 10,
+            isLoaded: false,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .chatGPT,
+            remainingPercent: 10,
+            isLoaded: true,
+            hasError: true
+        ) == false)
+    }
+
     private func cookie(
         name: String,
         value: String,

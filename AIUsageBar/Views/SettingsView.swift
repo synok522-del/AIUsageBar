@@ -7,6 +7,10 @@ struct SettingsView: View {
     @State private var launchAtLogin =
         LaunchAtLoginManager.shared.isEnabled
 
+    @AppStorage(UsageNotificationSettings.isEnabledKey)
+    private var lowUsageNotificationsEnabled =
+        UsageNotificationSettings.defaultEnabled
+
     var onLoginClaude: () -> Void
     var onLoginChatGPT: () -> Void
 
@@ -45,6 +49,20 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
 
                 Toggle(
+                    "低用量通知",
+                    isOn: $lowUsageNotificationsEnabled
+                )
+
+                Text("剩餘用量低於 20% 時提醒我")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+
+                Toggle(
                     "開機自動啟動",
                     isOn: $launchAtLogin
                 )
@@ -62,7 +80,7 @@ struct SettingsView: View {
         .padding(.horizontal, 20)
         .padding(.top, 30)
         .padding(.bottom, 20)
-        .frame(width: 460, height: 280)
+        .frame(width: 460)
     }
 
     // MARK: Claude / ChatGPT

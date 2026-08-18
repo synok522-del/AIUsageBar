@@ -32,6 +32,7 @@ final class UsageViewModel: ObservableObject {
 
     private let claudeService: ClaudeService
     private let chatGPTService: ChatGPTService
+    private let usageNotificationManager = UsageNotificationManager()
 
 
     private var refreshTimer: Timer?
@@ -203,6 +204,11 @@ final class UsageViewModel: ObservableObject {
         _ = await (
             claudeRefresh,
             chatGPTRefresh
+        )
+
+        usageNotificationManager.evaluate(
+            claude: claude,
+            chatGPT: chatGPT
         )
 
 

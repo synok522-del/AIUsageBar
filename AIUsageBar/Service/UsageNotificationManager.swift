@@ -1,5 +1,11 @@
 import Foundation
+import OSLog
 import UserNotifications
+
+private let usageNotificationLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "AIUsageBar",
+    category: "UsageNotifications"
+)
 
 enum UsageNotificationSettings {
     static let isEnabledKey = "lowUsageNotificationsEnabled"
@@ -70,6 +76,25 @@ struct UsageNotificationState {
         notifiedProviders.insert(provider)
         return true
     }
+
+    mutating func shouldNotifyIfEnabled(
+        for provider: UsageNotificationProvider,
+        remainingPercent: Int?,
+        isLoaded: Bool,
+        hasError: Bool,
+        notificationsEnabled: Bool
+    ) -> Bool {
+        guard notificationsEnabled else {
+            return false
+        }
+
+        return shouldNotify(
+            for: provider,
+            remainingPercent: remainingPercent,
+            isLoaded: isLoaded,
+            hasError: hasError
+        )
+    }
 }
 
 @MainActor
@@ -94,6 +119,10 @@ final class UsageNotificationManager {
         claude: UsageInfo,
         chatGPT: UsageInfo
     ) {
+        guard notificationsAreEnabled else {
+            return
+        }
+
         let shouldNotifyClaude = state.shouldNotify(
             for: .claude,
             remainingPercent: claude.sessionPercent,
@@ -107,10 +136,6 @@ final class UsageNotificationManager {
             isLoaded: chatGPT.isLoaded,
             hasError: chatGPT.errorMessage != nil
         )
-
-        guard notificationsAreEnabled else {
-            return
-        }
 
         var payloads: [UsageNotificationPayload] = []
 
@@ -208,7 +233,19 @@ final class UsageNotificationManager {
 
     private func deliver(_ payloads: [UsageNotificationPayload]) {
         for payload in payloads {
-            center.add(makeRequest(for: payload))
+            let request = makeRequest(for: payload)
+            let provider = payload.provider.rawValue
+
+            center.add(request) { error in
+                guard let error else {
+                    return
+                }
+
+                let errorCode = (error as NSError).code
+                usageNotificationLogger.error(
+                    "Failed to deliver low usage notification for \(provider, privacy: .public), error code \(errorCode, privacy: .public)"
+                )
+            }
         }
     }
 }

@@ -155,6 +155,40 @@ struct AIUsageBarTests {
         ) == true)
     }
 
+    @Test("Disabled notifications do not consume a threshold crossing")
+    func lowUsageNotificationPreservesCrossingWhileDisabled() {
+        var state = UsageNotificationState()
+
+        #expect(state.shouldNotifyIfEnabled(
+            for: .claude,
+            remainingPercent: 30,
+            isLoaded: true,
+            hasError: false,
+            notificationsEnabled: true
+        ) == false)
+        #expect(state.shouldNotifyIfEnabled(
+            for: .claude,
+            remainingPercent: 15,
+            isLoaded: true,
+            hasError: false,
+            notificationsEnabled: false
+        ) == false)
+        #expect(state.shouldNotifyIfEnabled(
+            for: .claude,
+            remainingPercent: 15,
+            isLoaded: true,
+            hasError: false,
+            notificationsEnabled: true
+        ) == true)
+        #expect(state.shouldNotifyIfEnabled(
+            for: .claude,
+            remainingPercent: 15,
+            isLoaded: true,
+            hasError: false,
+            notificationsEnabled: true
+        ) == false)
+    }
+
     @Test("Low usage notification does not repeat while usage stays low")
     func lowUsageNotificationDoesNotRepeatWhileLow() {
         var state = UsageNotificationState()

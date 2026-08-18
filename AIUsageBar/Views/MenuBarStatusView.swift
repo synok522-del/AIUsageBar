@@ -9,6 +9,7 @@ struct MenuBarStatusView: View {
             usageBar(label: "Claude", info: viewModel.claude)
         }
         .frame(width: 24, height: 10)
+        .fixedSize(horizontal: true, vertical: true)
         .help("ChatGPT 與 Claude 剩餘用量")
         .task {
             await viewModel.refreshAll()
@@ -21,18 +22,12 @@ struct MenuBarStatusView: View {
 
         return ZStack(alignment: .leading) {
             Capsule()
-                .fill(Theme.track.opacity(info.isLoaded ? 1 : 0.5))
+                .fill(.secondary)
                 .accessibilityHidden(true)
 
             if info.isLoaded {
                 Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [Theme.purple, Theme.pink],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
+                    .fill(.primary)
                     .frame(width: fillWidth)
                     .accessibilityHidden(true)
             }

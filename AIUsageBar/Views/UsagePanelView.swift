@@ -4,6 +4,7 @@ struct UsagePanelView: View {
 
     @StateObject private var viewModel = UsageViewModel()
     @StateObject private var windowCoordinator = WindowCoordinator()
+    @State private var isPanelVisible = false
 
     var body: some View {
 
@@ -17,13 +18,7 @@ struct UsagePanelView: View {
 
                 Spacer()
 
-                if viewModel.isLoading {
-
-                    ProgressView()
-                        .scaleEffect(0.7)
-
-                } else {
-
+                ZStack {
                     Button {
 
                         Task {
@@ -38,7 +33,15 @@ struct UsagePanelView: View {
                     }
                     .buttonStyle(.plain)
                     .help("重新整理用量")
+                    .opacity(viewModel.isLoading ? 0 : 1)
+                    .allowsHitTesting(!viewModel.isLoading)
+
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .opacity(viewModel.isLoading ? 1 : 0)
                 }
+                .frame(width: 18, height: 18)
+                .animation(.easeInOut(duration: 0.25), value: viewModel.isLoading)
 
 
                 Button {
@@ -73,12 +76,15 @@ struct UsagePanelView: View {
                 Text(viewModel.statusMessage)
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.textSecondary)
+                    .transition(.opacity)
             }
 
 
             Text(lastUpdatedText)
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.textSecondary.opacity(0.75))
+                .contentTransition(.opacity)
+                .animation(.easeInOut(duration: 0.25), value: viewModel.lastUpdated)
 
         }
         .padding(14)
@@ -93,6 +99,15 @@ struct UsagePanelView: View {
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                 }
                 .shadow(color: .black.opacity(0.32), radius: 24, y: 12)
+        }
+        .opacity(isPanelVisible ? 1 : 0)
+        .animation(.easeOut(duration: 0.2), value: isPanelVisible)
+        .animation(.easeInOut(duration: 0.25), value: viewModel.statusMessage)
+        .onAppear {
+            isPanelVisible = true
+        }
+        .onDisappear {
+            isPanelVisible = false
         }
 
         .task {

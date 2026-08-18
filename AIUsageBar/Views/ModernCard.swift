@@ -76,18 +76,17 @@ private struct ProgressLine: View {
                     Capsule()
                         .fill(Theme.track)
 
-                    if percent > 0 {
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Theme.purple, Theme.pink],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [Theme.purple, Theme.pink],
+                                startPoint: .leading,
+                                endPoint: .trailing
                             )
-                            .frame(width: geometry.size.width * CGFloat(percent) / 100)
-                            .shadow(color: Theme.pink.opacity(0.35), radius: 6)
-                    }
+                        )
+                        .frame(width: geometry.size.width * CGFloat(percent) / 100)
+                        .shadow(color: Theme.pink.opacity(0.35), radius: 6)
+                        .animation(.easeInOut(duration: 0.5), value: percent)
                 }
             }
             .frame(height: 7)
@@ -96,6 +95,8 @@ private struct ProgressLine: View {
                 .font(.system(size: 11, weight: .semibold).monospacedDigit())
                 .foregroundStyle(Theme.textPrimary)
                 .frame(width: 38, alignment: .trailing)
+                .contentTransition(.numericText())
+                .animation(.easeInOut(duration: 0.5), value: percent)
         }
     }
 }

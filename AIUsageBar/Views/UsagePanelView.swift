@@ -33,14 +33,16 @@ struct UsagePanelView: View {
                     }
                     .buttonStyle(.plain)
                     .help("重新整理用量")
-                    .accessibilityLabel("Refresh Usage")
+                    .accessibilityLabel("重新整理用量")
+                    .accessibilityHidden(viewModel.isLoading)
                     .opacity(viewModel.isLoading ? 0 : 1)
                     .allowsHitTesting(!viewModel.isLoading)
 
                     ProgressView()
                         .scaleEffect(0.7)
                         .opacity(viewModel.isLoading ? 1 : 0)
-                        .accessibilityLabel("Refreshing Usage")
+                        .accessibilityLabel("正在重新整理用量")
+                        .accessibilityHidden(!viewModel.isLoading)
                 }
                 .frame(width: 18, height: 18)
                 .animation(.easeInOut(duration: 0.25), value: viewModel.isLoading)
@@ -58,7 +60,7 @@ struct UsagePanelView: View {
                 }
                 .buttonStyle(.plain)
                 .help("設定")
-                .accessibilityLabel("Settings")
+                .accessibilityLabel("設定")
 
             }
 
@@ -66,13 +68,17 @@ struct UsagePanelView: View {
             providerCard(
                 title: "ChatGPT",
                 info: viewModel.chatGPT,
-                supportsWeeklyQuota: false
+                supportsWeeklyQuota: false,
+                sessionRowLabel: nil,
+                sessionAccessibilityLabel: "工作階段"
             )
 
             providerCard(
                 title: "Claude",
                 info: viewModel.claude,
-                supportsWeeklyQuota: true
+                supportsWeeklyQuota: true,
+                sessionRowLabel: "5 小時",
+                sessionAccessibilityLabel: "5 小時"
             )
 
 
@@ -130,7 +136,9 @@ struct UsagePanelView: View {
     private func providerCard(
         title: String,
         info: UsageInfo,
-        supportsWeeklyQuota: Bool
+        supportsWeeklyQuota: Bool,
+        sessionRowLabel: String?,
+        sessionAccessibilityLabel: String
     ) -> some View {
 
 
@@ -139,7 +147,11 @@ struct UsagePanelView: View {
             ModernCard(
                 title: title,
                 session: info.sessionPercent,
+                sessionRowLabel: sessionRowLabel,
+                sessionAccessibilityLabel: sessionAccessibilityLabel,
                 weekly: supportsWeeklyQuota ? info.weeklyPercent : nil,
+                weeklyRowLabel: "每週",
+                weeklyAccessibilityLabel: "每週",
                 reset: info.resetText,
             )
 
@@ -174,7 +186,11 @@ struct UsagePanelView: View {
             ModernCard(
                 title: title,
                 session: nil,
+                sessionRowLabel: sessionRowLabel,
+                sessionAccessibilityLabel: sessionAccessibilityLabel,
                 weekly: nil,
+                weeklyRowLabel: "每週",
+                weeklyAccessibilityLabel: "每週",
                 reset: "請先登入",
 
             )

@@ -3,7 +3,11 @@ import SwiftUI
 struct ModernCard: View {
     let title: String
     let session: Int?
+    let sessionRowLabel: String?
+    let sessionAccessibilityLabel: String
     let weekly: Int?
+    let weeklyRowLabel: String
+    let weeklyAccessibilityLabel: String
     let reset: String
 
     var body: some View {
@@ -13,11 +17,19 @@ struct ModernCard: View {
                 .foregroundStyle(Theme.textPrimary)
 
             if let session {
-                ProgressLine(label: weekly == nil ? "" : "5 小時", value: session)
+                ProgressLine(
+                    rowLabel: sessionRowLabel,
+                    accessibilityLabel: sessionAccessibilityLabel,
+                    value: session
+                )
             }
 
             if let weekly {
-                ProgressLine(label: "每週", value: weekly)
+                ProgressLine(
+                    rowLabel: weeklyRowLabel,
+                    accessibilityLabel: weeklyAccessibilityLabel,
+                    value: weekly
+                )
             }
 
             if !reset.isEmpty {
@@ -54,7 +66,8 @@ struct ModernCard: View {
 }
 
 private struct ProgressLine: View {
-    let label: String
+    let rowLabel: String?
+    let accessibilityLabel: String
     let value: Int
 
     private var percent: Int {
@@ -63,15 +76,15 @@ private struct ProgressLine: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if label.isEmpty {
-                Color.clear
-                    .frame(width: 42)
-                    .accessibilityHidden(true)
-            } else {
-                Text(label)
+            if let rowLabel {
+                Text(rowLabel)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.textSecondary)
                     .frame(width: 42, alignment: .leading)
+                    .accessibilityHidden(true)
+            } else {
+                Color.clear
+                    .frame(width: 42)
                     .accessibilityHidden(true)
             }
 
@@ -107,7 +120,7 @@ private struct ProgressLine: View {
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label.isEmpty ? "5 小時" : label)
-        .accessibilityValue("\(percent)% remaining")
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue("剩餘 \(percent)%")
     }
 }

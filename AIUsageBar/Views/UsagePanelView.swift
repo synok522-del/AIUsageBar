@@ -62,12 +62,14 @@ struct UsagePanelView: View {
 
             providerCard(
                 title: "ChatGPT",
-                info: viewModel.chatGPT
+                info: viewModel.chatGPT,
+                supportsWeeklyQuota: false
             )
 
             providerCard(
                 title: "Claude",
-                info: viewModel.claude
+                info: viewModel.claude,
+                supportsWeeklyQuota: true
             )
 
 
@@ -122,7 +124,8 @@ struct UsagePanelView: View {
     @ViewBuilder
     private func providerCard(
         title: String,
-        info: UsageInfo
+        info: UsageInfo,
+        supportsWeeklyQuota: Bool
     ) -> some View {
 
 
@@ -131,9 +134,7 @@ struct UsagePanelView: View {
             ModernCard(
                 title: title,
                 session: info.sessionPercent,
-                weekly: title == "Claude"
-                ? info.weeklyPercent
-                : nil,
+                weekly: supportsWeeklyQuota ? info.weeklyPercent : nil,
                 reset: info.resetText,
             )
 

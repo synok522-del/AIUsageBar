@@ -4,6 +4,12 @@
 
 import Foundation
 import ServiceManagement
+import OSLog
+
+private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "AIUsageBar",
+    category: "LaunchAtLogin"
+)
 
 @MainActor
 final class LaunchAtLoginManager {
@@ -28,7 +34,7 @@ final class LaunchAtLoginManager {
 
         } catch {
 
-            print("LaunchAtLogin Error:", error)
+            logger.error("LaunchAtLogin error: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

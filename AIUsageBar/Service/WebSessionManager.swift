@@ -5,6 +5,12 @@
 
 import Foundation
 import WebKit
+import OSLog
+
+private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "AIUsageBar",
+    category: "WebSession"
+)
 
 final class WebSessionManager {
 
@@ -49,7 +55,7 @@ final class WebSessionManager {
                     modifiedSince: Date(timeIntervalSince1970: 0)
                 ) {
 
-                    print("✅ Web session cleared")
+                    logger.debug("Web session cleared")
 
                     completion?()
                 }

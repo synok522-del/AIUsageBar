@@ -8,6 +8,12 @@
 
 import SwiftUI
 import WebKit
+import OSLog
+
+private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "AIUsageBar",
+    category: "WebLogin"
+)
 
 enum WebLoginProvider {
     case claude
@@ -92,16 +98,16 @@ struct WebLoginView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            print("[\(provider.displayName)] Page: \(webView.url?.absoluteString ?? "nil")")
+            logger.debug("[\(self.provider.displayName, privacy: .public)] Page: \(webView.url?.absoluteString ?? "nil", privacy: .public)")
             startPolling()
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            print("[\(provider.displayName)] Navigation failed: \(error.localizedDescription)")
+            logger.error("[\(self.provider.displayName, privacy: .public)] Navigation failed: \(error.localizedDescription, privacy: .public)")
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            print("[\(provider.displayName)] Initial navigation failed: \(error.localizedDescription)")
+            logger.error("[\(self.provider.displayName, privacy: .public)] Initial navigation failed: \(error.localizedDescription, privacy: .public)")
         }
 
         private func startPolling() {
@@ -148,12 +154,12 @@ struct WebLoginView: NSViewRepresentable {
             guard signature != lastCookieSignature else { return }
             lastCookieSignature = signature
 
-            print("[\(provider.displayName)] Cookie snapshot (\(sortedCookies.count))")
+            logger.debug("[\(self.provider.displayName, privacy: .public)] Cookie snapshot (\(sortedCookies.count))")
             if sortedCookies.isEmpty {
-                print("[\(provider.displayName)] No cookies found")
+                logger.debug("[\(self.provider.displayName, privacy: .public)] No cookies found")
             } else {
                 for cookie in sortedCookies {
-                    print("[\(provider.displayName)] name=\(cookie.name), domain=\(cookie.domain), path=\(cookie.path), secure=\(cookie.isSecure), valueLength=\(cookie.value.count)")
+                    logger.debug("[\(self.provider.displayName, privacy: .public)] name=\(cookie.name, privacy: .public), domain=\(cookie.domain, privacy: .public), path=\(cookie.path, privacy: .public), secure=\(cookie.isSecure), valueLength=\(cookie.value.count)")
                 }
             }
         }

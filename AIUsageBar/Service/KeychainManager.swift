@@ -5,6 +5,12 @@
 
 import Foundation
 import Security
+import OSLog
+
+private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "AIUsageBar",
+    category: "Keychain"
+)
 
 final class KeychainManager {
 
@@ -48,12 +54,12 @@ final class KeychainManager {
             )
 
             if addStatus != errSecSuccess {
-                print("❌ Keychain add failed:", addStatus)
+                logger.error("Keychain add failed: \(addStatus)")
             }
 
         } else if status != errSecSuccess {
 
-            print("❌ Keychain update failed:", status)
+            logger.error("Keychain update failed: \(status)")
         }
     }
 
@@ -106,7 +112,7 @@ final class KeychainManager {
         if status != errSecSuccess &&
             status != errSecItemNotFound {
 
-            print("❌ Keychain delete failed:", status)
+            logger.error("Keychain delete failed: \(status)")
         }
     }
 }

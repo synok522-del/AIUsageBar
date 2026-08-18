@@ -2,7 +2,7 @@ import SwiftUI
 
 struct UsagePanelView: View {
 
-    @StateObject private var viewModel = UsageViewModel()
+    @ObservedObject var viewModel: UsageViewModel
     @StateObject private var windowCoordinator = WindowCoordinator()
     @State private var isPanelVisible = false
 

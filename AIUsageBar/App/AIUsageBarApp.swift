@@ -2,9 +2,13 @@ import SwiftUI
 
 @main
 struct AIUsageBarApp: App {
+    @StateObject private var viewModel = UsageViewModel()
+
     var body: some Scene {
-        MenuBarExtra("AI 用量", systemImage: "chart.bar.fill") {
-            UsagePanelView()
+        MenuBarExtra {
+            UsagePanelView(viewModel: viewModel)
+        } label: {
+            MenuBarStatusView(viewModel: viewModel)
         }
         .menuBarExtraStyle(.window)
     }

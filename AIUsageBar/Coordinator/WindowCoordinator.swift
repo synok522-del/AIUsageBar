@@ -56,10 +56,6 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
                 onSuccess: { value in
                     onSuccess(value)
                     self?.close(.claudeLogin)
-                },
-
-                onCancel: { [weak self] in
-                    self?.close(.claudeLogin)
                 }
             )
         }
@@ -83,10 +79,6 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
                 onSuccess: { value in
                     onSuccess(value)
-                    self?.close(.chatGPTLogin)
-                },
-
-                onCancel: { [weak self] in
                     self?.close(.chatGPTLogin)
                 }
             )

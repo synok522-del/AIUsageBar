@@ -116,7 +116,7 @@ struct UsagePanelView: View {
             ModernCard(
                 title: title,
                 session: info.sessionPercent,
-                weekly: info.weeklyPercent > 0
+                weekly: title == "Claude"
                 ? info.weeklyPercent
                 : nil,
                 reset: info.resetText,

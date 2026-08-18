@@ -25,7 +25,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         present(
             id: .settings,
             title: "AI 用量設定",
-            size: NSSize(width: 420, height: 220),
+            size: nil,
             styleMask: [.titled, .closable]
         ) {
 
@@ -99,7 +99,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
     private func present<Content: View>(
         id: WindowID,
         title: String,
-        size: NSSize,
+        size: NSSize?,
         styleMask: NSWindow.StyleMask,
         @ViewBuilder content: () -> Content
     ) {
@@ -120,7 +120,14 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         window.title = title
         window.styleMask = styleMask
-        window.setContentSize(size)
+
+        if let size {
+            window.setContentSize(size)
+        } else {
+            controller.view.layoutSubtreeIfNeeded()
+            window.setContentSize(controller.view.fittingSize)
+        }
+
         window.center()
         window.delegate = self
 

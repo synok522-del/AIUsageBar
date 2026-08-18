@@ -119,22 +119,22 @@ final class UsageNotificationManager {
         claude: UsageInfo,
         chatGPT: UsageInfo
     ) {
-        guard notificationsAreEnabled else {
-            return
-        }
+        let notificationsEnabled = notificationsAreEnabled
 
-        let shouldNotifyClaude = state.shouldNotify(
+        let shouldNotifyClaude = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: claude.sessionPercent,
             isLoaded: claude.isLoaded,
-            hasError: claude.errorMessage != nil
+            hasError: claude.errorMessage != nil,
+            notificationsEnabled: notificationsEnabled
         )
 
-        let shouldNotifyChatGPT = state.shouldNotify(
+        let shouldNotifyChatGPT = state.shouldNotifyIfEnabled(
             for: .chatGPT,
             remainingPercent: chatGPT.sessionPercent,
             isLoaded: chatGPT.isLoaded,
-            hasError: chatGPT.errorMessage != nil
+            hasError: chatGPT.errorMessage != nil,
+            notificationsEnabled: notificationsEnabled
         )
 
         var payloads: [UsageNotificationPayload] = []

@@ -65,11 +65,14 @@ struct SettingsView: View {
 
                 Toggle(
                     "開機自動啟動",
-                    isOn: $launchAtLogin
+                    isOn: Binding(
+                        get: { launchAtLogin },
+                        set: { newValue in
+                            launchAtLogin = newValue
+                            LaunchAtLoginManager.shared.setEnabled(newValue)
+                        }
+                    )
                 )
-                .onChange(of: launchAtLogin) { _, newValue in
-                    LaunchAtLoginManager.shared.setEnabled(newValue)
-                }
 
                 Text("登入 macOS 後自動在選單列啟動 AIUsageBar")
                     .font(.caption)

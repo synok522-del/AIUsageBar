@@ -28,7 +28,7 @@ Final screenshots are not included yet. Add real screenshots here before publish
 
 ## Requirements
 
-- macOS 15.2 or later
+- macOS 13.0 or later
 - A ChatGPT and/or Claude account for the corresponding usage view
 
 ## Installation
@@ -63,7 +63,7 @@ The macOS `AppIcon` asset catalog contains the final provider-neutral artwork ba
 - Bundle identifier: `synok522.AIUsageBar`
 - Marketing version: `1.0.0`
 - Build number: `1`
-- Deployment target: macOS 15.2
+- Deployment target: macOS 13.0
 - App Sandbox: disabled in the current project
 - `LSUIElement`: enabled, so the app runs as a menu bar app without a Dock icon
 - Launch at Login: uses `SMAppService.mainApp`

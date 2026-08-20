@@ -80,6 +80,11 @@ struct SettingsView: View {
 
             HStack {
 
+                Text(appVersionText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
                 Spacer()
 
                 Button("結束 AIUsageBar") {
@@ -98,6 +103,47 @@ struct SettingsView: View {
         .padding(.top, 30)
         .padding(.bottom, 20)
         .frame(width: 460)
+    }
+
+    private var appVersionText: String {
+        let version = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String
+        let build = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String
+
+        guard let version, !version.isEmpty,
+              let build, !build.isEmpty else {
+            return ""
+        }
+
+        var text = "版本 \(version) (\(build))"
+        if let gitCommit {
+            text += " · \(gitCommit)"
+        }
+
+        return text
+    }
+
+    private var gitCommit: String? {
+        guard let url = Bundle.main.url(
+            forResource: "GitCommit",
+            withExtension: "plist"
+        ),
+        let data = try? Data(contentsOf: url),
+        let object = try? PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        ),
+        let dictionary = object as? [String: Any],
+        let commit = dictionary["GitCommit"] as? String,
+        commit.count == 7 else {
+            return nil
+        }
+
+        return commit
     }
 
     // MARK: Claude / ChatGPT

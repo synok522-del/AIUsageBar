@@ -102,6 +102,7 @@
 				DCFC75B53031AD3800B6950A /* Sources */,
 				DCFC75B63031AD3800B6950A /* Frameworks */,
 				DCFC75B73031AD3800B6950A /* Resources */,
+				F14A1A4B2D5E4E9C8A7B6C5D /* Inject Git commit metadata */,
 			);
 			buildRules = (
 			);
@@ -230,6 +231,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F14A1A4B2D5E4E9C8A7B6C5D /* Inject Git commit metadata */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/.git",
+			);
+			name = "Inject Git commit metadata";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GitCommit.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nmetadata_path=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GitCommit.plist\"\ngit_sha=$(/usr/bin/git -C \"${SRCROOT}\" rev-parse --short=7 HEAD 2>/dev/null || true)\nif echo \"${git_sha}\" | /usr/bin/grep -Eq '^[0-9a-fA-F]{7}$'; then\n    /usr/bin/plutil -create xml1 \"${metadata_path}\"\n    /usr/bin/plutil -insert GitCommit -string \"${git_sha}\" \"${metadata_path}\"\nelse\n    /bin/rm -f \"${metadata_path}\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		DCFC75B53031AD3800B6950A /* Sources */ = {
@@ -402,6 +423,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -431,6 +453,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;

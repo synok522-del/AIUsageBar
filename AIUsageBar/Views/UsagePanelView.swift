@@ -229,9 +229,9 @@ struct UsagePanelView: View {
 
             onLoginClaude: {
 
-                coordinator.showClaudeLogin { key in
+                coordinator.showClaudeLogin { credential in
 
-                    model.setClaudeSessionKey(key)
+                    model.setClaudeSessionKey(credential.value)
                     model.statusMessage = "Claude 登入成功"
 
                     Task {
@@ -243,9 +243,9 @@ struct UsagePanelView: View {
 
             onLoginChatGPT: {
 
-                coordinator.showChatGPTLogin { token in
+                coordinator.showChatGPTLogin { credential in
 
-                    model.setChatGPTSessionToken(token)
+                    model.setChatGPTCredential(credential)
                     model.statusMessage = "ChatGPT 登入成功"
 
                     Task {

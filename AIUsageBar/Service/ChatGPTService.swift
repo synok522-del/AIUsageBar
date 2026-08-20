@@ -4,30 +4,42 @@ struct ChatGPTService {
     private let baseURL = URL(string: "https://chatgpt.com")!
 
     func fetchUsage(sessionToken: String) async throws -> ChatGPTUsage {
-        let accessToken = try await fetchAccessToken(sessionToken: sessionToken)
-        let usage = try await fetchUsage(accessToken: accessToken)
-
-        return Self.parseUsage(usage)
+        try await fetchUsage(
+            cookieHeader: "__Secure-next-auth.session-token=\(sessionToken)"
+        )
     }
 
-    static func parseUsage(_ usage: [String: Any]) -> ChatGPTUsage {
+    func fetchUsage(cookieHeader: String) async throws -> ChatGPTUsage {
+        let accessToken = try await fetchAccessToken(cookieHeader: cookieHeader)
+        let usage = try await fetchUsage(accessToken: accessToken)
+
+        return try Self.parseUsage(usage)
+    }
+
+    static func parseUsage(_ usage: [String: Any]) throws -> ChatGPTUsage {
         guard let rateLimit = usage["rate_limit"] as? [String: Any],
               let primaryWindow = rateLimit["primary_window"] as? [String: Any] else {
-            return ChatGPTUsage(sessionRemainingPercent: 100, resetText: "無限制資料")
+            throw AIUsageServiceError.invalidPayload(
+                "ChatGPT rate_limit.primary_window"
+            )
         }
 
-        let usedPercent = ServiceSupport.percent(primaryWindow["used_percent"])
+        let usedPercent = try ServiceSupport.requiredPercent(
+            primaryWindow["used_percent"],
+            serviceName: "ChatGPT",
+            field: "rate_limit.primary_window.used_percent"
+        )
         return ChatGPTUsage(
             sessionRemainingPercent: max(0, 100 - usedPercent),
             resetText: ServiceSupport.resetText(primaryWindow["reset_at"])
         )
     }
 
-    private func fetchAccessToken(sessionToken: String) async throws -> String {
+    private func fetchAccessToken(cookieHeader: String) async throws -> String {
         let url = baseURL.appendingPathComponent("api/auth/session")
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("__Secure-next-auth.session-token=\(sessionToken)", forHTTPHeaderField: "Cookie")
+        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
 
         let data = try await ServiceSupport.data(for: request, serviceName: "ChatGPT")
         let object = try ServiceSupport.jsonObject(from: data, serviceName: "ChatGPT")

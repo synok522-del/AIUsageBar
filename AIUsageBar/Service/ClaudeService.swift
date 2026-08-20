@@ -7,12 +7,20 @@ struct ClaudeService {
         let organizationID = try await fetchOrganizationID(sessionKey: sessionKey)
         let usage = try await fetchUsage(organizationID: organizationID, sessionKey: sessionKey)
 
-        return Self.parseUsage(usage)
+        return try Self.parseUsage(usage)
     }
 
-    static func parseUsage(_ usage: [String: [String: Any]]) -> ClaudeUsage {
-        let sessionUsed = ServiceSupport.percent(usage["five_hour"]?["utilization"])
-        let weeklyUsed = ServiceSupport.percent(usage["seven_day"]?["utilization"])
+    static func parseUsage(_ usage: [String: [String: Any]]) throws -> ClaudeUsage {
+        let sessionUsed = try ServiceSupport.requiredPercent(
+            usage["five_hour"]?["utilization"],
+            serviceName: "Claude",
+            field: "five_hour.utilization"
+        )
+        let weeklyUsed = try ServiceSupport.requiredPercent(
+            usage["seven_day"]?["utilization"],
+            serviceName: "Claude",
+            field: "seven_day.utilization"
+        )
         let sessionReset = ServiceSupport.resetText(usage["five_hour"]?["resets_at"])
         let weeklyReset = ServiceSupport.resetText(usage["seven_day"]?["resets_at"])
 

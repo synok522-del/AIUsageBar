@@ -41,7 +41,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
     // MARK: - Claude Login
 
     func showClaudeLogin(
-        onSuccess: @escaping (String) -> Void
+        onSuccess: @escaping (WebCredential) -> Void
     ) {
 
         present(
@@ -65,7 +65,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
     // MARK: - ChatGPT Login
 
     func showChatGPTLogin(
-        onSuccess: @escaping (String) -> Void
+        onSuccess: @escaping (WebCredential) -> Void
     ) {
 
         present(
@@ -109,6 +109,8 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         let window = NSWindow(
             contentViewController: controller
         )
+
+        window.isReleasedWhenClosed = false
 
         window.title = title
         window.styleMask = styleMask

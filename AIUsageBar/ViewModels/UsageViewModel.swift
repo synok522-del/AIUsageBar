@@ -12,6 +12,7 @@ final class UsageViewModel: ObservableObject {
     private enum StorageKey {
         static let claudeSessionKey = "claudeSessionKey"
         static let chatGPTSessionToken = "chatGPTSessionToken"
+        static let chatGPTCookieHeader = "chatGPTCookieHeader"
 
         // 舊版 key
         static let oldChatGPTSessionToken = "chatgptSessionToken"
@@ -28,6 +29,8 @@ final class UsageViewModel: ObservableObject {
     @Published private(set) var claudeSessionKey: String = ""
 
     @Published private(set) var chatGPTSessionToken: String = ""
+
+    private var chatGPTCookieHeader = ""
 
 
     private let claudeService: ClaudeService
@@ -53,10 +56,22 @@ final class UsageViewModel: ObservableObject {
                 StorageKey.claudeSessionKey
             ) ?? ""
 
-        self.chatGPTSessionToken =
+        let savedChatGPTToken =
             KeychainManager.shared.read(
                 StorageKey.chatGPTSessionToken
             ) ?? ""
+
+        self.chatGPTSessionToken = savedChatGPTToken
+        self.chatGPTCookieHeader =
+            KeychainManager.shared.read(
+                StorageKey.chatGPTCookieHeader
+            ) ?? {
+                guard !savedChatGPTToken.isEmpty else {
+                    return ""
+                }
+
+                return "__Secure-next-auth.session-token=\(savedChatGPTToken)"
+            }()
 
         startAutoRefresh()
     }
@@ -162,19 +177,38 @@ final class UsageViewModel: ObservableObject {
 
     func setChatGPTSessionToken(_ value: String) {
 
-        chatGPTSessionToken = value
+        setChatGPTCredential(
+            WebCredential(
+                cookieName: "__Secure-next-auth.session-token",
+                value: value,
+                cookieHeader: "__Secure-next-auth.session-token=\(value)"
+            )
+        )
+    }
 
-        if value.isEmpty {
+    func setChatGPTCredential(_ credential: WebCredential) {
+
+        chatGPTSessionToken = credential.value
+        chatGPTCookieHeader = credential.cookieHeader
+
+        if credential.value.isEmpty {
 
             KeychainManager.shared.delete(
                 StorageKey.chatGPTSessionToken
+            )
+            KeychainManager.shared.delete(
+                StorageKey.chatGPTCookieHeader
             )
 
         } else {
 
             KeychainManager.shared.save(
-                value,
+                credential.value,
                 forKey: StorageKey.chatGPTSessionToken
+            )
+            KeychainManager.shared.save(
+                credential.cookieHeader,
+                forKey: StorageKey.chatGPTCookieHeader
             )
         }
     }
@@ -292,11 +326,14 @@ final class UsageViewModel: ObservableObject {
 
 
         } catch {
-
-            claude = UsageInfo(
-                errorMessage:
-                    error.localizedDescription
-            )
+            if let nextState = UsageRefreshStatePolicy.state(
+                afterFailure: claude,
+                error: error
+            ) {
+                claude = nextState
+                let message = nextState.errorMessage ?? "更新失敗"
+                statusMessage = "Claude：\(message)"
+            }
         }
     }
 
@@ -327,7 +364,9 @@ final class UsageViewModel: ObservableObject {
 
             let usage =
             try await chatGPTService.fetchUsage(
-                sessionToken: token
+                cookieHeader: chatGPTCookieHeader.isEmpty
+                    ? "__Secure-next-auth.session-token=\(token)"
+                    : chatGPTCookieHeader
             )
 
 
@@ -347,11 +386,14 @@ final class UsageViewModel: ObservableObject {
 
 
         } catch {
-
-            chatGPT = UsageInfo(
-                errorMessage:
-                    error.localizedDescription
-            )
+            if let nextState = UsageRefreshStatePolicy.state(
+                afterFailure: chatGPT,
+                error: error
+            ) {
+                chatGPT = nextState
+                let message = nextState.errorMessage ?? "更新失敗"
+                statusMessage = "ChatGPT：\(message)"
+            }
         }
     }
 }

@@ -33,16 +33,11 @@ Final screenshots are not included yet. Add real screenshots here before publish
 
 ## Installation
 
-AIUsageBar is not currently distributed through the Mac App Store or a signed public download.
+The intended beta distribution is a signed and notarized DMG. Open the release DMG, move `AIUsageBar.app` to Applications, and launch it from there. The release app has passed Apple notarization and Gatekeeper validation.
 
-For the current beta, build from source:
+AIUsageBar is distributed directly and is not available through the Mac App Store. Building from source is an option for contributors and local development, but a locally built app should not be treated as the signed beta artifact.
 
-1. Clone this repository.
-2. Open `AIUsageBar.xcodeproj` in Xcode.
-3. Select the `AIUsageBar` scheme and a macOS destination.
-4. Build and run the app.
-
-The first run opens the app as a menu bar item. Use Settings to sign in to ChatGPT or Claude. A locally generated unsigned DMG may be used for internal testing, but it is not an externally trusted beta distribution until it is Developer ID signed and notarized.
+The first run opens the app as a menu bar item. Use Settings to sign in to ChatGPT or Claude.
 
 ## Privacy
 
@@ -61,7 +56,7 @@ ChatGPT and Claude names are used only to identify compatible services. This pro
 
 ### App icon
 
-The macOS `AppIcon` asset catalog contains the standard 16, 32, 128, 256, and 512 point slots at 1x and 2x. The repository currently does not contain final artwork files for those slots. Final provider-neutral artwork based on the AIUsageBar two-horizontal-bar identity is still required before an external beta release.
+The macOS `AppIcon` asset catalog contains the final provider-neutral artwork based on the AIUsageBar two-horizontal-bar identity, with the standard 16, 32, 128, 256, and 512 point slots at 1x and 2x.
 
 ### Current release configuration
 
@@ -73,4 +68,4 @@ The macOS `AppIcon` asset catalog contains the standard 16, 32, 128, 256, and 51
 - `LSUIElement`: enabled, so the app runs as a menu bar app without a Dock icon
 - Launch at Login: uses `SMAppService.mainApp`
 
-The current local environment has no Developer ID signing identity and no notarization credentials. Release artifacts built here must be treated as local or internal test artifacts until signed and notarized.
+The external beta artifact is signed with Developer ID Application, uses Hardened Runtime, is notarized by Apple, and is intended to pass Gatekeeper assessment. These properties apply to the exported release artifact; a local source build may have different signing status.

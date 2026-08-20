@@ -44,12 +44,12 @@ struct AIUsageBarTests {
         let chunkZero = try #require(cookie(name: "chunked.0", value: "one"))
         let otherDomain = try #require(cookie(name: "chunked.2", value: "ignored", domain: "example.com"))
 
-        let exactValue = CookieTokenAssembler.value(
+        let exactCredential = CookieTokenAssembler.credential(
             from: [chunkOne, chunkZero, exact],
             baseNames: ["session-token"],
             domainMatcher: { $0 == "chatgpt.com" }
         )
-        let chunkedValue = CookieTokenAssembler.value(
+        let chunkedCredential = CookieTokenAssembler.credential(
             from: [chunkOne, chunkZero, otherDomain],
             baseNames: ["chunked"],
             domainMatcher: { $0 == "chatgpt.com" }
@@ -60,13 +60,33 @@ struct AIUsageBarTests {
             domainMatcher: { _ in true }
         )
 
-        #expect(exactValue == "exact")
-        #expect(chunkedValue == "one-two")
+        #expect(exactCredential?.cookieName == "session-token")
+        #expect(exactCredential?.value == "exact")
+        #expect(exactCredential?.cookieHeader == "session-token=exact")
+        #expect(chunkedCredential?.cookieName == "chunked")
+        #expect(chunkedCredential?.value == "one-two")
+        #expect(chunkedCredential?.cookieHeader == "chunked.0=one; chunked.1=-two")
         #expect(missingValue == nil)
     }
 
+    @Test("ChatGPT credential preserves the cookie name used by WebKit")
+    func chatGPTCredentialPreservesCookieName() throws {
+        let hostCookie = try #require(cookie(
+            name: "__Host-next-auth.session-token",
+            value: "host-token"
+        ))
+
+        let credential = try #require(
+            WebLoginProvider.chatGPT.credential(from: [hostCookie])
+        )
+
+        #expect(credential.cookieName == "__Host-next-auth.session-token")
+        #expect(credential.value == "host-token")
+        #expect(credential.cookieHeader == "__Host-next-auth.session-token=host-token")
+    }
+
     @Test("Claude usage parsing returns remaining percentages")
-    func claudeUsageParsingHandlesBoundariesAndDateFields() {
+    func claudeUsageParsingHandlesBoundariesAndDateFields() throws {
         let usage: [String: [String: Any]] = [
             "five_hour": [
                 "utilization": "0",
@@ -78,7 +98,7 @@ struct AIUsageBarTests {
             ]
         ]
 
-        let parsed = ClaudeService.parseUsage(usage)
+        let parsed = try ClaudeService.parseUsage(usage)
 
         #expect(parsed.sessionRemainingPercent == 100)
         #expect(parsed.weeklyRemainingPercent == 0)
@@ -86,16 +106,26 @@ struct AIUsageBarTests {
     }
 
     @Test("Claude usage parsing handles missing payload values")
-    func claudeUsageParsingHandlesMissingValues() {
-        let parsed = ClaudeService.parseUsage([:])
+    func claudeUsageParsingRejectsMissingValues() {
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try ClaudeService.parseUsage([:])
+        }
+    }
 
-        #expect(parsed.sessionRemainingPercent == 100)
-        #expect(parsed.weeklyRemainingPercent == 100)
-        #expect(parsed.resetText.isEmpty)
+    @Test("Claude usage parsing rejects malformed required numbers")
+    func claudeUsageParsingRejectsMalformedRequiredNumbers() {
+        let usage: [String: [String: Any]] = [
+            "five_hour": ["utilization": "not-a-number"],
+            "seven_day": ["utilization": 0]
+        ]
+
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try ClaudeService.parseUsage(usage)
+        }
     }
 
     @Test("ChatGPT usage parsing returns remaining percentages")
-    func chatGPTUsageParsingHandlesBoundariesAndDateFields() {
+    func chatGPTUsageParsingHandlesBoundariesAndDateFields() throws {
         let usage: [String: Any] = [
             "rate_limit": [
                 "primary_window": [
@@ -105,18 +135,47 @@ struct AIUsageBarTests {
             ]
         ]
 
-        let parsed = ChatGPTService.parseUsage(usage)
+        let parsed = try ChatGPTService.parseUsage(usage)
 
         #expect(parsed.sessionRemainingPercent == 0)
         #expect(parsed.resetText.hasPrefix("重置於 "))
     }
 
     @Test("ChatGPT usage parsing handles missing payload values")
-    func chatGPTUsageParsingHandlesMissingValues() {
-        let parsed = ChatGPTService.parseUsage([:])
+    func chatGPTUsageParsingRejectsMissingValues() {
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try ChatGPTService.parseUsage([:])
+        }
+    }
+
+    @Test("ChatGPT usage parsing rejects malformed required numbers")
+    func chatGPTUsageParsingRejectsMalformedRequiredNumbers() {
+        let usage: [String: Any] = [
+            "rate_limit": [
+                "primary_window": [
+                    "used_percent": "not-a-number"
+                ]
+            ]
+        ]
+
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try ChatGPTService.parseUsage(usage)
+        }
+    }
+
+    @Test("ChatGPT usage parsing preserves a valid zero percent used value")
+    func chatGPTUsageParsingHandlesZeroUsedPercent() throws {
+        let usage: [String: Any] = [
+            "rate_limit": [
+                "primary_window": [
+                    "used_percent": 0
+                ]
+            ]
+        ]
+
+        let parsed = try ChatGPTService.parseUsage(usage)
 
         #expect(parsed.sessionRemainingPercent == 100)
-        #expect(parsed.resetText == "無限制資料")
     }
 
     @Test("Low usage notification triggers at the threshold")
@@ -271,6 +330,52 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: true
         ) == false)
+    }
+
+    @Test("Refresh failure preserves last-known-good usage")
+    func refreshFailurePreservesLoadedUsage() throws {
+        let current = UsageInfo(
+            sessionPercent: 72,
+            weeklyPercent: 41,
+            resetText: "重置於 2 小時後",
+            isLoaded: true
+        )
+
+        let next = try #require(
+            UsageRefreshStatePolicy.state(
+                afterFailure: current,
+                error: URLError(.timedOut)
+            )
+        )
+
+        #expect(next.sessionPercent == current.sessionPercent)
+        #expect(next.weeklyPercent == current.weeklyPercent)
+        #expect(next.resetText == current.resetText)
+        #expect(next.isLoaded)
+        #expect(next.errorMessage != nil)
+    }
+
+    @Test("Refresh cancellation leaves usage state unchanged")
+    func refreshCancellationLeavesUsageUnchanged() {
+        let current = UsageInfo(
+            sessionPercent: 72,
+            weeklyPercent: 41,
+            resetText: "重置於 2 小時後",
+            isLoaded: true
+        )
+
+        #expect(
+            UsageRefreshStatePolicy.state(
+                afterFailure: current,
+                error: CancellationError()
+            ) == nil
+        )
+        #expect(
+            UsageRefreshStatePolicy.state(
+                afterFailure: current,
+                error: URLError(.cancelled)
+            ) == nil
+        )
     }
 
     private func cookie(

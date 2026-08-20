@@ -11,13 +11,12 @@
 
 ## Known limitations
 
-- This beta is not currently signed with a Developer ID certificate or notarized.
-- The current repository has the complete macOS AppIcon slot structure, but final provider-neutral two-bar artwork still needs to be supplied.
-- There is no App Store distribution or published signed binary yet.
+- The intended beta path is a direct-download DMG signed and notarized for external distribution; it is not distributed through the Mac App Store.
+- The release app uses Hardened Runtime and the final provider-neutral AIUsageBar app icon. Source builds are development artifacts and may not have the same signing or notarization status.
 - Provider website, authentication, cookie, or endpoint changes may affect login or usage retrieval.
 - ChatGPT and Claude must be authenticated separately through their respective WebView login flows.
 - The app currently supports only ChatGPT and Claude.
 
 ## Distribution status
 
-The safest current path is to build the Release configuration from source for local or internal testing. A locally created unsigned DMG is not considered ready for external beta distribution until Developer ID signing and notarization are available.
+The intended external beta path is the exported, signed, notarized DMG. Verify the app and DMG signatures, stapled tickets, and Gatekeeper assessment on the final artifact before sharing it. A locally created unsigned DMG is for internal testing only.

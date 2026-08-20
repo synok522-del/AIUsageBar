@@ -15,6 +15,12 @@ private let logger = Logger(
     category: "WebLogin"
 )
 
+struct WebCredential: Equatable {
+    let cookieName: String
+    let value: String
+    let cookieHeader: String
+}
+
 enum WebLoginProvider {
     case claude
     case chatGPT
@@ -35,14 +41,22 @@ enum WebLoginProvider {
         }
     }
 
-    func credential(from cookies: [HTTPCookie]) -> String? {
+    func credential(from cookies: [HTTPCookie]) -> WebCredential? {
         switch self {
         case .claude:
-            return cookies.first {
+            guard let cookie = cookies.first(where: {
                 $0.name == "sessionKey" && $0.domain.localizedCaseInsensitiveContains("claude.ai")
-            }?.value
+            }) else {
+                return nil
+            }
+
+            return WebCredential(
+                cookieName: cookie.name,
+                value: cookie.value,
+                cookieHeader: "\(cookie.name)=\(cookie.value)"
+            )
         case .chatGPT:
-            return CookieTokenAssembler.value(
+            return CookieTokenAssembler.credential(
                 from: cookies,
                 baseNames: [
                     "__Secure-next-auth.session-token",
@@ -60,7 +74,7 @@ enum WebLoginProvider {
 
 struct WebLoginView: NSViewRepresentable {
     let provider: WebLoginProvider
-    let onCredentialFound: (String) -> Void
+    let onCredentialFound: (WebCredential) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(provider: provider, onCredentialFound: onCredentialFound)
@@ -86,13 +100,13 @@ struct WebLoginView: NSViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         private let provider: WebLoginProvider
-        private let onCredentialFound: (String) -> Void
+        private let onCredentialFound: (WebCredential) -> Void
         fileprivate weak var hostedWebView: WKWebView?
         private var pollTimer: Timer?
         private var didDeliverCredential = false
         private var lastCookieSignature = ""
 
-        init(provider: WebLoginProvider, onCredentialFound: @escaping (String) -> Void) {
+        init(provider: WebLoginProvider, onCredentialFound: @escaping (WebCredential) -> Void) {
             self.provider = provider
             self.onCredentialFound = onCredentialFound
         }
@@ -130,15 +144,13 @@ struct WebLoginView: NSViewRepresentable {
 
                     guard !self.didDeliverCredential,
                           let credential = self.provider.credential(from: cookies),
-                          !credential.isEmpty else { return }
+                          !credential.value.isEmpty else { return }
 
                     self.didDeliverCredential = true
                     self.pollTimer?.invalidate()
                     self.pollTimer = nil
 
                     self.onCredentialFound(credential)
-
-                    self.hostedWebView?.window?.close()
                 }
             }
         }
@@ -172,11 +184,11 @@ struct WebLoginView: NSViewRepresentable {
 }
 
 enum CookieTokenAssembler {
-    static func value(
+    static func credential(
         from cookies: [HTTPCookie],
         baseNames: [String],
         domainMatcher: (String) -> Bool
-    ) -> String? {
+    ) -> WebCredential? {
         for baseName in baseNames {
             let matchingCookies = cookies.filter { cookie in
                 domainMatcher(cookie.domain) &&
@@ -184,7 +196,11 @@ enum CookieTokenAssembler {
             }
 
             if let exact = matchingCookies.first(where: { $0.name == baseName }) {
-                return exact.value
+                return WebCredential(
+                    cookieName: exact.name,
+                    value: exact.value,
+                    cookieHeader: "\(exact.name)=\(exact.value)"
+                )
             }
 
             let chunks = matchingCookies.compactMap { cookie -> (Int, String)? in
@@ -197,10 +213,30 @@ enum CookieTokenAssembler {
             }.sorted { $0.0 < $1.0 }
 
             if !chunks.isEmpty {
-                return chunks.map(\.1).joined()
+                let cookieHeader = chunks
+                    .map { "\(baseName).\($0.0)=\($0.1)" }
+                    .joined(separator: "; ")
+
+                return WebCredential(
+                    cookieName: baseName,
+                    value: chunks.map(\.1).joined(),
+                    cookieHeader: cookieHeader
+                )
             }
         }
 
         return nil
+    }
+
+    static func value(
+        from cookies: [HTTPCookie],
+        baseNames: [String],
+        domainMatcher: (String) -> Bool
+    ) -> String? {
+        credential(
+            from: cookies,
+            baseNames: baseNames,
+            domainMatcher: domainMatcher
+        )?.value
     }
 }

@@ -49,36 +49,25 @@ enum ServiceSupport {
     }
 
     static func number(_ value: Any?) -> Double {
-
-        if let number = value as? NSNumber {
-            return number.doubleValue
-        }
-
-        if let double = value as? Double {
-            return double
-        }
-
-        if let int = value as? Int {
-            return Double(int)
-        }
-
-        if let string = value as? String,
-           let double = Double(string) {
-            return double
-        }
-
-        return 0
+        parsedNumber(value) ?? 0
     }
 
     static func percent(_ value: Any?) -> Int {
+        clampedPercent(number(value))
+    }
 
-        min(
-            max(
-                Int(round(number(value))),
-                0
-            ),
-            100
-        )
+    static func requiredPercent(
+        _ value: Any?,
+        serviceName: String,
+        field: String
+    ) throws -> Int {
+        guard let value = parsedNumber(value) else {
+            throw AIUsageServiceError.invalidPayload(
+                "\(serviceName) \(field)"
+            )
+        }
+
+        return clampedPercent(value)
     }
 
     static func resetText(_ value: Any?) -> String {
@@ -152,6 +141,42 @@ enum ServiceSupport {
                 for: date,
                 relativeTo: Date()
             )
+    }
+
+    private static func parsedNumber(_ value: Any?) -> Double? {
+        let number: Double?
+
+        if let value = value as? NSNumber {
+            number = value.doubleValue
+        } else if let value = value as? Double {
+            number = value
+        } else if let value = value as? Int {
+            number = Double(value)
+        } else if let value = value as? String {
+            number = Double(value)
+        } else {
+            number = nil
+        }
+
+        guard let number, number.isFinite else {
+            return nil
+        }
+
+        return number
+    }
+
+    private static func clampedPercent(_ value: Double) -> Int {
+        let rounded = value.rounded()
+
+        if rounded <= 0 {
+            return 0
+        }
+
+        if rounded >= 100 {
+            return 100
+        }
+
+        return Int(rounded)
     }
 }
 

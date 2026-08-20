@@ -12,34 +12,67 @@ private let logger = Logger(
     category: "WebSession"
 )
 
+enum WebSessionProvider {
+    case claude
+    case chatGPT
+
+    var displayName: String {
+        switch self {
+        case .claude:
+            "Claude"
+        case .chatGPT:
+            "ChatGPT"
+        }
+    }
+
+    func matches(_ value: String) -> Bool {
+        switch self {
+        case .claude:
+            return Self.matchesDomain(value, domain: "claude.ai") ||
+                Self.matchesDomain(value, domain: "anthropic.com")
+        case .chatGPT:
+            return Self.matchesDomain(value, domain: "chatgpt.com") ||
+                Self.matchesDomain(value, domain: "openai.com")
+        }
+    }
+
+    private static func matchesDomain(_ value: String, domain: String) -> Bool {
+        let normalizedValue = value
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+
+        return normalizedValue == domain ||
+            normalizedValue.hasSuffix(".\(domain)")
+    }
+}
+
 final class WebSessionManager {
 
     static let shared = WebSessionManager()
 
     private init() {}
 
-    /// 清除所有 WebView Cookie 與網站資料
-    func clearCookies(completion: (() -> Void)? = nil) {
-
+    /// 清除指定 provider 的 WebView Cookie 與網站資料。
+    func clearCookies(
+        for provider: WebSessionProvider,
+        completion: (() -> Void)? = nil
+    ) {
         let dataStore = WKWebsiteDataStore.default()
 
-        // 先刪除所有 Cookie
         dataStore.httpCookieStore.getAllCookies { cookies in
-
             let group = DispatchGroup()
+            let matchingCookies = cookies.filter {
+                provider.matches($0.domain)
+            }
 
-            for cookie in cookies {
-
+            for cookie in matchingCookies {
                 group.enter()
-
                 dataStore.httpCookieStore.delete(cookie) {
                     group.leave()
                 }
             }
 
             group.notify(queue: .main) {
-
-                // 再清除網站資料
                 let dataTypes: Set<String> = [
                     WKWebsiteDataTypeCookies,
                     WKWebsiteDataTypeLocalStorage,
@@ -50,14 +83,28 @@ final class WebSessionManager {
                     WKWebsiteDataTypeMemoryCache
                 ]
 
-                dataStore.removeData(
-                    ofTypes: dataTypes,
-                    modifiedSince: Date(timeIntervalSince1970: 0)
-                ) {
+                dataStore.fetchDataRecords(ofTypes: dataTypes) { records in
+                    let matchingRecords = records.filter {
+                        provider.matches($0.displayName)
+                    }
 
-                    logger.debug("Web session cleared")
+                    guard !matchingRecords.isEmpty else {
+                        logger.debug(
+                            "Web session cleared for \(provider.displayName, privacy: .public)"
+                        )
+                        completion?()
+                        return
+                    }
 
-                    completion?()
+                    dataStore.removeData(
+                        ofTypes: dataTypes,
+                        for: matchingRecords
+                    ) {
+                        logger.debug(
+                            "Web session cleared for \(provider.displayName, privacy: .public)"
+                        )
+                        completion?()
+                    }
                 }
             }
         }

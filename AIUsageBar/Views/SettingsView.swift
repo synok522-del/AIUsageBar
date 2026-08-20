@@ -29,7 +29,7 @@ struct SettingsView: View {
                 loginAction: onLoginClaude,
                 logoutAction: {
                     viewModel.setClaudeSessionKey("")
-                    WebSessionManager.shared.clearCookies()
+                    WebSessionManager.shared.clearCookies(for: .claude)
                 }
             )
 
@@ -41,7 +41,7 @@ struct SettingsView: View {
                 loginAction: onLoginChatGPT,
                 logoutAction: {
                     viewModel.setChatGPTSessionToken("")
-                    WebSessionManager.shared.clearCookies()
+                    WebSessionManager.shared.clearCookies(for: .chatGPT)
                 }
             )
 

@@ -9,7 +9,7 @@
 import SwiftUI
 
 struct ChatGPTLoginView: View {
-    let onSuccess: (String) -> Void
+    let onSuccess: (WebCredential) -> Void
 
     var body: some View {
         VStack(spacing: 0) {

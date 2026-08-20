@@ -17,6 +17,21 @@ struct UsageInfo {
 }
 
 enum UsageRefreshStatePolicy {
+    static func shouldUpdateLastUpdated(
+        claudeSucceeded: Bool,
+        chatGPTSucceeded: Bool
+    ) -> Bool {
+        claudeSucceeded || chatGPTSucceeded
+    }
+
+    static func shouldClearStatusMessage(
+        _ message: String,
+        for provider: String
+    ) -> Bool {
+        message.hasPrefix("\(provider)：") ||
+        message.hasPrefix("\(provider) 登入")
+    }
+
     static func state(afterFailure current: UsageInfo, error: Error) -> UsageInfo? {
         guard !isCancellation(error) else {
             return nil

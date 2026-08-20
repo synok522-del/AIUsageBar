@@ -227,15 +227,15 @@ final class UsageViewModel: ObservableObject {
         isLoading = true
 
 
-        async let claudeRefresh: Void =
+        async let claudeRefresh: Bool =
             refreshClaude()
 
 
-        async let chatGPTRefresh: Void =
+        async let chatGPTRefresh: Bool =
             refreshChatGPT()
 
 
-        _ = await (
+        let (claudeSucceeded, chatGPTSucceeded) = await (
             claudeRefresh,
             chatGPTRefresh
         )
@@ -246,7 +246,12 @@ final class UsageViewModel: ObservableObject {
         )
 
 
-        lastUpdated = Date()
+        if UsageRefreshStatePolicy.shouldUpdateLastUpdated(
+            claudeSucceeded: claudeSucceeded,
+            chatGPTSucceeded: chatGPTSucceeded
+        ) {
+            lastUpdated = Date()
+        }
 
         isLoading = false
     }
@@ -282,7 +287,7 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - Claude
 
-    private func refreshClaude() async {
+    private func refreshClaude() async -> Bool {
 
         let key =
         claudeSessionKey
@@ -297,7 +302,7 @@ final class UsageViewModel: ObservableObject {
                 errorMessage: "尚未登入"
             )
 
-            return
+            return false
         }
 
 
@@ -324,6 +329,9 @@ final class UsageViewModel: ObservableObject {
                 errorMessage: nil
             )
 
+            clearStatusMessage(for: "Claude")
+            return true
+
 
         } catch {
             if let nextState = UsageRefreshStatePolicy.state(
@@ -334,6 +342,8 @@ final class UsageViewModel: ObservableObject {
                 let message = nextState.errorMessage ?? "更新失敗"
                 statusMessage = "Claude：\(message)"
             }
+
+            return false
         }
     }
 
@@ -341,7 +351,7 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - ChatGPT
 
-    private func refreshChatGPT() async {
+    private func refreshChatGPT() async -> Bool {
 
         let token =
         chatGPTSessionToken
@@ -356,7 +366,7 @@ final class UsageViewModel: ObservableObject {
                 errorMessage: "尚未登入"
             )
 
-            return
+            return false
         }
 
 
@@ -384,6 +394,9 @@ final class UsageViewModel: ObservableObject {
                 errorMessage: nil
             )
 
+            clearStatusMessage(for: "ChatGPT")
+            return true
+
 
         } catch {
             if let nextState = UsageRefreshStatePolicy.state(
@@ -394,6 +407,19 @@ final class UsageViewModel: ObservableObject {
                 let message = nextState.errorMessage ?? "更新失敗"
                 statusMessage = "ChatGPT：\(message)"
             }
+
+            return false
         }
+    }
+
+    private func clearStatusMessage(for provider: String) {
+        guard UsageRefreshStatePolicy.shouldClearStatusMessage(
+            statusMessage,
+            for: provider
+        ) else {
+            return
+        }
+
+        statusMessage = ""
     }
 }

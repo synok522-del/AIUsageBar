@@ -45,7 +45,7 @@ enum WebLoginProvider {
         switch self {
         case .claude:
             guard let cookie = cookies.first(where: {
-                $0.name == "sessionKey" && $0.domain.localizedCaseInsensitiveContains("claude.ai")
+                $0.name == "sessionKey" && WebSessionProvider.claude.matches($0.domain)
             }) else {
                 return nil
             }
@@ -63,10 +63,7 @@ enum WebLoginProvider {
                     "__Host-next-auth.session-token",
                     "next-auth.session-token"
                 ],
-                domainMatcher: { domain in
-                    domain.localizedCaseInsensitiveContains("chatgpt.com") ||
-                    domain.localizedCaseInsensitiveContains("openai.com")
-                }
+                domainMatcher: { WebSessionProvider.chatGPT.matches($0) }
             )
         }
     }

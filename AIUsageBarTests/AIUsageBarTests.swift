@@ -85,6 +85,60 @@ struct AIUsageBarTests {
         #expect(credential.cookieHeader == "__Host-next-auth.session-token=host-token")
     }
 
+    @Test("Provider cookie matching accepts only exact domains and subdomains")
+    func providerCookieMatchingIsStrict() {
+        #expect(WebSessionProvider.chatGPT.matches("chatgpt.com"))
+        #expect(WebSessionProvider.chatGPT.matches("auth.chatgpt.com"))
+        #expect(WebSessionProvider.chatGPT.matches(".openai.com"))
+        #expect(WebSessionProvider.chatGPT.matches("notchatgpt.com") == false)
+        #expect(WebSessionProvider.chatGPT.matches("chatgpt.com.evil") == false)
+        #expect(WebSessionProvider.claude.matches("anthropic.com.evil") == false)
+    }
+
+    @Test("Refresh timestamp updates only after a provider succeeds")
+    func refreshTimestampRequiresSuccessfulProviderRefresh() {
+        #expect(
+            UsageRefreshStatePolicy.shouldUpdateLastUpdated(
+                claudeSucceeded: false,
+                chatGPTSucceeded: false
+            ) == false
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldUpdateLastUpdated(
+                claudeSucceeded: true,
+                chatGPTSucceeded: false
+            )
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldUpdateLastUpdated(
+                claudeSucceeded: false,
+                chatGPTSucceeded: true
+            )
+        )
+    }
+
+    @Test("Successful refresh clears only its provider status message")
+    func successfulRefreshClearsProviderStatusMessage() {
+        #expect(
+            UsageRefreshStatePolicy.shouldClearStatusMessage(
+                "Claude：登入已失效",
+                for: "Claude"
+            )
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldClearStatusMessage(
+                "Claude 登入成功",
+                for: "Claude"
+            )
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldClearStatusMessage(
+                "ChatGPT：登入已失效",
+                for: "Claude"
+            ) == false
+        )
+    }
+
     @Test("Claude usage parsing returns remaining percentages")
     func claudeUsageParsingHandlesBoundariesAndDateFields() throws {
         let usage: [String: [String: Any]] = [

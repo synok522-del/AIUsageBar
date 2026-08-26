@@ -11,4 +11,6 @@ import Foundation
 struct ChatGPTUsage {
     let sessionRemainingPercent: Int
     let resetText: String
+    let weeklyRemainingPercent: Int?
+    let weeklyResetText: String?
 }

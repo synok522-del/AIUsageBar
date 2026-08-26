@@ -68,9 +68,9 @@ struct UsagePanelView: View {
             providerCard(
                 title: "ChatGPT",
                 info: viewModel.chatGPT,
-                supportsWeeklyQuota: false,
-                sessionRowLabel: nil,
-                sessionAccessibilityLabel: "工作階段"
+                supportsWeeklyQuota: viewModel.chatGPT.weeklyAvailable,
+                sessionRowLabel: "5 小時",
+                sessionAccessibilityLabel: "5 小時"
             )
 
             providerCard(
@@ -152,7 +152,10 @@ struct UsagePanelView: View {
                 weekly: supportsWeeklyQuota ? info.weeklyPercent : nil,
                 weeklyRowLabel: "每週",
                 weeklyAccessibilityLabel: "每週",
-                reset: info.resetText,
+                reset: ServiceSupport.combinedResetText(
+                    session: info.resetText,
+                    weekly: info.weeklyResetText
+                ),
             )
 
         } else if let error = info.errorMessage {

@@ -203,6 +203,33 @@ struct AIUsageBarTests {
         #expect(parsed.sessionRemainingPercent == 100)
         #expect(parsed.weeklyRemainingPercent == 0)
         #expect(parsed.resetText.hasPrefix("重置於 "))
+        #expect(!parsed.weeklyResetText.hasPrefix("重置於 "))
+    }
+
+    @Test("Claude reset fields remain separate when session reset is missing")
+    func claudeUsageParsingDoesNotFallbackToWeeklyReset() throws {
+        let usage: [String: [String: Any]] = [
+            "five_hour": [
+                "utilization": 10
+            ],
+            "seven_day": [
+                "utilization": 20,
+                "resets_at": 1_700_000_000
+            ]
+        ]
+
+        let parsed = try ClaudeService.parseUsage(usage)
+        let combined = ServiceSupport.combinedResetText(
+            session: parsed.resetText,
+            weekly: parsed.weeklyResetText
+        )
+
+        #expect(parsed.sessionRemainingPercent == 90)
+        #expect(parsed.weeklyRemainingPercent == 80)
+        #expect(parsed.resetText.isEmpty)
+        #expect(!parsed.weeklyResetText.isEmpty)
+        #expect(combined == "重置於 \(parsed.weeklyResetText)")
+        #expect(!combined.contains("｜"))
     }
 
     @Test("Claude usage parsing handles missing payload values")
@@ -276,6 +303,170 @@ struct AIUsageBarTests {
         let parsed = try ChatGPTService.parseUsage(usage)
 
         #expect(parsed.sessionRemainingPercent == 100)
+    }
+
+    @Test("ChatGPT usage parsing reads primary and weekly windows")
+    func chatGPTUsageParsingHandlesDualWindows() throws {
+        let usage: [String: Any] = [
+            "rate_limit": [
+                "primary_window": [
+                    "used_percent": "21",
+                    "reset_at": 1_700_000_000
+                ],
+                "secondary_window": [
+                    "used_percent": "3",
+                    "reset_at": "1788317863",
+                    "limit_window_seconds": 604_800,
+                    "reset_after_seconds": 588_630
+                ]
+            ]
+        ]
+
+        let parsed = try ChatGPTService.parseUsage(usage)
+
+        #expect(parsed.sessionRemainingPercent == 79)
+        #expect(parsed.weeklyRemainingPercent == 97)
+        #expect(parsed.weeklyResetText != nil)
+        #expect(!(parsed.weeklyResetText ?? "").isEmpty)
+    }
+
+    @Test("ChatGPT weekly zero percent remains available")
+    func chatGPTWeeklyZeroPercentRemainsAvailable() throws {
+        let zeroUsed: [String: Any] = [
+            "rate_limit": [
+                "primary_window": ["used_percent": 21],
+                "secondary_window": [
+                    "used_percent": 0,
+                    "reset_at": "not-a-date"
+                ]
+            ]
+        ]
+        let fullyUsed: [String: Any] = [
+            "rate_limit": [
+                "primary_window": ["used_percent": 21],
+                "secondary_window": [
+                    "used_percent": 100,
+                    "reset_at": "not-a-date"
+                ]
+            ]
+        ]
+
+        let zeroParsed = try ChatGPTService.parseUsage(zeroUsed)
+        let fullyUsedParsed = try ChatGPTService.parseUsage(fullyUsed)
+
+        #expect(zeroParsed.weeklyRemainingPercent == 100)
+        #expect(zeroParsed.weeklyResetText == nil)
+        #expect(fullyUsedParsed.weeklyRemainingPercent == 0)
+        #expect(fullyUsedParsed.weeklyResetText == nil)
+    }
+
+    @Test("ChatGPT weekly percentage clamps numeric strings and out-of-range values")
+    func chatGPTWeeklyPercentageClampsValues() throws {
+        let belowRange: [String: Any] = [
+            "rate_limit": [
+                "primary_window": ["used_percent": 21],
+                "secondary_window": ["used_percent": "-25"]
+            ]
+        ]
+        let aboveRange: [String: Any] = [
+            "rate_limit": [
+                "primary_window": ["used_percent": 21],
+                "secondary_window": ["used_percent": "125"]
+            ]
+        ]
+
+        #expect(try ChatGPTService.parseUsage(belowRange).weeklyRemainingPercent == 100)
+        #expect(try ChatGPTService.parseUsage(aboveRange).weeklyRemainingPercent == 0)
+    }
+
+    @Test("ChatGPT weekly data is optional without breaking primary usage")
+    func chatGPTWeeklyDataIsOptional() throws {
+        let missingWindow: [String: Any] = [
+            "rate_limit": [
+                "primary_window": ["used_percent": 21]
+            ]
+        ]
+        let missingValue: [String: Any] = [
+            "rate_limit": [
+                "primary_window": ["used_percent": 21],
+                "secondary_window": [:]
+            ]
+        ]
+        let malformedValue: [String: Any] = [
+            "rate_limit": [
+                "primary_window": ["used_percent": 21],
+                "secondary_window": ["used_percent": "invalid"]
+            ]
+        ]
+
+        for usage in [missingWindow, missingValue, malformedValue] {
+            let parsed = try ChatGPTService.parseUsage(usage)
+            #expect(parsed.sessionRemainingPercent == 79)
+            #expect(parsed.weeklyRemainingPercent == nil)
+            #expect(parsed.weeklyResetText == nil)
+        }
+    }
+
+    @Test("ChatGPT weekly reset supports seconds, milliseconds, and fractional ISO8601")
+    func chatGPTWeeklyResetParsesSupportedDateFormats() throws {
+        let values: [Any] = [
+            1_700_000_000,
+            "1700000000000",
+            "2023-11-14T22:13:20.123Z"
+        ]
+
+        for value in values {
+            let usage: [String: Any] = [
+                "rate_limit": [
+                    "primary_window": ["used_percent": 21],
+                    "secondary_window": [
+                        "used_percent": 3,
+                        "reset_at": value
+                    ]
+                ]
+            ]
+
+            let parsed = try ChatGPTService.parseUsage(usage)
+            #expect(parsed.weeklyRemainingPercent == 97)
+            #expect(parsed.weeklyResetText != nil)
+            #expect(!(parsed.weeklyResetText ?? "").isEmpty)
+        }
+
+        let fixedLocale = Locale(identifier: "zh_TW")
+        let fixedTimeZone = TimeZone(secondsFromGMT: 0)!
+        let expected = ServiceSupport.absoluteResetText(
+            1_700_000_000,
+            locale: fixedLocale,
+            timeZone: fixedTimeZone
+        )
+
+        #expect(ServiceSupport.absoluteResetText(
+            "1700000000000",
+            locale: fixedLocale,
+            timeZone: fixedTimeZone
+        ) == expected)
+        #expect(ServiceSupport.absoluteResetText(
+            "2023-11-14T22:13:20.123Z",
+            locale: fixedLocale,
+            timeZone: fixedTimeZone
+        ) == expected)
+    }
+
+    @Test("Reset display composition avoids a dangling separator")
+    func resetDisplayCompositionAvoidsDanglingSeparator() {
+        #expect(ServiceSupport.combinedResetText(
+            session: "重置於 32 分鐘後",
+            weekly: "9 月 2 日 上午 10:57"
+        ) == "重置於 32 分鐘後｜9 月 2 日 上午 10:57")
+        #expect(ServiceSupport.combinedResetText(
+            session: "重置於 32 分鐘後",
+            weekly: ""
+        ) == "重置於 32 分鐘後")
+        #expect(ServiceSupport.combinedResetText(
+            session: "",
+            weekly: "9 月 2 日 上午 10:57"
+        ) == "重置於 9 月 2 日 上午 10:57")
+        #expect(ServiceSupport.combinedResetText(session: "", weekly: "").isEmpty)
     }
 
     @Test("Low usage notification triggers at the threshold")

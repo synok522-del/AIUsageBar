@@ -71,64 +71,7 @@ enum ServiceSupport {
     }
 
     static func resetText(_ value: Any?) -> String {
-
-        guard let value else {
-            return ""
-        }
-
-        let date: Date?
-
-        if let number = value as? NSNumber {
-
-            let rawTimestamp = number.doubleValue
-
-            let timestamp =
-                rawTimestamp > 100_000_000_000
-                ? rawTimestamp / 1000
-                : rawTimestamp
-
-            date = Date(timeIntervalSince1970: timestamp)
-
-        } else if let string = value as? String {
-
-            if let timestamp = Double(string) {
-
-                let normalized =
-                    timestamp > 100_000_000_000
-                    ? timestamp / 1000
-                    : timestamp
-
-                date = Date(timeIntervalSince1970: normalized)
-
-            } else {
-
-                let formatter = ISO8601DateFormatter()
-
-                formatter.formatOptions = [
-                    .withInternetDateTime,
-                    .withFractionalSeconds
-                ]
-
-                date =
-                    formatter.date(from: string)
-                    ?? {
-
-                        formatter.formatOptions = [
-                            .withInternetDateTime
-                        ]
-
-                        return formatter.date(from: string)
-
-                    }()
-            }
-
-        } else {
-
-            date = nil
-
-        }
-
-        guard let date else {
+        guard let date = resetDate(value) else {
             return ""
         }
 
@@ -141,6 +84,82 @@ enum ServiceSupport {
                 for: date,
                 relativeTo: Date()
             )
+    }
+
+    static func absoluteResetText(
+        _ value: Any?,
+        locale: Locale = Locale(identifier: "zh_TW"),
+        timeZone: TimeZone = .current
+    ) -> String {
+        guard let date = resetDate(value) else {
+            return ""
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "M 月 d 日 a h:mm"
+        return formatter.string(from: date)
+    }
+
+    static func combinedResetText(
+        session: String,
+        weekly: String
+    ) -> String {
+        if !session.isEmpty && !weekly.isEmpty {
+            return "\(session)｜\(weekly)"
+        }
+
+        if !session.isEmpty {
+            return session
+        }
+
+        if !weekly.isEmpty {
+            return "重置於 \(weekly)"
+        }
+
+        return ""
+    }
+
+    static func resetDate(_ value: Any?) -> Date? {
+        guard let value else {
+            return nil
+        }
+
+        if let number = value as? NSNumber {
+            let rawTimestamp = number.doubleValue
+            let timestamp =
+                rawTimestamp > 100_000_000_000
+                ? rawTimestamp / 1000
+                : rawTimestamp
+
+            return Date(timeIntervalSince1970: timestamp)
+        }
+
+        if let string = value as? String {
+            if let timestamp = Double(string) {
+                let normalized =
+                    timestamp > 100_000_000_000
+                    ? timestamp / 1000
+                    : timestamp
+
+                return Date(timeIntervalSince1970: normalized)
+            }
+
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [
+                .withInternetDateTime,
+                .withFractionalSeconds
+            ]
+
+            return formatter.date(from: string)
+                ?? {
+                    formatter.formatOptions = [.withInternetDateTime]
+                    return formatter.date(from: string)
+                }()
+        }
+
+        return nil
     }
 
     private static func parsedNumber(_ value: Any?) -> Double? {

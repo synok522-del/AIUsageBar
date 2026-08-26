@@ -12,4 +12,5 @@ struct ClaudeUsage {
     let sessionRemainingPercent: Int
     let weeklyRemainingPercent: Int
     let resetText: String
+    let weeklyResetText: String
 }

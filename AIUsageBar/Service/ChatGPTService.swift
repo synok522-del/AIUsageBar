@@ -29,9 +29,32 @@ struct ChatGPTService {
             serviceName: "ChatGPT",
             field: "rate_limit.primary_window.used_percent"
         )
+
+        var weeklyRemainingPercent: Int?
+        var weeklyResetText: String?
+
+        if let secondaryWindow = rateLimit["secondary_window"] as? [String: Any],
+           let weeklyUsedPercent = try? ServiceSupport.requiredPercent(
+               secondaryWindow["used_percent"],
+               serviceName: "ChatGPT",
+               field: "rate_limit.secondary_window.used_percent"
+           ) {
+            weeklyRemainingPercent = max(0, 100 - weeklyUsedPercent)
+
+            let formattedReset = ServiceSupport.absoluteResetText(
+                secondaryWindow["reset_at"]
+            )
+            weeklyResetText = formattedReset.isEmpty ? nil : formattedReset
+        } else {
+            weeklyRemainingPercent = nil
+            weeklyResetText = nil
+        }
+
         return ChatGPTUsage(
             sessionRemainingPercent: max(0, 100 - usedPercent),
-            resetText: ServiceSupport.resetText(primaryWindow["reset_at"])
+            resetText: ServiceSupport.resetText(primaryWindow["reset_at"]),
+            weeklyRemainingPercent: weeklyRemainingPercent,
+            weeklyResetText: weeklyResetText
         )
     }
 

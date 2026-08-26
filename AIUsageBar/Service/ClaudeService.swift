@@ -22,12 +22,15 @@ struct ClaudeService {
             field: "seven_day.utilization"
         )
         let sessionReset = ServiceSupport.resetText(usage["five_hour"]?["resets_at"])
-        let weeklyReset = ServiceSupport.resetText(usage["seven_day"]?["resets_at"])
+        let weeklyAbsoluteReset = ServiceSupport.absoluteResetText(
+            usage["seven_day"]?["resets_at"]
+        )
 
         return ClaudeUsage(
             sessionRemainingPercent: max(0, 100 - sessionUsed),
             weeklyRemainingPercent: max(0, 100 - weeklyUsed),
-            resetText: sessionReset.isEmpty ? weeklyReset : sessionReset
+            resetText: sessionReset,
+            weeklyResetText: weeklyAbsoluteReset
         )
     }
 

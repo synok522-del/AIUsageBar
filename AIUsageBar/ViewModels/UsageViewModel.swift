@@ -321,8 +321,13 @@ final class UsageViewModel: ObservableObject {
                 weeklyPercent:
                     usage.weeklyRemainingPercent,
 
+                weeklyAvailable: true,
+
                 resetText:
                     usage.resetText,
+
+                weeklyResetText:
+                    usage.weeklyResetText,
 
                 isLoaded: true,
 
@@ -384,10 +389,17 @@ final class UsageViewModel: ObservableObject {
                 sessionPercent:
                     usage.sessionRemainingPercent,
 
-                weeklyPercent: 0,
+                weeklyPercent:
+                    usage.weeklyRemainingPercent ?? 0,
+
+                weeklyAvailable:
+                    usage.weeklyRemainingPercent != nil,
 
                 resetText:
                     usage.resetText,
+
+                weeklyResetText:
+                    usage.weeklyResetText ?? "",
 
                 isLoaded: true,
 

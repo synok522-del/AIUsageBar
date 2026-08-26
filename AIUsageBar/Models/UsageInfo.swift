@@ -11,7 +11,9 @@ import Foundation
 struct UsageInfo {
     var sessionPercent: Int = 0
     var weeklyPercent: Int = 0
+    var weeklyAvailable: Bool = false
     var resetText: String = ""
+    var weeklyResetText: String = ""
     var isLoaded: Bool = false
     var errorMessage: String?
 }

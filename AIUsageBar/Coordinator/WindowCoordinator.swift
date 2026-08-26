@@ -9,9 +9,55 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         case settings
         case claudeLogin
         case chatGPTLogin
+        case welcome
     }
 
     private var windows: [WindowID: NSWindow] = [:]
+    private var welcomeSuppressedForCurrentSession = false
+
+
+    // MARK: - Welcome
+
+    func showWelcomeIfNeeded(
+        viewModel: UsageViewModel,
+        onLoginClaude: @escaping () -> Void,
+        onLoginChatGPT: @escaping () -> Void
+    ) {
+        guard !welcomeSuppressedForCurrentSession else {
+            return
+        }
+
+        let policy = WelcomePresentationPolicy(
+            isClaudeLoggedIn: !viewModel.claudeSessionKey.isEmpty,
+            isChatGPTLoggedIn: !viewModel.chatGPTSessionToken.isEmpty,
+            isSuppressedForCurrentSession: welcomeSuppressedForCurrentSession
+        )
+
+        guard policy.shouldShow else {
+            return
+        }
+
+        present(
+            id: .welcome,
+            title: "AIUsageBar",
+            size: nil,
+            styleMask: [.titled, .closable]
+        ) { [weak self] in
+            WelcomeView(
+                onLoginChatGPT: { [weak self] in
+                    self?.close(.welcome)
+                    onLoginChatGPT()
+                },
+                onLoginClaude: { [weak self] in
+                    self?.close(.welcome)
+                    onLoginClaude()
+                },
+                onLater: { [weak self] in
+                    self?.suppressWelcomeForCurrentSession()
+                }
+            )
+        }
+    }
 
 
     // MARK: - Settings
@@ -136,6 +182,11 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         windows[id]?.close()
 
+    }
+
+    private func suppressWelcomeForCurrentSession() {
+        welcomeSuppressedForCurrentSession = true
+        close(.welcome)
     }
 
 

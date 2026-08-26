@@ -11,6 +11,52 @@ import Testing
 
 struct AIUsageBarTests {
 
+    @Test("Welcome shows when both providers are logged out")
+    func welcomeShowsWhenBothProvidersAreLoggedOut() {
+        #expect(WelcomePresentationPolicy(
+            isClaudeLoggedIn: false,
+            isChatGPTLoggedIn: false,
+            isSuppressedForCurrentSession: false
+        ).shouldShow)
+    }
+
+    @Test("Welcome stays hidden when ChatGPT is logged in")
+    func welcomeStaysHiddenWhenChatGPTIsLoggedIn() {
+        #expect(WelcomePresentationPolicy(
+            isClaudeLoggedIn: false,
+            isChatGPTLoggedIn: true,
+            isSuppressedForCurrentSession: false
+        ).shouldShow == false)
+    }
+
+    @Test("Welcome stays hidden when Claude or both providers are logged in")
+    func welcomeStaysHiddenWhenClaudeOrBothProvidersAreLoggedIn() {
+        #expect(WelcomePresentationPolicy(
+            isClaudeLoggedIn: true,
+            isChatGPTLoggedIn: false,
+            isSuppressedForCurrentSession: false
+        ).shouldShow == false)
+        #expect(WelcomePresentationPolicy(
+            isClaudeLoggedIn: true,
+            isChatGPTLoggedIn: true,
+            isSuppressedForCurrentSession: false
+        ).shouldShow == false)
+    }
+
+    @Test("Later suppresses Welcome only for the current session")
+    func welcomeSuppressionIsSessionOnly() {
+        #expect(WelcomePresentationPolicy(
+            isClaudeLoggedIn: false,
+            isChatGPTLoggedIn: false,
+            isSuppressedForCurrentSession: true
+        ).shouldShow == false)
+        #expect(WelcomePresentationPolicy(
+            isClaudeLoggedIn: false,
+            isChatGPTLoggedIn: false,
+            isSuppressedForCurrentSession: false
+        ).shouldShow)
+    }
+
     @Test("ServiceSupport.percent clamps and rounds values")
     func percentCoversBoundaryNumericAndInvalidValues() {
         #expect(ServiceSupport.percent(0) == 0)

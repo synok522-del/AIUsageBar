@@ -126,8 +126,8 @@ struct UsagePanelView: View {
     private var providerVisibility: ProviderVisibilityPolicy {
         // Authentication comes from the existing Keychain-backed session state.
         ProviderVisibilityPolicy(
-            isChatGPTAuthenticated: !viewModel.chatGPTSessionToken.isEmpty,
-            isClaudeAuthenticated: !viewModel.claudeSessionKey.isEmpty
+            chatGPTSessionToken: viewModel.chatGPTSessionToken,
+            claudeSessionKey: viewModel.claudeSessionKey
         )
     }
 
@@ -253,7 +253,7 @@ struct UsagePanelView: View {
                 weekly: nil,
                 weeklyRowLabel: "每週",
                 weeklyAccessibilityLabel: "每週",
-                reset: "請先登入",
+                reset: "更新中…",
 
             )
         }

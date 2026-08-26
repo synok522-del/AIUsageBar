@@ -7,24 +7,49 @@ struct MenuBarStatusView: View {
     var body: some View {
         ZStack {
             Image(nsImage: statusImage)
-                .renderingMode(.template)
+                .renderingMode(
+                    providerVisibility.shouldShowSetupState
+                    ? .original
+                    : .template
+                )
                 .foregroundStyle(.primary)
                 .frame(width: 24, height: 10)
                 .fixedSize()
                 .accessibilityHidden(true)
 
             VStack(spacing: 2) {
-                accessibilityBar(label: "ChatGPT", info: viewModel.chatGPT)
-                accessibilityBar(label: "Claude", info: viewModel.claude)
+                ForEach(providerVisibility.visibleProviders, id: \.self) { provider in
+                    accessibilityBar(for: provider)
+                }
+            }
+
+            if providerVisibility.shouldShowSetupState {
+                Rectangle()
+                    .fill(.clear)
+                    .frame(width: 24, height: 10)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("AIUsageBar")
+                    .accessibilityValue("尚未連接 AI")
             }
         }
         .frame(width: 24, height: 10)
         .fixedSize(horizontal: true, vertical: true)
         .accessibilityElement(children: .contain)
-        .help("ChatGPT 與 Claude 剩餘用量")
+        .help(
+            providerVisibility.shouldShowSetupState
+            ? "AIUsageBar，尚未連接 AI"
+            : "ChatGPT 與 Claude 剩餘用量"
+        )
         .task {
             await viewModel.refreshAll()
         }
+    }
+
+    private var providerVisibility: ProviderVisibilityPolicy {
+        ProviderVisibilityPolicy(
+            chatGPTSessionToken: viewModel.chatGPTSessionToken,
+            claudeSessionKey: viewModel.claudeSessionKey
+        )
     }
 
     private var statusImage: NSImage {
@@ -36,19 +61,66 @@ struct MenuBarStatusView: View {
             image.unlockFocus()
         }
 
-        drawBar(
-            atY: imageSize.height - 4,
-            info: viewModel.chatGPT,
-            imageSize: imageSize
-        )
-        drawBar(
-            atY: 0,
-            info: viewModel.claude,
-            imageSize: imageSize
-        )
+        let visibleProviders = providerVisibility.visibleProviders
 
-        image.isTemplate = true
+        if visibleProviders.isEmpty {
+            drawBaseIcon(imageSize: imageSize)
+        } else {
+            for (index, provider) in visibleProviders.enumerated() {
+                drawBar(
+                    atY: barY(
+                        for: index,
+                        providerCount: visibleProviders.count,
+                        imageHeight: imageSize.height
+                    ),
+                    info: usageInfo(for: provider),
+                    imageSize: imageSize
+                )
+            }
+        }
+
+        image.isTemplate = !visibleProviders.isEmpty
         return image
+    }
+
+    private func barY(
+        for index: Int,
+        providerCount: Int,
+        imageHeight: CGFloat
+    ) -> CGFloat {
+        guard providerCount > 1 else {
+            return (imageHeight - 4) / 2
+        }
+
+        return index == 0 ? imageHeight - 4 : 0
+    }
+
+    private func usageInfo(for provider: UsageProvider) -> UsageInfo {
+        switch provider {
+        case .chatGPT:
+            return viewModel.chatGPT
+        case .claude:
+            return viewModel.claude
+        }
+    }
+
+    private func drawBaseIcon(imageSize: NSSize) {
+        guard let appIcon = NSImage(named: "AppIcon") else {
+            return
+        }
+
+        let iconLength = min(imageSize.height, 10)
+        appIcon.draw(
+            in: NSRect(
+                x: (imageSize.width - iconLength) / 2,
+                y: 0,
+                width: iconLength,
+                height: iconLength
+            ),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1
+        )
     }
 
     private func drawBar(
@@ -90,10 +162,17 @@ struct MenuBarStatusView: View {
         ).fill()
     }
 
-    private func accessibilityBar(
-        label: String,
-        info: UsageInfo
-    ) -> some View {
+    @ViewBuilder
+    private func accessibilityBar(for provider: UsageProvider) -> some View {
+        switch provider {
+        case .chatGPT:
+            accessibilityBar(label: "ChatGPT", info: viewModel.chatGPT)
+        case .claude:
+            accessibilityBar(label: "Claude", info: viewModel.claude)
+        }
+    }
+
+    private func accessibilityBar(label: String, info: UsageInfo) -> some View {
         Rectangle()
             .fill(.clear)
             .frame(width: 24, height: 4)

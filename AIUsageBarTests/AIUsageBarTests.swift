@@ -195,6 +195,86 @@ struct AIUsageBarTests {
         #expect(policy.visibleProviders == [.chatGPT, .claude])
     }
 
+    @Test("Shared visibility policy maps existing session credentials")
+    func sharedVisibilityPolicyMapsExistingSessionCredentials() {
+        #expect(
+            ProviderVisibilityPolicy(
+                chatGPTSessionToken: "configured",
+                claudeSessionKey: ""
+            ).visibleProviders == [.chatGPT]
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                chatGPTSessionToken: "",
+                claudeSessionKey: "configured"
+            ).visibleProviders == [.claude]
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                chatGPTSessionToken: "configured",
+                claudeSessionKey: "configured"
+            ).visibleProviders == [.chatGPT, .claude]
+        )
+    }
+
+    @Test("Shared visibility policy has no indicators for empty credentials")
+    func sharedVisibilityPolicyHasNoIndicatorsForEmptyCredentials() {
+        let policy = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "",
+            claudeSessionKey: ""
+        )
+
+        #expect(policy.visibleProviders.isEmpty)
+        #expect(policy.shouldShowSetupState)
+    }
+
+    @Test("Shared visibility policy ignores usage state")
+    func sharedVisibilityPolicyIgnoresUsageState() {
+        let policy = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "configured",
+            claudeSessionKey: "configured"
+        )
+        let failedChatGPT = UsageInfo(
+            sessionPercent: 0,
+            isLoaded: false,
+            errorMessage: "更新失敗"
+        )
+        let failedClaude = UsageInfo(
+            sessionPercent: 0,
+            isLoaded: false,
+            errorMessage: "更新失敗"
+        )
+
+        #expect(failedChatGPT.isLoaded == false)
+        #expect(failedClaude.isLoaded == false)
+        #expect(policy.visibleProviders == [.chatGPT, .claude])
+    }
+
+    @Test("Shared visibility policy keeps zero-quota providers visible")
+    func sharedVisibilityPolicyKeepsZeroQuotaProvidersVisible() {
+        let policy = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "configured",
+            claudeSessionKey: "configured"
+        )
+        let chatGPT = UsageInfo(sessionPercent: 0, isLoaded: true)
+        let claude = UsageInfo(sessionPercent: 0, isLoaded: true)
+
+        #expect(chatGPT.sessionPercent == 0)
+        #expect(claude.sessionPercent == 0)
+        #expect(policy.visibleProviders == [.chatGPT, .claude])
+    }
+
+    @Test("Shared visibility policy reflects last-provider logout")
+    func sharedVisibilityPolicyReflectsLastProviderLogout() {
+        let policy = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "",
+            claudeSessionKey: ""
+        )
+
+        #expect(policy.visibleProviders.isEmpty)
+        #expect(policy.shouldShowSetupState)
+    }
+
     @Test("ServiceSupport.percent clamps and rounds values")
     func percentCoversBoundaryNumericAndInvalidValues() {
         #expect(ServiceSupport.percent(0) == 0)

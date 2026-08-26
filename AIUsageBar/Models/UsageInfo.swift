@@ -27,6 +27,24 @@ struct ProviderVisibilityPolicy {
     let isChatGPTAuthenticated: Bool
     let isClaudeAuthenticated: Bool
 
+    init(
+        isChatGPTAuthenticated: Bool,
+        isClaudeAuthenticated: Bool
+    ) {
+        self.isChatGPTAuthenticated = isChatGPTAuthenticated
+        self.isClaudeAuthenticated = isClaudeAuthenticated
+    }
+
+    init(
+        chatGPTSessionToken: String,
+        claudeSessionKey: String
+    ) {
+        self.init(
+            isChatGPTAuthenticated: !chatGPTSessionToken.isEmpty,
+            isClaudeAuthenticated: !claudeSessionKey.isEmpty
+        )
+    }
+
     var visibleProviders: [UsageProvider] {
         var providers: [UsageProvider] = []
 

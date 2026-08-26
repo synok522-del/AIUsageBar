@@ -28,18 +28,14 @@ struct MenuBarStatusView: View {
                     .fill(.clear)
                     .frame(width: 24, height: 10)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("AIUsageBar")
+                    .accessibilityLabel(providerVisibility.menuBarHelpText)
                     .accessibilityValue("尚未連接 AI")
             }
         }
         .frame(width: 24, height: 10)
         .fixedSize(horizontal: true, vertical: true)
         .accessibilityElement(children: .contain)
-        .help(
-            providerVisibility.shouldShowSetupState
-            ? "AIUsageBar，尚未連接 AI"
-            : "ChatGPT 與 Claude 剩餘用量"
-        )
+        .help(providerVisibility.menuBarHelpText)
         .task {
             await viewModel.refreshAll()
         }
@@ -105,8 +101,8 @@ struct MenuBarStatusView: View {
     }
 
     private func drawBaseIcon(imageSize: NSSize) {
-        guard let appIcon = NSImage(named: "AppIcon") else {
-            return
+        guard let appIcon = NSApp.applicationIconImage else {
+            preconditionFailure("The application icon must be available for the menu bar fallback")
         }
 
         let iconLength = min(imageSize.height, 10)

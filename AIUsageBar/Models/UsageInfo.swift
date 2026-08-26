@@ -63,6 +63,19 @@ struct ProviderVisibilityPolicy {
         visibleProviders.isEmpty
     }
 
+    var menuBarHelpText: String {
+        switch visibleProviders {
+        case [.chatGPT]:
+            return "ChatGPT 剩餘用量"
+        case [.claude]:
+            return "Claude 剩餘用量"
+        case [.chatGPT, .claude]:
+            return "ChatGPT 與 Claude 剩餘用量"
+        default:
+            return "AIUsageBar"
+        }
+    }
+
     func isVisible(_ provider: UsageProvider) -> Bool {
         visibleProviders.contains(provider)
     }

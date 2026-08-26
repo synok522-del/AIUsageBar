@@ -275,6 +275,46 @@ struct AIUsageBarTests {
         #expect(policy.shouldShowSetupState)
     }
 
+    @Test("Menu bar help text identifies ChatGPT only")
+    func menuBarHelpTextIdentifiesChatGPTOnly() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: false
+        )
+
+        #expect(policy.menuBarHelpText == "ChatGPT 剩餘用量")
+    }
+
+    @Test("Menu bar help text identifies Claude only")
+    func menuBarHelpTextIdentifiesClaudeOnly() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: true
+        )
+
+        #expect(policy.menuBarHelpText == "Claude 剩餘用量")
+    }
+
+    @Test("Menu bar help text identifies both providers")
+    func menuBarHelpTextIdentifiesBothProviders() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: true
+        )
+
+        #expect(policy.menuBarHelpText == "ChatGPT 與 Claude 剩餘用量")
+    }
+
+    @Test("Menu bar help text identifies an unconfigured app")
+    func menuBarHelpTextIdentifiesUnconfiguredApp() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: false
+        )
+
+        #expect(policy.menuBarHelpText == "AIUsageBar")
+    }
+
     @Test("ServiceSupport.percent clamps and rounds values")
     func percentCoversBoundaryNumericAndInvalidValues() {
         #expect(ServiceSupport.percent(0) == 0)

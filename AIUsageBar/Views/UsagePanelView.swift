@@ -65,21 +65,13 @@ struct UsagePanelView: View {
             }
 
 
-            providerCard(
-                title: "ChatGPT",
-                info: viewModel.chatGPT,
-                supportsWeeklyQuota: viewModel.chatGPT.weeklyAvailable,
-                sessionRowLabel: "5 小時",
-                sessionAccessibilityLabel: "5 小時"
-            )
+            ForEach(providerVisibility.visibleProviders, id: \.self) { provider in
+                providerCard(for: provider)
+            }
 
-            providerCard(
-                title: "Claude",
-                info: viewModel.claude,
-                supportsWeeklyQuota: true,
-                sessionRowLabel: "5 小時",
-                sessionAccessibilityLabel: "5 小時"
-            )
+            if providerVisibility.shouldShowSetupState {
+                setupState
+            }
 
 
             if !viewModel.statusMessage.isEmpty {
@@ -127,6 +119,73 @@ struct UsagePanelView: View {
 
             await viewModel.refreshAll()
 
+        }
+    }
+
+
+    private var providerVisibility: ProviderVisibilityPolicy {
+        // Authentication comes from the existing Keychain-backed session state.
+        ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: !viewModel.chatGPTSessionToken.isEmpty,
+            isClaudeAuthenticated: !viewModel.claudeSessionKey.isEmpty
+        )
+    }
+
+
+    @ViewBuilder
+    private func providerCard(for provider: UsageProvider) -> some View {
+        switch provider {
+        case .chatGPT:
+            providerCard(
+                title: "ChatGPT",
+                info: viewModel.chatGPT,
+                supportsWeeklyQuota: viewModel.chatGPT.weeklyAvailable,
+                sessionRowLabel: "5 小時",
+                sessionAccessibilityLabel: "5 小時"
+            )
+
+        case .claude:
+            providerCard(
+                title: "Claude",
+                info: viewModel.claude,
+                supportsWeeklyQuota: true,
+                sessionRowLabel: "5 小時",
+                sessionAccessibilityLabel: "5 小時"
+            )
+        }
+    }
+
+
+    private var setupState: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("尚未連接 AI")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+
+            Text("登入 ChatGPT 或 Claude\n即可開始查看使用量。")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("前往設定") {
+                openSettings()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .accessibilityLabel("前往設定")
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 21, style: .continuous)
+                .fill(Theme.card.opacity(0.96))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 21, style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        .accessibilityHidden(true)
+                }
+                .accessibilityHidden(true)
         }
     }
 

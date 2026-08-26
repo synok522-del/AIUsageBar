@@ -57,6 +57,144 @@ struct AIUsageBarTests {
         ).shouldShow)
     }
 
+    @Test("Provider visibility shows only authenticated ChatGPT")
+    func providerVisibilityShowsOnlyAuthenticatedChatGPT() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: false
+        )
+
+        #expect(policy.visibleProviders == [.chatGPT])
+        #expect(policy.isVisible(.chatGPT))
+        #expect(policy.isVisible(.claude) == false)
+        #expect(policy.shouldShowSetupState == false)
+    }
+
+    @Test("Provider visibility shows only authenticated Claude")
+    func providerVisibilityShowsOnlyAuthenticatedClaude() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: true
+        )
+
+        #expect(policy.visibleProviders == [.claude])
+        #expect(policy.isVisible(.chatGPT) == false)
+        #expect(policy.isVisible(.claude))
+        #expect(policy.shouldShowSetupState == false)
+    }
+
+    @Test("Provider visibility preserves ChatGPT then Claude order")
+    func providerVisibilityPreservesProviderOrder() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: true
+        )
+
+        #expect(policy.visibleProviders == [.chatGPT, .claude])
+        #expect(policy.shouldShowSetupState == false)
+    }
+
+    @Test("Provider visibility shows setup state when both are unauthenticated")
+    func providerVisibilityShowsSetupStateWhenBothUnauthenticated() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: false
+        )
+
+        #expect(policy.visibleProviders.isEmpty)
+        #expect(policy.shouldShowSetupState)
+    }
+
+    @Test("Authenticated ChatGPT remains visible when usage is not loaded")
+    func authenticatedChatGPTRemainsVisibleWhenUsageIsNotLoaded() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: false
+        )
+        let usage = UsageInfo(isLoaded: false, errorMessage: "更新失敗")
+
+        #expect(usage.isLoaded == false)
+        #expect(policy.isVisible(.chatGPT))
+    }
+
+    @Test("Authenticated Claude remains visible when usage is not loaded")
+    func authenticatedClaudeRemainsVisibleWhenUsageIsNotLoaded() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: true
+        )
+        let usage = UsageInfo(isLoaded: false, errorMessage: "更新失敗")
+
+        #expect(usage.isLoaded == false)
+        #expect(policy.isVisible(.claude))
+    }
+
+    @Test("Authenticated provider remains visible with stale usage data")
+    func authenticatedProviderRemainsVisibleWithStaleUsageData() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: false
+        )
+        let usage = UsageInfo(
+            sessionPercent: 42,
+            isLoaded: true,
+            errorMessage: "暫時無法更新"
+        )
+
+        #expect(usage.isLoaded)
+        #expect(usage.errorMessage != nil)
+        #expect(policy.isVisible(.chatGPT))
+    }
+
+    @Test("Logging out ChatGPT hides only its provider")
+    func loggingOutChatGPTHidesOnlyItsProvider() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: true
+        )
+
+        #expect(policy.isVisible(.chatGPT) == false)
+        #expect(policy.isVisible(.claude))
+        #expect(policy.visibleProviders == [.claude])
+    }
+
+    @Test("Logging out Claude hides only its provider")
+    func loggingOutClaudeHidesOnlyItsProvider() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: false
+        )
+
+        #expect(policy.isVisible(.claude) == false)
+        #expect(policy.isVisible(.chatGPT))
+        #expect(policy.visibleProviders == [.chatGPT])
+    }
+
+    @Test("Logging out the last provider shows setup state")
+    func loggingOutLastProviderShowsSetupState() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: false
+        )
+
+        #expect(policy.visibleProviders.isEmpty)
+        #expect(policy.shouldShowSetupState)
+    }
+
+    @Test("Zero remaining quota does not hide an authenticated provider")
+    func zeroRemainingQuotaDoesNotHideAuthenticatedProvider() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: true
+        )
+        let chatGPTUsage = UsageInfo(sessionPercent: 0, weeklyPercent: 0, isLoaded: true)
+        let claudeUsage = UsageInfo(sessionPercent: 0, weeklyPercent: 0, isLoaded: true)
+
+        #expect(chatGPTUsage.sessionPercent == 0)
+        #expect(claudeUsage.sessionPercent == 0)
+        #expect(policy.visibleProviders == [.chatGPT, .claude])
+    }
+
     @Test("ServiceSupport.percent clamps and rounds values")
     func percentCoversBoundaryNumericAndInvalidValues() {
         #expect(ServiceSupport.percent(0) == 0)

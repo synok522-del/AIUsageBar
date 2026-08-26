@@ -18,6 +18,38 @@ struct UsageInfo {
     var errorMessage: String?
 }
 
+enum UsageProvider: Hashable {
+    case chatGPT
+    case claude
+}
+
+struct ProviderVisibilityPolicy {
+    let isChatGPTAuthenticated: Bool
+    let isClaudeAuthenticated: Bool
+
+    var visibleProviders: [UsageProvider] {
+        var providers: [UsageProvider] = []
+
+        if isChatGPTAuthenticated {
+            providers.append(.chatGPT)
+        }
+
+        if isClaudeAuthenticated {
+            providers.append(.claude)
+        }
+
+        return providers
+    }
+
+    var shouldShowSetupState: Bool {
+        visibleProviders.isEmpty
+    }
+
+    func isVisible(_ provider: UsageProvider) -> Bool {
+        visibleProviders.contains(provider)
+    }
+}
+
 enum UsageRefreshStatePolicy {
     static func shouldUpdateLastUpdated(
         claudeSucceeded: Bool,

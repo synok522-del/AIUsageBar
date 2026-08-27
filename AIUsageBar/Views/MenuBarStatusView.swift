@@ -6,33 +6,42 @@ struct MenuBarStatusView: View {
 
     var body: some View {
         ZStack {
-            Image(nsImage: statusImage)
-                .renderingMode(
-                    providerVisibility.shouldShowSetupState
-                    ? .original
-                    : .template
-                )
-                .foregroundStyle(.primary)
-                .frame(width: 24, height: 10)
-                .fixedSize()
-                .accessibilityHidden(true)
+            if providerVisibility.shouldShowSetupState {
+                if let appIcon = NSApp.applicationIconImage {
+                    Image(nsImage: appIcon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 18, height: 18)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                Image(nsImage: statusImage)
+                    .renderingMode(.template)
+                    .foregroundStyle(.primary)
+                    .frame(width: 24, height: 10)
+                    .fixedSize()
+                    .accessibilityHidden(true)
 
-            VStack(spacing: 2) {
-                ForEach(providerVisibility.visibleProviders, id: \.self) { provider in
-                    accessibilityBar(for: provider)
+                VStack(spacing: 2) {
+                    ForEach(providerVisibility.visibleProviders, id: \.self) { provider in
+                        accessibilityBar(for: provider)
+                    }
                 }
             }
 
             if providerVisibility.shouldShowSetupState {
                 Rectangle()
                     .fill(.clear)
-                    .frame(width: 24, height: 10)
+                    .frame(width: 18, height: 18)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(providerVisibility.menuBarHelpText)
                     .accessibilityValue("尚未連接 AI")
             }
         }
-        .frame(width: 24, height: 10)
+        .frame(
+            width: providerVisibility.shouldShowSetupState ? 18 : 24,
+            height: providerVisibility.shouldShowSetupState ? 18 : 10
+        )
         .fixedSize(horizontal: true, vertical: true)
         .accessibilityElement(children: .contain)
         .help(providerVisibility.menuBarHelpText)
@@ -59,23 +68,19 @@ struct MenuBarStatusView: View {
 
         let visibleProviders = providerVisibility.visibleProviders
 
-        if visibleProviders.isEmpty {
-            drawBaseIcon(imageSize: imageSize)
-        } else {
-            for (index, provider) in visibleProviders.enumerated() {
-                drawBar(
-                    atY: barY(
-                        for: index,
-                        providerCount: visibleProviders.count,
-                        imageHeight: imageSize.height
-                    ),
-                    info: usageInfo(for: provider),
-                    imageSize: imageSize
-                )
-            }
+        for (index, provider) in visibleProviders.enumerated() {
+            drawBar(
+                atY: barY(
+                    for: index,
+                    providerCount: visibleProviders.count,
+                    imageHeight: imageSize.height
+                ),
+                info: usageInfo(for: provider),
+                imageSize: imageSize
+            )
         }
 
-        image.isTemplate = !visibleProviders.isEmpty
+        image.isTemplate = true
         return image
     }
 
@@ -98,25 +103,6 @@ struct MenuBarStatusView: View {
         case .claude:
             return viewModel.claude
         }
-    }
-
-    private func drawBaseIcon(imageSize: NSSize) {
-        guard let appIcon = NSApp.applicationIconImage else {
-            preconditionFailure("The application icon must be available for the menu bar fallback")
-        }
-
-        let iconLength = min(imageSize.height, 10)
-        appIcon.draw(
-            in: NSRect(
-                x: (imageSize.width - iconLength) / 2,
-                y: 0,
-                width: iconLength,
-                height: iconLength
-            ),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1
-        )
     }
 
     private func drawBar(

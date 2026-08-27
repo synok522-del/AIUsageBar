@@ -7,13 +7,12 @@ struct MenuBarStatusView: View {
     var body: some View {
         ZStack {
             if providerVisibility.shouldShowSetupState {
-                if let appIcon = NSApp.applicationIconImage {
-                    Image(nsImage: appIcon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 18, height: 18)
-                        .accessibilityHidden(true)
-                }
+                Image(nsImage: setupStatusImage)
+                    .renderingMode(.template)
+                    .foregroundStyle(.primary)
+                    .frame(width: 16, height: 16)
+                    .fixedSize()
+                    .accessibilityHidden(true)
             } else {
                 Image(nsImage: statusImage)
                     .renderingMode(.template)
@@ -32,19 +31,19 @@ struct MenuBarStatusView: View {
             if providerVisibility.shouldShowSetupState {
                 Rectangle()
                     .fill(.clear)
-                    .frame(width: 18, height: 18)
+                    .frame(width: 16, height: 16)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(providerVisibility.menuBarHelpText)
+                    .accessibilityLabel(menuBarHelpText)
                     .accessibilityValue("尚未連接 AI")
             }
         }
         .frame(
-            width: providerVisibility.shouldShowSetupState ? 18 : 24,
-            height: providerVisibility.shouldShowSetupState ? 18 : 10
+            width: providerVisibility.shouldShowSetupState ? 16 : 24,
+            height: providerVisibility.shouldShowSetupState ? 16 : 10
         )
         .fixedSize(horizontal: true, vertical: true)
         .accessibilityElement(children: .contain)
-        .help(providerVisibility.menuBarHelpText)
+        .help(menuBarHelpText)
         .task {
             await viewModel.refreshAll()
         }
@@ -55,6 +54,57 @@ struct MenuBarStatusView: View {
             chatGPTSessionToken: viewModel.chatGPTSessionToken,
             claudeSessionKey: viewModel.claudeSessionKey
         )
+    }
+
+    private var menuBarHelpText: String {
+        providerVisibility.shouldShowSetupState
+            ? "尚未連接 AI"
+            : providerVisibility.menuBarHelpText
+    }
+
+    private var setupStatusImage: NSImage {
+        let imageSize = NSSize(width: 16, height: 16)
+        let image = NSImage(size: imageSize)
+
+        image.lockFocus()
+        defer {
+            image.unlockFocus()
+        }
+
+        let barWidth: CGFloat = 13
+        let barHeight: CGFloat = 2
+        let barX = (imageSize.width - barWidth) / 2
+
+        NSColor.black.setFill()
+        for barY in [1, 13] {
+            NSBezierPath(
+                roundedRect: NSRect(
+                    x: barX,
+                    y: CGFloat(barY),
+                    width: barWidth,
+                    height: barHeight
+                ),
+                xRadius: barHeight / 2,
+                yRadius: barHeight / 2
+            ).fill()
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+            .foregroundColor: NSColor.black
+        ]
+        let questionMark = "?"
+        let questionMarkSize = questionMark.size(withAttributes: attributes)
+        questionMark.draw(
+            at: NSPoint(
+                x: (imageSize.width - questionMarkSize.width) / 2,
+                y: (imageSize.height - questionMarkSize.height) / 2
+            ),
+            withAttributes: attributes
+        )
+
+        image.isTemplate = true
+        return image
     }
 
     private var statusImage: NSImage {

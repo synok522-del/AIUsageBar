@@ -12,8 +12,9 @@ struct SettingsView: View {
     private var lowUsageNotificationsEnabled =
         UsageNotificationSettings.defaultEnabled
 
-    var onLoginClaude: () -> Void
     var onLoginChatGPT: () -> Void
+    var onLoginClaude: () -> Void
+    var onLoginGrok: () -> Void
 
     var body: some View {
 
@@ -22,6 +23,18 @@ struct SettingsView: View {
             Text("設定")
                 .font(.title3)
                 .bold()
+
+            providerRow(
+                title: "ChatGPT",
+                isLoggedIn: !viewModel.chatGPTSessionToken.isEmpty,
+                loginAction: onLoginChatGPT,
+                logoutAction: {
+                    viewModel.setChatGPTSessionToken("")
+                    WebSessionManager.shared.clearCookies(for: .chatGPT)
+                }
+            )
+
+            Divider()
 
             providerRow(
                 title: "Claude",
@@ -36,12 +49,12 @@ struct SettingsView: View {
             Divider()
 
             providerRow(
-                title: "ChatGPT",
-                isLoggedIn: !viewModel.chatGPTSessionToken.isEmpty,
-                loginAction: onLoginChatGPT,
+                title: "Grok",
+                isLoggedIn: !viewModel.grokSessionToken.isEmpty,
+                loginAction: onLoginGrok,
                 logoutAction: {
-                    viewModel.setChatGPTSessionToken("")
-                    WebSessionManager.shared.clearCookies(for: .chatGPT)
+                    viewModel.setGrokSessionToken("")
+                    WebSessionManager.shared.clearCookies(for: .grok)
                 }
             )
 
@@ -149,7 +162,7 @@ struct SettingsView: View {
         return commit
     }
 
-    // MARK: Claude / ChatGPT
+    // MARK: ChatGPT / Claude / Grok
 
     @ViewBuilder
     private func providerRow(

@@ -6,6 +6,7 @@
 //
 
 
+import CoreGraphics
 import Foundation
 
 struct UsageInfo {
@@ -14,6 +15,7 @@ struct UsageInfo {
     var weeklyAvailable: Bool = false
     var resetText: String = ""
     var weeklyResetText: String = ""
+    var sessionWindowSeconds: Int = 0
     var isLoaded: Bool = false
     var errorMessage: String?
 }
@@ -21,27 +23,33 @@ struct UsageInfo {
 enum UsageProvider: Hashable {
     case chatGPT
     case claude
+    case grok
 }
 
 struct ProviderVisibilityPolicy {
     let isChatGPTAuthenticated: Bool
     let isClaudeAuthenticated: Bool
+    let isGrokAuthenticated: Bool
 
     init(
         isChatGPTAuthenticated: Bool,
-        isClaudeAuthenticated: Bool
+        isClaudeAuthenticated: Bool,
+        isGrokAuthenticated: Bool = false
     ) {
         self.isChatGPTAuthenticated = isChatGPTAuthenticated
         self.isClaudeAuthenticated = isClaudeAuthenticated
+        self.isGrokAuthenticated = isGrokAuthenticated
     }
 
     init(
         chatGPTSessionToken: String,
-        claudeSessionKey: String
+        claudeSessionKey: String,
+        grokSessionToken: String = ""
     ) {
         self.init(
             isChatGPTAuthenticated: !chatGPTSessionToken.isEmpty,
-            isClaudeAuthenticated: !claudeSessionKey.isEmpty
+            isClaudeAuthenticated: !claudeSessionKey.isEmpty,
+            isGrokAuthenticated: !grokSessionToken.isEmpty
         )
     }
 
@@ -56,6 +64,10 @@ struct ProviderVisibilityPolicy {
             providers.append(.claude)
         }
 
+        if isGrokAuthenticated {
+            providers.append(.grok)
+        }
+
         return providers
     }
 
@@ -64,15 +76,18 @@ struct ProviderVisibilityPolicy {
     }
 
     var menuBarHelpText: String {
-        switch visibleProviders {
-        case [.chatGPT]:
-            return "ChatGPT 剩餘用量"
-        case [.claude]:
-            return "Claude 剩餘用量"
-        case [.chatGPT, .claude]:
-            return "ChatGPT 與 Claude 剩餘用量"
-        default:
+        let names = visibleProviders.map(\.displayName)
+
+        switch names.count {
+        case 0:
             return "AIUsageBar"
+        case 1:
+            return "\(names[0]) 剩餘用量"
+        case 2:
+            return "\(names[0]) 與 \(names[1]) 剩餘用量"
+        default:
+            let leading = names.dropLast().joined(separator: "、")
+            return "\(leading) 與 \(names.last!) 剩餘用量"
         }
     }
 
@@ -81,12 +96,26 @@ struct ProviderVisibilityPolicy {
     }
 }
 
+extension UsageProvider {
+    var displayName: String {
+        switch self {
+        case .chatGPT:
+            return "ChatGPT"
+        case .claude:
+            return "Claude"
+        case .grok:
+            return "Grok"
+        }
+    }
+}
+
 enum UsageRefreshStatePolicy {
     static func shouldUpdateLastUpdated(
         claudeSucceeded: Bool,
-        chatGPTSucceeded: Bool
+        chatGPTSucceeded: Bool,
+        grokSucceeded: Bool = false
     ) -> Bool {
-        claudeSucceeded || chatGPTSucceeded
+        claudeSucceeded || chatGPTSucceeded || grokSucceeded
     }
 
     static func shouldClearStatusMessage(
@@ -118,5 +147,34 @@ enum UsageRefreshStatePolicy {
     private static func isCancellation(_ error: Error) -> Bool {
         error is CancellationError ||
         (error as? URLError)?.code == .cancelled
+    }
+}
+
+enum MenuBarStatusLayout {
+    static func imageSize(providerCount: Int) -> (width: CGFloat, height: CGFloat) {
+        if providerCount >= 3 {
+            return (24, 16)
+        }
+
+        return (24, 10)
+    }
+
+    static func barHeight(providerCount: Int) -> CGFloat {
+        providerCount >= 3 ? 3 : 4
+    }
+
+    static func barY(
+        index: Int,
+        providerCount: Int,
+        imageHeight: CGFloat,
+        barHeight: CGFloat
+    ) -> CGFloat {
+        guard providerCount > 1 else {
+            return (imageHeight - barHeight) / 2
+        }
+
+        let usable = imageHeight - barHeight
+        let step = usable / CGFloat(providerCount - 1)
+        return imageHeight - barHeight - CGFloat(index) * step
     }
 }

@@ -17,7 +17,7 @@ struct MenuBarStatusView: View {
                 Image(nsImage: statusImage)
                     .renderingMode(.template)
                     .foregroundStyle(.primary)
-                    .frame(width: 24, height: 10)
+                    .frame(width: menuBarImageSize.width, height: menuBarImageSize.height)
                     .fixedSize()
                     .accessibilityHidden(true)
 
@@ -38,8 +38,8 @@ struct MenuBarStatusView: View {
             }
         }
         .frame(
-            width: providerVisibility.shouldShowSetupState ? 16 : 24,
-            height: providerVisibility.shouldShowSetupState ? 16 : 10
+            width: providerVisibility.shouldShowSetupState ? 16 : menuBarImageSize.width,
+            height: providerVisibility.shouldShowSetupState ? 16 : menuBarImageSize.height
         )
         .fixedSize(horizontal: true, vertical: true)
         .accessibilityElement(children: .contain)
@@ -52,7 +52,14 @@ struct MenuBarStatusView: View {
     private var providerVisibility: ProviderVisibilityPolicy {
         ProviderVisibilityPolicy(
             chatGPTSessionToken: viewModel.chatGPTSessionToken,
-            claudeSessionKey: viewModel.claudeSessionKey
+            claudeSessionKey: viewModel.claudeSessionKey,
+            grokSessionToken: viewModel.grokSessionToken
+        )
+    }
+
+    private var menuBarImageSize: (width: CGFloat, height: CGFloat) {
+        MenuBarStatusLayout.imageSize(
+            providerCount: providerVisibility.visibleProviders.count
         )
     }
 
@@ -108,7 +115,11 @@ struct MenuBarStatusView: View {
     }
 
     private var statusImage: NSImage {
-        let imageSize = NSSize(width: 24, height: 10)
+        let visibleProviders = providerVisibility.visibleProviders
+        let providerCount = visibleProviders.count
+        let layoutSize = MenuBarStatusLayout.imageSize(providerCount: providerCount)
+        let barHeight = MenuBarStatusLayout.barHeight(providerCount: providerCount)
+        let imageSize = NSSize(width: layoutSize.width, height: layoutSize.height)
         let image = NSImage(size: imageSize)
 
         image.lockFocus()
@@ -116,34 +127,22 @@ struct MenuBarStatusView: View {
             image.unlockFocus()
         }
 
-        let visibleProviders = providerVisibility.visibleProviders
-
         for (index, provider) in visibleProviders.enumerated() {
             drawBar(
-                atY: barY(
-                    for: index,
-                    providerCount: visibleProviders.count,
-                    imageHeight: imageSize.height
+                atY: MenuBarStatusLayout.barY(
+                    index: index,
+                    providerCount: providerCount,
+                    imageHeight: imageSize.height,
+                    barHeight: barHeight
                 ),
                 info: usageInfo(for: provider),
-                imageSize: imageSize
+                imageSize: imageSize,
+                barHeight: barHeight
             )
         }
 
         image.isTemplate = true
         return image
-    }
-
-    private func barY(
-        for index: Int,
-        providerCount: Int,
-        imageHeight: CGFloat
-    ) -> CGFloat {
-        guard providerCount > 1 else {
-            return (imageHeight - 4) / 2
-        }
-
-        return index == 0 ? imageHeight - 4 : 0
     }
 
     private func usageInfo(for provider: UsageProvider) -> UsageInfo {
@@ -152,16 +151,18 @@ struct MenuBarStatusView: View {
             return viewModel.chatGPT
         case .claude:
             return viewModel.claude
+        case .grok:
+            return viewModel.grok
         }
     }
 
     private func drawBar(
         atY y: CGFloat,
         info: UsageInfo,
-        imageSize: NSSize
+        imageSize: NSSize,
+        barHeight: CGFloat
     ) {
         let percent = min(max(info.sessionPercent, 0), 100)
-        let barHeight: CGFloat = 4
         let barWidth = imageSize.width
 
         NSColor.black.withAlphaComponent(0.55).setFill()
@@ -201,13 +202,19 @@ struct MenuBarStatusView: View {
             accessibilityBar(label: "ChatGPT", info: viewModel.chatGPT)
         case .claude:
             accessibilityBar(label: "Claude", info: viewModel.claude)
+        case .grok:
+            accessibilityBar(label: "Grok", info: viewModel.grok)
         }
     }
 
     private func accessibilityBar(label: String, info: UsageInfo) -> some View {
-        Rectangle()
+        let barHeight = MenuBarStatusLayout.barHeight(
+            providerCount: providerVisibility.visibleProviders.count
+        )
+
+        return Rectangle()
             .fill(.clear)
-            .frame(width: 24, height: 4)
+            .frame(width: menuBarImageSize.width, height: barHeight)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(label) 剩餘用量")
             .accessibilityValue(

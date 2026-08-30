@@ -24,11 +24,13 @@ struct WebCredential: Equatable {
 enum WebLoginProvider {
     case claude
     case chatGPT
+    case grok
 
     var displayName: String {
         switch self {
         case .claude: return "Claude"
         case .chatGPT: return "ChatGPT"
+        case .grok: return "Grok"
         }
     }
 
@@ -38,6 +40,8 @@ enum WebLoginProvider {
             return URL(string: "https://claude.ai/login")!
         case .chatGPT:
             return URL(string: "https://chatgpt.com/auth/login")!
+        case .grok:
+            return URL(string: "https://grok.com/")!
         }
     }
 
@@ -65,6 +69,8 @@ enum WebLoginProvider {
                 ],
                 domainMatcher: { WebSessionProvider.chatGPT.matches($0) }
             )
+        case .grok:
+            return GrokService.credential(from: cookies)
         }
     }
 }

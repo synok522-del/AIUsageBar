@@ -49,6 +49,16 @@ struct AIUsageBarApp: App {
                         await model.refreshAll()
                     }
                 }
+            },
+            onLoginGrok: { [weak coordinator] in
+                coordinator?.showGrokLogin { credential in
+                    model.setGrokCredential(credential)
+                    model.statusMessage = "Grok 登入成功"
+
+                    Task {
+                        await model.refreshAll()
+                    }
+                }
             }
         )
     }

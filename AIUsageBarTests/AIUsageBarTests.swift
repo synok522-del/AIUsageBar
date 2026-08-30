@@ -397,6 +397,14 @@ struct AIUsageBarTests {
         #expect(WebSessionProvider.chatGPT.matches("notchatgpt.com") == false)
         #expect(WebSessionProvider.chatGPT.matches("chatgpt.com.evil") == false)
         #expect(WebSessionProvider.claude.matches("anthropic.com.evil") == false)
+        #expect(WebSessionProvider.grok.matches("grok.com"))
+        #expect(WebSessionProvider.grok.matches("accounts.x.ai"))
+        #expect(WebSessionProvider.grok.matches("x.ai"))
+        #expect(WebSessionProvider.grok.matches("x.com") == false)
+        #expect(WebSessionProvider.grok.matches("notgrok.com") == false)
+        #expect(WebSessionProvider.matchesGrokProductHost("grok.com"))
+        #expect(WebSessionProvider.matchesGrokProductHost("x.ai") == false)
+        #expect(WebSessionProvider.matchesGrokProductHost("x.com") == false)
     }
 
     @Test("Refresh timestamp updates only after a provider succeeds")
@@ -418,6 +426,20 @@ struct AIUsageBarTests {
                 claudeSucceeded: false,
                 chatGPTSucceeded: true
             )
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldUpdateLastUpdated(
+                claudeSucceeded: false,
+                chatGPTSucceeded: false,
+                grokSucceeded: true
+            )
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldUpdateLastUpdated(
+                claudeSucceeded: false,
+                chatGPTSucceeded: false,
+                grokSucceeded: false
+            ) == false
         )
     }
 
@@ -927,6 +949,47 @@ struct AIUsageBarTests {
         )
     }
 
+    @Test("Grok login URL and display name are product-scoped")
+    func grokLoginProviderUsesGrokDotCom() {
+        #expect(WebLoginProvider.grok.displayName == "Grok")
+        #expect(WebLoginProvider.grok.loginURL.host == "grok.com")
+        #expect(WebLoginProvider.grok.loginURL.path == "/" || WebLoginProvider.grok.loginURL.path.isEmpty)
+    }
+
+    @Test("Grok credential extracts dummy sso and optional sso-rw")
+    func grokCredentialExtractsSsoAndOptionalSsoRw() throws {
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso-value", domain: "grok.com"))
+        let ssoRw = try #require(cookie(name: "sso-rw", value: "dummy-sso-rw-value", domain: "grok.com"))
+        let unrelated = try #require(cookie(name: "sso", value: "dummy-x-sso", domain: "x.com"))
+
+        let withBoth = try #require(WebLoginProvider.grok.credential(from: [sso, ssoRw, unrelated]))
+        #expect(withBoth.cookieName == "sso")
+        #expect(withBoth.value == "dummy-sso-value")
+        #expect(withBoth.cookieHeader == "sso=dummy-sso-value; sso-rw=dummy-sso-rw-value")
+
+        let ssoOnly = try #require(WebLoginProvider.grok.credential(from: [sso]))
+        #expect(ssoOnly.value == "dummy-sso-value")
+        #expect(ssoOnly.cookieHeader == "sso=dummy-sso-value")
+
+        let emptySSO = try #require(cookie(name: "sso", value: "", domain: "grok.com"))
+        #expect(WebLoginProvider.grok.credential(from: [emptySSO]) == nil)
+        #expect(WebLoginProvider.grok.credential(from: [unrelated]) == nil)
+        #expect(WebLoginProvider.grok.credential(from: [ssoRw]) == nil)
+    }
+
+    @Test("Grok credential prefers grok.com over x.ai and ignores x.com")
+    func grokCredentialPrefersGrokDotCom() throws {
+        let grokSSO = try #require(cookie(name: "sso", value: "dummy-grok-sso", domain: "grok.com"))
+        let xaiSSO = try #require(cookie(name: "sso", value: "dummy-xai-sso", domain: "x.ai"))
+        let xcomSSO = try #require(cookie(name: "sso", value: "dummy-xcom-sso", domain: "x.com"))
+
+        let preferred = try #require(GrokService.credential(from: [xaiSSO, grokSSO, xcomSSO]))
+        #expect(preferred.value == "dummy-grok-sso")
+
+        let xaiOnly = try #require(GrokService.credential(from: [xaiSSO, xcomSSO]))
+        #expect(xaiOnly.value == "dummy-xai-sso")
+        #expect(GrokService.credential(from: [xcomSSO]) == nil)
+    }
     private func cookie(
         name: String,
         value: String,

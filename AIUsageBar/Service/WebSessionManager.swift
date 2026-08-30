@@ -15,6 +15,7 @@ private let logger = Logger(
 enum WebSessionProvider {
     case claude
     case chatGPT
+    case grok
 
     var displayName: String {
         switch self {
@@ -22,6 +23,8 @@ enum WebSessionProvider {
             "Claude"
         case .chatGPT:
             "ChatGPT"
+        case .grok:
+            "Grok"
         }
     }
 
@@ -33,7 +36,14 @@ enum WebSessionProvider {
         case .chatGPT:
             return Self.matchesDomain(value, domain: "chatgpt.com") ||
                 Self.matchesDomain(value, domain: "openai.com")
+        case .grok:
+            return Self.matchesDomain(value, domain: "grok.com") ||
+                Self.matchesDomain(value, domain: "x.ai")
         }
+    }
+
+    static func matchesGrokProductHost(_ value: String) -> Bool {
+        matchesDomain(value, domain: "grok.com")
     }
 
     private static func matchesDomain(_ value: String, domain: String) -> Bool {

@@ -2,6 +2,7 @@
 //  UsageViewModel.swift
 //  AIUsageBar
 //
+//
 
 import Combine
 import Foundation
@@ -13,6 +14,8 @@ final class UsageViewModel: ObservableObject {
         static let claudeSessionKey = "claudeSessionKey"
         static let chatGPTSessionToken = "chatGPTSessionToken"
         static let chatGPTCookieHeader = "chatGPTCookieHeader"
+        static let grokSessionToken = "grokSessionToken"
+        static let grokCookieHeader = "grokCookieHeader"
 
         // 舊版 key
         static let oldChatGPTSessionToken = "chatgptSessionToken"
@@ -21,6 +24,7 @@ final class UsageViewModel: ObservableObject {
 
     @Published var claude = UsageInfo()
     @Published var chatGPT = UsageInfo()
+    @Published var grok = UsageInfo()
     @Published var statusMessage = ""
     @Published private(set) var isLoading = false
     @Published private(set) var lastUpdated: Date?
@@ -30,11 +34,15 @@ final class UsageViewModel: ObservableObject {
 
     @Published private(set) var chatGPTSessionToken: String = ""
 
+    @Published private(set) var grokSessionToken: String = ""
+
     private var chatGPTCookieHeader = ""
+    private var grokCookieHeader = ""
 
 
     private let claudeService: ClaudeService
     private let chatGPTService: ChatGPTService
+    private let grokService: GrokService
     private let usageNotificationManager = UsageNotificationManager()
 
 
@@ -43,11 +51,13 @@ final class UsageViewModel: ObservableObject {
 
     init(
         claudeService: ClaudeService = ClaudeService(),
-        chatGPTService: ChatGPTService = ChatGPTService()
+        chatGPTService: ChatGPTService = ChatGPTService(),
+        grokService: GrokService = GrokService()
     ) {
 
         self.claudeService = claudeService
         self.chatGPTService = chatGPTService
+        self.grokService = grokService
 
         migrateToKeychain()
 
@@ -71,6 +81,23 @@ final class UsageViewModel: ObservableObject {
                 }
 
                 return "__Secure-next-auth.session-token=\(savedChatGPTToken)"
+            }()
+
+        let savedGrokToken =
+            KeychainManager.shared.read(
+                StorageKey.grokSessionToken
+            ) ?? ""
+
+        self.grokSessionToken = savedGrokToken
+        self.grokCookieHeader =
+            KeychainManager.shared.read(
+                StorageKey.grokCookieHeader
+            ) ?? {
+                guard !savedGrokToken.isEmpty else {
+                    return ""
+                }
+
+                return "sso=\(savedGrokToken)"
             }()
 
         startAutoRefresh()
@@ -213,6 +240,44 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    func setGrokSessionToken(_ value: String) {
+
+        setGrokCredential(
+            WebCredential(
+                cookieName: "sso",
+                value: value,
+                cookieHeader: "sso=\(value)"
+            )
+        )
+    }
+
+    func setGrokCredential(_ credential: WebCredential) {
+
+        grokSessionToken = credential.value
+        grokCookieHeader = credential.cookieHeader
+
+        if credential.value.isEmpty {
+
+            KeychainManager.shared.delete(
+                StorageKey.grokSessionToken
+            )
+            KeychainManager.shared.delete(
+                StorageKey.grokCookieHeader
+            )
+
+        } else {
+
+            KeychainManager.shared.save(
+                credential.value,
+                forKey: StorageKey.grokSessionToken
+            )
+            KeychainManager.shared.save(
+                credential.cookieHeader,
+                forKey: StorageKey.grokCookieHeader
+            )
+        }
+    }
+
 
 
     // MARK: - Refresh
@@ -235,20 +300,27 @@ final class UsageViewModel: ObservableObject {
             refreshChatGPT()
 
 
-        let (claudeSucceeded, chatGPTSucceeded) = await (
+        async let grokRefresh: Bool =
+            refreshGrok()
+
+
+        let (claudeSucceeded, chatGPTSucceeded, grokSucceeded) = await (
             claudeRefresh,
-            chatGPTRefresh
+            chatGPTRefresh,
+            grokRefresh
         )
 
         usageNotificationManager.evaluate(
             claude: claude,
-            chatGPT: chatGPT
+            chatGPT: chatGPT,
+            grok: grok
         )
 
 
         if UsageRefreshStatePolicy.shouldUpdateLastUpdated(
             claudeSucceeded: claudeSucceeded,
-            chatGPTSucceeded: chatGPTSucceeded
+            chatGPTSucceeded: chatGPTSucceeded,
+            grokSucceeded: grokSucceeded
         ) {
             lastUpdated = Date()
         }
@@ -418,6 +490,81 @@ final class UsageViewModel: ObservableObject {
                 chatGPT = nextState
                 let message = nextState.errorMessage ?? "更新失敗"
                 statusMessage = "ChatGPT：\(message)"
+            }
+
+            return false
+        }
+    }
+
+
+
+    // MARK: - Grok
+
+    private func refreshGrok() async -> Bool {
+
+        let token =
+        grokSessionToken
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+
+        guard !token.isEmpty else {
+
+            grok = UsageInfo(
+                errorMessage: "尚未登入"
+            )
+
+            return false
+        }
+
+
+        do {
+
+            let usage =
+            try await grokService.fetchUsage(
+                cookieHeader: grokCookieHeader.isEmpty
+                    ? "sso=\(token)"
+                    : grokCookieHeader
+            )
+
+
+            grok = UsageInfo(
+                sessionPercent:
+                    usage.sessionRemainingPercent,
+
+                weeklyPercent:
+                    usage.weeklyRemainingPercent ?? 0,
+
+                weeklyAvailable:
+                    usage.weeklyRemainingPercent != nil,
+
+                resetText:
+                    usage.resetText,
+
+                weeklyResetText:
+                    usage.weeklyResetText ?? "",
+
+                sessionWindowSeconds:
+                    usage.sessionWindowSeconds,
+
+                isLoaded: true,
+
+                errorMessage: nil
+            )
+
+            clearStatusMessage(for: "Grok")
+            return true
+
+
+        } catch {
+            if let nextState = UsageRefreshStatePolicy.state(
+                afterFailure: grok,
+                error: error
+            ) {
+                grok = nextState
+                let message = nextState.errorMessage ?? "更新失敗"
+                statusMessage = "Grok：\(message)"
             }
 
             return false

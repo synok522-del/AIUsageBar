@@ -23,20 +23,67 @@ enum ServiceSupport {
             throw AIUsageServiceError.invalidResponse(serviceName)
         }
 
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw AIUsageServiceError.httpStatus(
-                serviceName,
-                httpResponse.statusCode
-            )
-        }
+        try validateHTTPResponse(
+            statusCode: httpResponse.statusCode,
+            contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
+            data: data,
+            serviceName: serviceName
+        )
 
         return data
+    }
+
+    static func validateHTTPResponse(
+        statusCode: Int,
+        contentType: String?,
+        data: Data,
+        serviceName: String
+    ) throws {
+        if statusCode == 401 {
+            throw AIUsageServiceError.httpStatus(serviceName, 401)
+        }
+
+        if isNonJSONResponse(contentType: contentType, data: data) {
+            throw AIUsageServiceError.wafBlocked(serviceName)
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            throw AIUsageServiceError.httpStatus(serviceName, statusCode)
+        }
+    }
+
+    static func isNonJSONResponse(contentType: String?, data: Data) -> Bool {
+        let type = (contentType ?? "").lowercased()
+        if type.contains("text/html") || type.contains("application/xhtml") {
+            return true
+        }
+
+        let prefix = String(data: data.prefix(512), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+
+        if prefix.hasPrefix("<!doctype html") ||
+            prefix.hasPrefix("<html") ||
+            prefix.hasPrefix("<head") {
+            return true
+        }
+
+        if prefix.contains("cloudflare") &&
+            (prefix.contains("<html") || prefix.contains("attention required") || prefix.contains("just a moment")) {
+            return true
+        }
+
+        return false
     }
 
     static func jsonObject(
         from data: Data,
         serviceName: String
     ) throws -> [String: Any] {
+
+        if isNonJSONResponse(contentType: nil, data: data) {
+            throw AIUsageServiceError.wafBlocked(serviceName)
+        }
 
         guard let object =
             try? JSONSerialization.jsonObject(with: data)
@@ -157,12 +204,37 @@ enum ServiceSupport {
                     formatter.formatOptions = [.withInternetDateTime]
                     return formatter.date(from: string)
                 }()
+                ?? posixDate(from: string)
         }
 
         return nil
     }
 
-    private static func parsedNumber(_ value: Any?) -> Double? {
+
+    private static func posixDate(from string: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let formats = [
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+        ]
+
+        for format in formats {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: string) {
+                return date
+            }
+        }
+
+        return nil
+    }
+
+    static func parsedNumber(_ value: Any?) -> Double? {
         let number: Double?
 
         if let value = value as? NSNumber {
@@ -208,6 +280,7 @@ enum AIUsageServiceError: LocalizedError {
     case httpStatus(String, Int)
     case invalidPayload(String)
     case missingValue(String)
+    case wafBlocked(String)
 
     var errorDescription: String? {
 
@@ -241,6 +314,9 @@ enum AIUsageServiceError: LocalizedError {
 
         case .missingValue(let message):
             return message
+
+        case .wafBlocked(let service):
+            return "\(service) 被網站防護擋下，請稍後再試"
         }
     }
 }

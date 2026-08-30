@@ -510,6 +510,96 @@ struct AIUsageBarTests {
         )
     }
 
+    @Test("Grok low usage notification triggers once at 20 percent")
+    func grokLowUsageNotificationTriggersOnceAtTwentyPercent() {
+        var state = UsageNotificationState()
+
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 10,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+    }
+
+    @Test("Grok notification recovery above 20 percent re-arms")
+    func grokNotificationRecoveryRearms() {
+        var state = UsageNotificationState()
+
+        _ = state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        )
+        _ = state.shouldNotify(
+            for: .grok,
+            remainingPercent: 15,
+            isLoaded: true,
+            hasError: false
+        )
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 50,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+    }
+
+    @Test("Grok notification is independent of Claude and ChatGPT")
+    func grokNotificationIsIndependentOfOtherProviders() {
+        var state = UsageNotificationState()
+
+        _ = state.shouldNotify(
+            for: .claude,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        )
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 10,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+    }
+
     @Test("ServiceSupport.percent clamps and rounds values")
     func percentCoversBoundaryNumericAndInvalidValues() {
         #expect(ServiceSupport.percent(0) == 0)

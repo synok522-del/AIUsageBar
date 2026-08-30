@@ -990,6 +990,164 @@ struct AIUsageBarTests {
         #expect(xaiOnly.value == "dummy-xai-sso")
         #expect(GrokService.credential(from: [xcomSSO]) == nil)
     }
+
+    @Test("Grok rate-limits live shape 140/140/7200 is 100 percent")
+    func grokRateLimitsLiveShapeParsesToFullRemaining() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 140,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200,
+            "lowEffortRateLimits": NSNull(),
+            "highEffortRateLimits": NSNull()
+        ])
+
+        #expect(parsed.remainingPercent == 100)
+        #expect(parsed.windowSeconds == 7200)
+        #expect(GrokService.sessionRowLabel(windowSeconds: parsed.windowSeconds) == "2 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 0) == "短窗")
+    }
+
+    @Test("Grok remaining percent prefers totalTokens over totalQueries")
+    func grokRateLimitsPrefersTotalTokens() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 25,
+            "totalTokens": 100,
+            "totalQueries": 50,
+            "windowSizeSeconds": 3600
+        ])
+
+        #expect(parsed.remainingPercent == 25)
+        #expect(parsed.windowSeconds == 3600)
+    }
+
+    @Test("Grok remaining percent uses totalQueries when totalTokens is absent")
+    func grokRateLimitsFallsBackToTotalQueries() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 70,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+
+        #expect(parsed.remainingPercent == 50)
+    }
+
+    @Test("Grok missing or zero denominator does not invent a percent")
+    func grokRateLimitsRejectsMissingOrZeroDenominator() {
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([
+                "remainingQueries": 140
+            ])
+        }
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([
+                "remainingQueries": 140,
+                "totalQueries": 0,
+                "windowSizeSeconds": 7200
+            ])
+        }
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([
+                "remainingQueries": 140,
+                "totalTokens": 0,
+                "totalQueries": 140
+            ])
+        }
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([:])
+        }
+    }
+
+    @Test("Grok zero remaining percent is a valid parsed payload")
+    func grokZeroRemainingPercentIsValid() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 0,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+
+        #expect(parsed.remainingPercent == 0)
+        #expect(parsed.windowSeconds == 7200)
+    }
+
+    @Test("HTML or Cloudflare bodies become a WAF error")
+    func htmlBodiesBecomeWAFError() {
+        let html = Data("<!DOCTYPE html><html><body>Just a moment</body></html>".utf8)
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 200,
+                contentType: "text/html; charset=utf-8",
+                data: html,
+                serviceName: "Grok"
+            )
+            Issue.record("expected WAF error for 200 HTML")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+        } catch {
+            Issue.record("unexpected error type for 200 HTML")
+        }
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 403,
+                contentType: "text/html",
+                data: html,
+                serviceName: "Grok"
+            )
+            Issue.record("expected WAF error for 403 HTML")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+        } catch {
+            Issue.record("unexpected error type for 403 HTML")
+        }
+
+        do {
+            _ = try ServiceSupport.jsonObject(from: html, serviceName: "Grok")
+            Issue.record("expected WAF error for HTML jsonObject")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+        } catch {
+            Issue.record("unexpected error type for HTML jsonObject")
+        }
+    }
+
+    @Test("HTTP 401 remains an auth error even when the body is HTML")
+    func http401RemainsAuthError() {
+        let html = Data("<html><body>login</body></html>".utf8)
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 401,
+                contentType: "text/html",
+                data: html,
+                serviceName: "Grok"
+            )
+            Issue.record("expected 401 auth error")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 登入已失效，請重新登入")
+        } catch {
+            Issue.record("unexpected error type for 401")
+        }
+    }
+
+    @Test("JSON 403 stays a permission error rather than WAF")
+    func json403StaysPermissionError() {
+        let json = Data("{\"error\":true}".utf8)
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 403,
+                contentType: "application/json",
+                data: json,
+                serviceName: "Grok"
+            )
+            Issue.record("expected 403 permission error")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 沒有權限，請重新登入")
+        } catch {
+            Issue.record("unexpected error type for JSON 403")
+        }
+    }
     private func cookie(
         name: String,
         value: String,

@@ -315,6 +315,129 @@ struct AIUsageBarTests {
         #expect(policy.menuBarHelpText == "AIUsageBar")
     }
 
+    @Test("Welcome stays hidden when only Grok is logged in")
+    func welcomeStaysHiddenWhenOnlyGrokIsLoggedIn() {
+        #expect(WelcomePresentationPolicy(
+            isClaudeLoggedIn: false,
+            isChatGPTLoggedIn: false,
+            isGrokLoggedIn: true,
+            isSuppressedForCurrentSession: false
+        ).shouldShow == false)
+    }
+
+    @Test("Provider visibility shows only authenticated Grok")
+    func providerVisibilityShowsOnlyAuthenticatedGrok() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: false,
+            isGrokAuthenticated: true
+        )
+
+        #expect(policy.visibleProviders == [.grok])
+        #expect(policy.isVisible(.grok))
+        #expect(policy.isVisible(.chatGPT) == false)
+        #expect(policy.isVisible(.claude) == false)
+        #expect(policy.shouldShowSetupState == false)
+    }
+
+    @Test("Provider visibility order is ChatGPT then Claude then Grok")
+    func providerVisibilityOrderIsChatGPTClaudeGrok() {
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: true,
+                isClaudeAuthenticated: true,
+                isGrokAuthenticated: true
+            ).visibleProviders == [.chatGPT, .claude, .grok]
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: true,
+                isClaudeAuthenticated: false,
+                isGrokAuthenticated: true
+            ).visibleProviders == [.chatGPT, .grok]
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: false,
+                isClaudeAuthenticated: true,
+                isGrokAuthenticated: true
+            ).visibleProviders == [.claude, .grok]
+        )
+    }
+
+    @Test("Unauthenticated Grok is hidden")
+    func unauthenticatedGrokIsHidden() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: true,
+            isGrokAuthenticated: false
+        )
+
+        #expect(policy.isVisible(.grok) == false)
+        #expect(policy.visibleProviders == [.chatGPT, .claude])
+    }
+
+    @Test("Zero remaining Grok does not hide authenticated Grok")
+    func zeroRemainingGrokDoesNotHideAuthenticatedGrok() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: false,
+            isGrokAuthenticated: true
+        )
+        let grok = UsageInfo(sessionPercent: 0, weeklyPercent: 0, isLoaded: true)
+
+        #expect(grok.sessionPercent == 0)
+        #expect(policy.isVisible(.grok))
+        #expect(policy.visibleProviders == [.grok])
+    }
+
+    @Test("Fetch failure does not hide authenticated Grok")
+    func fetchFailureDoesNotHideAuthenticatedGrok() {
+        let policy = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "",
+            claudeSessionKey: "",
+            grokSessionToken: "configured"
+        )
+        let failed = UsageRefreshStatePolicy.state(
+            afterFailure: UsageInfo(sessionPercent: 40, isLoaded: true),
+            error: URLError(.timedOut)
+        )
+
+        #expect(failed?.isLoaded == true)
+        #expect(failed?.sessionPercent == 40)
+        #expect(failed?.errorMessage != nil)
+        #expect(policy.isVisible(.grok))
+    }
+
+    @Test("Logging out Grok does not hide ChatGPT or Claude")
+    func loggingOutGrokDoesNotHideChatGPTOrClaude() {
+        let before = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "chatgpt",
+            claudeSessionKey: "claude",
+            grokSessionToken: "grok"
+        )
+        let after = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "chatgpt",
+            claudeSessionKey: "claude",
+            grokSessionToken: ""
+        )
+
+        #expect(before.visibleProviders == [.chatGPT, .claude, .grok])
+        #expect(after.visibleProviders == [.chatGPT, .claude])
+        #expect(after.isVisible(.grok) == false)
+        #expect(after.isVisible(.chatGPT))
+        #expect(after.isVisible(.claude))
+    }
+
+    @Test("Grok window label uses seconds not a hardcoded five hours")
+    func grokWindowLabelUsesSecondsNotHardcodedFiveHours() {
+        #expect(GrokService.sessionRowLabel(windowSeconds: 7200) == "2 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 18000) == "5 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3600) == "1 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 0) == "短窗")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 7200) != "5 小時")
+    }
+
     @Test("ServiceSupport.percent clamps and rounds values")
     func percentCoversBoundaryNumericAndInvalidValues() {
         #expect(ServiceSupport.percent(0) == 0)

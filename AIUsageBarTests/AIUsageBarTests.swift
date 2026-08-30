@@ -438,6 +438,78 @@ struct AIUsageBarTests {
         #expect(GrokService.sessionRowLabel(windowSeconds: 7200) != "5 小時")
     }
 
+    @Test("Menu bar layout is 24 by 10 with 4px bars for one or two providers")
+    func menuBarLayoutUsesTwoBarMetricsForOneOrTwoProviders() {
+        #expect(MenuBarStatusLayout.imageSize(providerCount: 0) == (24, 10))
+        #expect(MenuBarStatusLayout.imageSize(providerCount: 1) == (24, 10))
+        #expect(MenuBarStatusLayout.imageSize(providerCount: 2) == (24, 10))
+        #expect(MenuBarStatusLayout.barHeight(providerCount: 0) == 4)
+        #expect(MenuBarStatusLayout.barHeight(providerCount: 1) == 4)
+        #expect(MenuBarStatusLayout.barHeight(providerCount: 2) == 4)
+        #expect(
+            MenuBarStatusLayout.barY(
+                index: 0,
+                providerCount: 1,
+                imageHeight: 10,
+                barHeight: 4
+            ) == 3
+        )
+    }
+
+    @Test("Menu bar layout is 24 by 16 with 3px bars for three providers")
+    func menuBarLayoutUsesThreeBarMetricsForThreeProviders() {
+        #expect(MenuBarStatusLayout.imageSize(providerCount: 3) == (24, 16))
+        #expect(MenuBarStatusLayout.barHeight(providerCount: 3) == 3)
+        #expect(
+            MenuBarStatusLayout.barY(
+                index: 0,
+                providerCount: 3,
+                imageHeight: 16,
+                barHeight: 3
+            ) == 13
+        )
+        #expect(
+            MenuBarStatusLayout.barY(
+                index: 2,
+                providerCount: 3,
+                imageHeight: 16,
+                barHeight: 3
+            ) == 0
+        )
+    }
+
+    @Test("Menu bar help text covers Grok-only and every pair plus all three")
+    func menuBarHelpTextCoversGrokCombinations() {
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: false,
+                isClaudeAuthenticated: false,
+                isGrokAuthenticated: true
+            ).menuBarHelpText == "Grok 剩餘用量"
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: true,
+                isClaudeAuthenticated: false,
+                isGrokAuthenticated: true
+            ).menuBarHelpText == "ChatGPT 與 Grok 剩餘用量"
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: false,
+                isClaudeAuthenticated: true,
+                isGrokAuthenticated: true
+            ).menuBarHelpText == "Claude 與 Grok 剩餘用量"
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: true,
+                isClaudeAuthenticated: true,
+                isGrokAuthenticated: true
+            ).menuBarHelpText == "ChatGPT、Claude 與 Grok 剩餘用量"
+        )
+    }
+
     @Test("ServiceSupport.percent clamps and rounds values")
     func percentCoversBoundaryNumericAndInvalidValues() {
         #expect(ServiceSupport.percent(0) == 0)

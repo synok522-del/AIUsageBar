@@ -15,7 +15,7 @@ review/17f-006-grok-integration
 545a1d0bdbb79f4b06d3456ea4f96fd5136a550e
 
 ## Ending SHA
-see git rev-parse HEAD on this branch (filled after commit)
+9f3998d504d5afa6157dce3a0e134e3d57820b3a
 
 ## Files changed
 - AIUsageBar/Service/GrokService.swift

@@ -24,7 +24,7 @@ origin/main `b1fcda95150592dbb28d7790a3126c0d06ff72de`
 | 17F-004 | PASS (source) | review/17f-004-grok-provider | ee423c556a2442270d5619d3027f9fd3d9021581 | https://github.com/synok522-del/AIUsageBar/tree/review/17f-004-grok-provider |
 | 17F-005 | PASS (source) | review/17f-005-grok-menubar | f6bf996b8eb618bce52df67787302ec7d07801ff | https://github.com/synok522-del/AIUsageBar/tree/review/17f-005-grok-menubar |
 | 17F-006 | PASS (source) | review/17f-006-grok-integration | 545a1d0bdbb79f4b06d3456ea4f96fd5136a550e | https://github.com/synok522-del/AIUsageBar/tree/review/17f-006-grok-integration |
-| 17F-007 | PASS (source) | review/17f-007-grok-review-fixes | this branch | https://github.com/synok522-del/AIUsageBar/tree/review/17f-007-grok-review-fixes |
+| 17F-007 | PASS (source) | review/17f-007-grok-review-fixes | 9f3998d504d5afa6157dce3a0e134e3d57820b3a | https://github.com/synok522-del/AIUsageBar/tree/review/17f-007-grok-review-fixes |
 
 ## Starting origin/main SHA
 b1fcda95150592dbb28d7790a3126c0d06ff72de

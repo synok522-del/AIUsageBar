@@ -10,7 +10,9 @@ review/17f-003-grok-usage
 f7f500aa7e60d1d7f178b48c9e7959a904a3375b
 
 ## Ending SHA
-96151655cbc8fea3a9be98275ae8f492706ed298
+ee423c556a2442270d5619d3027f9fd3d9021581
+
+SHA correction (17F-007): the previously recorded Ending SHA `96151655cbc8fea3a9be98275ae8f492706ed298` was not the `review/17f-004-grok-provider` tip. The actual branch tip is `ee423c556a2442270d5619d3027f9fd3d9021581`.
 
 ## Files changed
 - AIUsageBarTests/AIUsageBarTests.swift (Grok visibility / welcome / logout isolation / window label)

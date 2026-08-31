@@ -1,4 +1,4 @@
-# FINAL INTEGRATION REPORT — Grok 17F-002 → 17F-006
+# FINAL INTEGRATION REPORT — Grok 17F-002 → 17F-007
 
 **Date:** 2026-08-31 (Asia/Taipei)
 **GitHub Push to main:** NO
@@ -12,7 +12,8 @@ origin/main `b1fcda95150592dbb28d7790a3126c0d06ff72de`
 → review/17f-003-grok-usage `f7f500aa7e60d1d7f178b48c9e7959a904a3375b`
 → review/17f-004-grok-provider `ee423c556a2442270d5619d3027f9fd3d9021581`
 → review/17f-005-grok-menubar `f6bf996b8eb618bce52df67787302ec7d07801ff`
-→ review/17f-006-grok-integration (this branch tip)
+→ review/17f-006-grok-integration `545a1d0bdbb79f4b06d3456ea4f96fd5136a550e`
+→ review/17f-007-grok-review-fixes (this branch tip)
 
 ## Result by task
 
@@ -22,7 +23,8 @@ origin/main `b1fcda95150592dbb28d7790a3126c0d06ff72de`
 | 17F-003 | PASS (source) | review/17f-003-grok-usage | f7f500aa7e60d1d7f178b48c9e7959a904a3375b | https://github.com/synok522-del/AIUsageBar/tree/review/17f-003-grok-usage |
 | 17F-004 | PASS (source) | review/17f-004-grok-provider | ee423c556a2442270d5619d3027f9fd3d9021581 | https://github.com/synok522-del/AIUsageBar/tree/review/17f-004-grok-provider |
 | 17F-005 | PASS (source) | review/17f-005-grok-menubar | f6bf996b8eb618bce52df67787302ec7d07801ff | https://github.com/synok522-del/AIUsageBar/tree/review/17f-005-grok-menubar |
-| 17F-006 | PASS (source) | review/17f-006-grok-integration | this branch | https://github.com/synok522-del/AIUsageBar/tree/review/17f-006-grok-integration |
+| 17F-006 | PASS (source) | review/17f-006-grok-integration | 545a1d0bdbb79f4b06d3456ea4f96fd5136a550e | https://github.com/synok522-del/AIUsageBar/tree/review/17f-006-grok-integration |
+| 17F-007 | PASS (source) | review/17f-007-grok-review-fixes | this branch | https://github.com/synok522-del/AIUsageBar/tree/review/17f-007-grok-review-fixes |
 
 ## Starting origin/main SHA
 b1fcda95150592dbb28d7790a3126c0d06ff72de
@@ -38,19 +40,22 @@ YES
 [x] PASS  [ ] NOT VERIFIED  [!] FAIL
 
 ### GROK AUTHENTICATION
-[x] Grok independently logs in. (WKWebView grok.com + sso / sso-rw; live Mac session still human)
-[x] Grok authenticated state is recognized correctly.
-[x] Grok session persists appropriately. (Keychain grokSessionToken + grokCookieHeader)
-[x] Grok independently logs out.
-[x] Grok logout does not affect ChatGPT.
-[x] Grok logout does not affect Claude.
+[ ] NOT VERIFIED — real macOS Grok login. (WKWebView grok.com + sso / sso-rw is implemented; live session not tested)
+[x] Grok authenticated state is recognized correctly. (source: grok.com `sso` required)
+[ ] NOT VERIFIED — session persistence after restart
+[ ] NOT VERIFIED — real logout
+[ ] NOT VERIFIED — logout isolation against live ChatGPT sessions
+[ ] NOT VERIFIED — logout isolation against live Claude sessions
 [x] No sensitive credential value appears in logs/reports.
+[x] Consumer Grok auth defaults to grok.com. x.ai-only `sso` is not sufficient. x.com excluded. (17F-007)
 
 ### GROK USAGE
-[x] Real consumer Grok usage is retrieved. (POST grok.com/rest/rate-limits `{modelName:grok-3}`)
-[x] Usage comes from grok.com consumer quota.
-[x] Remaining usage is calculated correctly. (`remainingQueries / (totalTokens ?? totalQueries)`)
-[x] Actual server window duration is represented correctly.
+[ ] NOT VERIFIED — live quota comparison vs grok.com remaining numbers
+[x] Usage fetch path is grok.com consumer quota. (POST grok.com/rest/rate-limits `{modelName:grok-3}`)
+[x] Remaining usage is calculated correctly. (`remainingQueries / totalQueries`; never query/token)
+[ ] NOT VERIFIED — Fast vs grok-3 (do not assume they are the same)
+[x] Window label uses `windowSizeSeconds`. Sub-hour windows are not rounded to 1 hour.
+[x] No fabricated absolute reset time from `now + windowSizeSeconds`.
 [x] Missing/invalid quota does not fabricate percentage.
 [x] Authentication failure is handled.
 [x] Network/server failure is handled.
@@ -75,15 +80,15 @@ YES
 [x] ChatGPT + Claude works.
 [x] ChatGPT + Grok works.
 [x] Claude + Grok works.
-[x] All three work.
-[x] Provider order is correct.
+[ ] NOT VERIFIED — real three-bar appearance
+[x] Provider order is correct. (source layout)
 [x] Grok 0% renders correctly. (policy + existing min-2px fill)
 [x] Grok 100% renders correctly. (parser 140/140)
 
 ### NOTIFICATIONS
-[x] Grok participates in the 20% alert.
-[x] Threshold crossing works.
-[x] Refresh does not spam notifications.
+[ ] NOT VERIFIED — real 20% notification
+[x] Threshold crossing works. (source)
+[x] Refresh does not spam notifications. (source)
 
 ### REGRESSION
 [x] ChatGPT authentication works. (unchanged path)
@@ -106,6 +111,7 @@ YES
 [x] 17F-004 report exists.
 [x] 17F-005 report exists.
 [x] 17F-006 report exists.
+[x] 17F-007 review-fix report exists.
 [x] Final integration report exists.
 
 ### GITHUB
@@ -114,6 +120,7 @@ YES
 [x] 17F-004 branch pushed.
 [x] 17F-005 branch pushed.
 [x] 17F-006 branch pushed.
+[x] 17F-007 review-fix branch pushed. (this round)
 [x] Exact GitHub URL for every branch recorded.
 [x] origin/main unchanged.
 [x] Nothing merged to main.
@@ -128,12 +135,15 @@ NOT RUN
 ## Release Build
 NOT RUN
 
-## Human verification still required
-- Real WKWebView Grok login on a Mac.
-- Live remaining numbers vs grok.com; do not assume Fast == grok-3.
-- Independent Grok logout vs ChatGPT/Claude.
-- Visual 1/2/3 menu bars, including 0% and 100%.
-- 20% notification on a real drop.
+## Human verification still required (NOT VERIFIED)
+- Real macOS Grok login
+- Real logout
+- Live quota comparison vs grok.com
+- Session persistence
+- Fast vs grok-3 (do not assume they are the same)
+- Real three-bar appearance
+- Real 20% notification
+- Logout isolation against live ChatGPT/Claude sessions
 - `xcodebuild` Debug test + Release on:
   `/Users/kennyhung/Desktop/06_個人檔案/PROJECT/AIUsageBar/AIUsageBar`
 
@@ -146,10 +156,10 @@ NOT RUN
 NONE (Mac xcodebuild is unverified, not an architecture blocker)
 
 ## Final GitHub Review Branch
-review/17f-006-grok-integration
+review/17f-007-grok-review-fixes
 
 ## Final Branch URL
-https://github.com/synok522-del/AIUsageBar/tree/review/17f-006-grok-integration
+https://github.com/synok522-del/AIUsageBar/tree/review/17f-007-grok-review-fixes
 
 ## Final Status
-READY_FOR_CODEX_AND_CLAUDE_REVIEW
+READY_FOR_REVIEW_RECHECK

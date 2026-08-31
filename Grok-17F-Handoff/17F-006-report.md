@@ -10,7 +10,7 @@ review/17f-005-grok-menubar
 f6bf996b8eb618bce52df67787302ec7d07801ff
 
 ## Ending SHA
-see git rev-parse HEAD on this branch
+545a1d0bdbb79f4b06d3456ea4f96fd5136a550e
 
 ## Files changed
 - AIUsageBarTests/AIUsageBarTests.swift (Grok 20% notify / no-spam / recovery / independence)

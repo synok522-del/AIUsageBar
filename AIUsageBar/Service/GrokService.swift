@@ -3,10 +3,6 @@ import Foundation
 struct GrokService {
     private let webBaseURL = URL(string: "https://grok.com")!
 
-    func fetchUsage(sessionToken: String) async throws -> GrokUsage {
-        try await fetchUsage(cookieHeader: "sso=\(sessionToken)")
-    }
-
     func fetchUsage(cookieHeader: String) async throws -> GrokUsage {
         let rateLimits = try await fetchRateLimits(cookieHeader: cookieHeader)
         let session = try Self.parseRateLimits(rateLimits)
@@ -29,28 +25,20 @@ struct GrokService {
             throw AIUsageServiceError.invalidPayload("Grok remainingQueries")
         }
 
-        let total = ServiceSupport.parsedNumber(usage["totalTokens"])
-            ?? ServiceSupport.parsedNumber(usage["totalQueries"])
+        let totalQueries = ServiceSupport.parsedNumber(usage["totalQueries"])
 
-        guard let total, total > 0 else {
-            throw AIUsageServiceError.invalidPayload("Grok totalTokens/totalQueries")
+        guard let totalQueries, totalQueries > 0 else {
+            throw AIUsageServiceError.invalidPayload("Grok totalQueries")
         }
 
-        let remainingPercent = ServiceSupport.percent((remaining / total) * 100)
+        let remainingPercent = ServiceSupport.percent((remaining / totalQueries) * 100)
         let windowSeconds = Int(
             ServiceSupport.parsedNumber(usage["windowSizeSeconds"])?.rounded() ?? 0
         )
 
-        let resetText: String
-        if windowSeconds > 0 {
-            resetText = ServiceSupport.resetText(
-                Date().timeIntervalSince1970 + Double(windowSeconds)
-            )
-        } else {
-            resetText = ServiceSupport.resetText(
-                usage["resetAt"] ?? usage["reset_at"]
-            )
-        }
+        let resetText = ServiceSupport.resetText(
+            usage["resetAt"] ?? usage["reset_at"]
+        )
 
         return (remainingPercent, resetText, max(0, windowSeconds))
     }
@@ -60,8 +48,25 @@ struct GrokService {
             return "短窗"
         }
 
-        let hours = max(1, Int((Double(windowSeconds) / 3600.0).rounded()))
-        return "\(hours) 小時"
+        let hours = windowSeconds / 3600
+        let minutes = (windowSeconds % 3600) / 60
+        let seconds = windowSeconds % 60
+
+        if hours > 0 {
+            if minutes == 0 {
+                return "\(hours) 小時"
+            }
+            return "\(hours) 小時 \(minutes) 分鐘"
+        }
+
+        if minutes > 0 {
+            if seconds == 0 {
+                return "\(minutes) 分鐘"
+            }
+            return "\(minutes) 分鐘 \(seconds) 秒"
+        }
+
+        return "\(seconds) 秒"
     }
 
     static func ssoToken(from cookieHeader: String) -> String? {
@@ -83,11 +88,9 @@ struct GrokService {
     }
 
     static func credential(from cookies: [HTTPCookie]) -> WebCredential? {
-        let matching = cookies.filter { WebSessionProvider.grok.matches($0.domain) }
-        let preferred = matching.filter {
+        let pool = cookies.filter {
             WebSessionProvider.matchesGrokProductHost($0.domain)
         }
-        let pool = preferred.isEmpty ? matching : preferred
 
         guard let sso = pool.first(where: { $0.name == "sso" && !$0.value.isEmpty }) else {
             return nil

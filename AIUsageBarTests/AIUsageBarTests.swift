@@ -434,8 +434,15 @@ struct AIUsageBarTests {
         #expect(GrokService.sessionRowLabel(windowSeconds: 7200) == "2 小時")
         #expect(GrokService.sessionRowLabel(windowSeconds: 18000) == "5 小時")
         #expect(GrokService.sessionRowLabel(windowSeconds: 3600) == "1 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 1800) == "30 分鐘")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 90) == "1 分鐘 30 秒")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 45) == "45 秒")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3599) == "59 分鐘 59 秒")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 5400) == "1 小時 30 分鐘")
         #expect(GrokService.sessionRowLabel(windowSeconds: 0) == "短窗")
         #expect(GrokService.sessionRowLabel(windowSeconds: 7200) != "5 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 1800) != "1 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3599) != "1 小時")
     }
 
     @Test("Menu bar layout is 24 by 10 with 4px bars for one or two providers")
@@ -683,8 +690,9 @@ struct AIUsageBarTests {
         #expect(WebSessionProvider.chatGPT.matches("chatgpt.com.evil") == false)
         #expect(WebSessionProvider.claude.matches("anthropic.com.evil") == false)
         #expect(WebSessionProvider.grok.matches("grok.com"))
-        #expect(WebSessionProvider.grok.matches("accounts.x.ai"))
-        #expect(WebSessionProvider.grok.matches("x.ai"))
+        #expect(WebSessionProvider.grok.matches("accounts.grok.com"))
+        #expect(WebSessionProvider.grok.matches("accounts.x.ai") == false)
+        #expect(WebSessionProvider.grok.matches("x.ai") == false)
         #expect(WebSessionProvider.grok.matches("x.com") == false)
         #expect(WebSessionProvider.grok.matches("notgrok.com") == false)
         #expect(WebSessionProvider.matchesGrokProductHost("grok.com"))
@@ -1262,7 +1270,7 @@ struct AIUsageBarTests {
         #expect(WebLoginProvider.grok.credential(from: [ssoRw]) == nil)
     }
 
-    @Test("Grok credential prefers grok.com over x.ai and ignores x.com")
+    @Test("Grok credential requires grok.com and ignores x.ai and x.com")
     func grokCredentialPrefersGrokDotCom() throws {
         let grokSSO = try #require(cookie(name: "sso", value: "dummy-grok-sso", domain: "grok.com"))
         let xaiSSO = try #require(cookie(name: "sso", value: "dummy-xai-sso", domain: "x.ai"))
@@ -1271,8 +1279,8 @@ struct AIUsageBarTests {
         let preferred = try #require(GrokService.credential(from: [xaiSSO, grokSSO, xcomSSO]))
         #expect(preferred.value == "dummy-grok-sso")
 
-        let xaiOnly = try #require(GrokService.credential(from: [xaiSSO, xcomSSO]))
-        #expect(xaiOnly.value == "dummy-xai-sso")
+        #expect(GrokService.credential(from: [xaiSSO, xcomSSO]) == nil)
+        #expect(GrokService.credential(from: [xaiSSO]) == nil)
         #expect(GrokService.credential(from: [xcomSSO]) == nil)
     }
 
@@ -1288,12 +1296,13 @@ struct AIUsageBarTests {
 
         #expect(parsed.remainingPercent == 100)
         #expect(parsed.windowSeconds == 7200)
+        #expect(parsed.resetText.isEmpty)
         #expect(GrokService.sessionRowLabel(windowSeconds: parsed.windowSeconds) == "2 小時")
         #expect(GrokService.sessionRowLabel(windowSeconds: 0) == "短窗")
     }
 
-    @Test("Grok remaining percent prefers totalTokens over totalQueries")
-    func grokRateLimitsPrefersTotalTokens() throws {
+    @Test("Grok remaining percent uses totalQueries even when totalTokens is present")
+    func grokRateLimitsUsesTotalQueriesNotTotalTokens() throws {
         let parsed = try GrokService.parseRateLimits([
             "remainingQueries": 25,
             "totalTokens": 100,
@@ -1301,12 +1310,13 @@ struct AIUsageBarTests {
             "windowSizeSeconds": 3600
         ])
 
-        #expect(parsed.remainingPercent == 25)
+        #expect(parsed.remainingPercent == 50)
         #expect(parsed.windowSeconds == 3600)
+        #expect(parsed.resetText.isEmpty)
     }
 
     @Test("Grok remaining percent uses totalQueries when totalTokens is absent")
-    func grokRateLimitsFallsBackToTotalQueries() throws {
+    func grokRateLimitsUsesTotalQueriesWhenTokensAbsent() throws {
         let parsed = try GrokService.parseRateLimits([
             "remainingQueries": 70,
             "totalQueries": 140,
@@ -1314,6 +1324,63 @@ struct AIUsageBarTests {
         ])
 
         #expect(parsed.remainingPercent == 50)
+        #expect(parsed.resetText.isEmpty)
+    }
+
+    @Test("Grok remaining percent ignores zero or missing totalTokens when totalQueries is valid")
+    func grokRateLimitsIgnoresZeroOrMissingTotalTokens() throws {
+        let zeroTokens = try GrokService.parseRateLimits([
+            "remainingQueries": 140,
+            "totalTokens": 0,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+        #expect(zeroTokens.remainingPercent == 100)
+
+        let missingTokens = try GrokService.parseRateLimits([
+            "remainingQueries": 70,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+        #expect(missingTokens.remainingPercent == 50)
+    }
+
+    @Test("Grok remaining percent never divides remainingQueries by totalTokens")
+    func grokRateLimitsRejectsTokenOnlyDenominator() {
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([
+                "remainingQueries": 25,
+                "totalTokens": 100,
+                "windowSizeSeconds": 3600
+            ])
+        }
+    }
+
+    @Test("Grok does not fabricate a reset timestamp from windowSizeSeconds")
+    func grokRateLimitsDoesNotFabricateResetFromWindow() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 140,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+
+        #expect(parsed.windowSeconds == 7200)
+        #expect(parsed.resetText.isEmpty)
+        #expect(!parsed.resetText.hasPrefix("重置於 "))
+    }
+
+    @Test("Grok uses a genuine reset timestamp when one is present")
+    func grokRateLimitsUsesGenuineResetTimestamp() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 70,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200,
+            "resetAt": 1_700_000_000
+        ])
+
+        #expect(parsed.windowSeconds == 7200)
+        #expect(parsed.resetText.hasPrefix("重置於 "))
+        #expect(!parsed.resetText.isEmpty)
     }
 
     @Test("Grok missing or zero denominator does not invent a percent")
@@ -1333,8 +1400,7 @@ struct AIUsageBarTests {
         #expect(throws: AIUsageServiceError.self) {
             _ = try GrokService.parseRateLimits([
                 "remainingQueries": 140,
-                "totalTokens": 0,
-                "totalQueries": 140
+                "totalTokens": 100
             ])
         }
         #expect(throws: AIUsageServiceError.self) {

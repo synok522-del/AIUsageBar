@@ -4,8 +4,8 @@ Dummy cookie values only (`dummy-sso-value`, `dummy-sso-rw-value`, `dummy-grok-s
 
 - Grok login URL and display name are product-scoped
 - Grok credential extracts dummy sso and optional sso-rw
-- Grok credential prefers grok.com over x.ai and ignores x.com
-- Provider cookie matching accepts grok.com / x.ai and rejects x.com
+- Grok credential requires grok.com and ignores x.ai and x.com (17F-007)
+- Provider cookie matching accepts grok.com and rejects x.ai / x.com (17F-007)
 - Refresh timestamp updates when grokSucceeded is true
 
 Existing ChatGPT/Claude tests retained.

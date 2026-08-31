@@ -37,8 +37,7 @@ enum WebSessionProvider {
             return Self.matchesDomain(value, domain: "chatgpt.com") ||
                 Self.matchesDomain(value, domain: "openai.com")
         case .grok:
-            return Self.matchesDomain(value, domain: "grok.com") ||
-                Self.matchesDomain(value, domain: "x.ai")
+            return Self.matchesGrokProductHost(value)
         }
     }
 

@@ -10,7 +10,7 @@ review/17f-004-grok-provider
 ee423c556a2442270d5619d3027f9fd3d9021581
 
 ## Ending SHA
-see git rev-parse HEAD on this branch
+f6bf996b8eb618bce52df67787302ec7d07801ff
 
 ## Files changed
 - AIUsageBarTests/AIUsageBarTests.swift (MenuBarStatusLayout + Grok combination help text)

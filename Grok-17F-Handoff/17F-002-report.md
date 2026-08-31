@@ -10,7 +10,9 @@ origin/main
 b1fcda95150592dbb28d7790a3126c0d06ff72de
 
 ## Ending SHA
-71f71b070bb9bc35115f40cafcaa816aa04fc82f
+82839e6437da4107dfed3c26fec0de3e1d1b46f0
+
+SHA correction (17F-007): the previously recorded Ending SHA `71f71b070bb9bc35115f40cafcaa816aa04fc82f` was not the `review/17f-002-grok-login` tip. The actual branch tip is `82839e6437da4107dfed3c26fec0de3e1d1b46f0`.
 
 ## Files changed
 - AIUsageBar/Login/GrokLoginView.swift (new)
@@ -39,7 +41,7 @@ Full implemented versions of Settings / Panel / Welcome / MenuBar / Notification
 - Credential extraction via `GrokService.credential(from:)`:
   - Login is detected when cookie name `sso` exists with a non-empty value.
   - Stores the `sso` value plus a full cookie header that includes `sso-rw` when present.
-  - Prefers grok.com cookies; may match x.ai; must not match x.com.
+  - Requires grok.com cookies. x.ai-only `sso` is not sufficient. x.com remains excluded. (Corrected in 17F-007; the original 002 matcher also accepted x.ai.)
 - `GrokLoginView` hosts `WebLoginView(provider: .grok)`.
 - Keychain keys: `grokSessionToken` and `grokCookieHeader` on service `com.synok522.AIUsageBar`. Independent of ChatGPT/Claude keys.
 - `UsageViewModel.setGrokCredential` / `setGrokSessionToken` save or delete only Grok keys.
@@ -53,8 +55,8 @@ Swift Testing cases added or extended in `AIUsageBarTests.swift`:
 - Grok login URL host is grok.com
 - Dummy `sso` + optional `sso-rw` credential assembly
 - Empty `sso` is not a credential
-- grok.com preferred over x.ai; x.com ignored
-- Domain matcher: grok.com and x.ai yes, x.com no
+- grok.com required; x.ai-only and x.com ignored (17F-007)
+- Domain matcher: grok.com yes; x.ai no; x.com no (17F-007)
 - Refresh timestamp updates when only Grok succeeds (defaulted grokSucceeded on existing ChatGPT/Claude cases)
 
 Existing ChatGPT/Claude tests kept.
@@ -77,7 +79,7 @@ xcodebuild: NOT RUN (Linux cannot xcodebuild). This is not a STOP blocker.
 
 ## Remaining risks
 - Live login still needs a human session on grok.com (SSO cookie may be set after redirect).
-- x.ai fallback is allowed by matcher if grok.com cookies are absent; product host is still preferred.
+- 17F-007: x.ai fallback removed. Consumer Grok auth is grok.com-only. Grok logout does not clear x.ai session state.
 - Unit tests have not been compiled on macOS.
 - Distinctive usage-parser / panel-visibility / menu-bar-layout / notification tests land in later sprints even though the implementation files already include that behavior for compile-safety.
 

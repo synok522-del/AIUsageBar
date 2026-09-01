@@ -518,14 +518,24 @@ final class UsageViewModel: ObservableObject {
             return false
         }
 
+        // 17F-009B probe: prefer the current WKWebView grok.com cookie jar
+        // over the persisted sso/sso-rw-only Keychain header.
+        let fallbackHeader = grokCookieHeader.isEmpty
+            ? "sso=\(token)"
+            : grokCookieHeader
+        let webKitCookies = await WebSessionManager.shared.cookies(for: .grok)
+        let probeSnapshot = GrokSessionContextProbe.snapshot(
+            webKitCookies: webKitCookies,
+            fallbackHeader: fallbackHeader
+        )
+        GrokSessionContextProbe.log(probeSnapshot)
+
 
         do {
 
             let usage =
             try await grokService.fetchUsage(
-                cookieHeader: grokCookieHeader.isEmpty
-                    ? "sso=\(token)"
-                    : grokCookieHeader
+                cookieHeader: probeSnapshot.cookieHeader
             )
 
 
@@ -553,7 +563,8 @@ final class UsageViewModel: ObservableObject {
                 errorMessage: nil
             )
 
-            clearStatusMessage(for: "Grok")
+            statusMessage =
+                "Grok：用量更新成功（\(probeSnapshot.diagnosticLabel)）"
             return true
 
 
@@ -564,10 +575,29 @@ final class UsageViewModel: ObservableObject {
             ) {
                 grok = nextState
                 let message = nextState.errorMessage ?? "更新失敗"
-                statusMessage = "Grok：\(message)"
+                let classification = grokProbeResponseClassification(for: error)
+                statusMessage =
+                    "Grok：\(message)（\(probeSnapshot.diagnosticLabel); \(classification)）"
             }
 
             return false
+        }
+    }
+
+    private func grokProbeResponseClassification(for error: Error) -> String {
+        guard let serviceError = error as? AIUsageServiceError else {
+            return "response=OTHER"
+        }
+
+        switch serviceError {
+        case .wafBlocked:
+            return "response=HTML/WAF"
+        case .invalidPayload:
+            return "response=JSON"
+        case .httpStatus(_, let statusCode):
+            return "response=HTTP_\(statusCode)"
+        case .invalidResponse, .missingValue:
+            return "response=OTHER"
         }
     }
 

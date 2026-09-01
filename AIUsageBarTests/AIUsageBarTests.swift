@@ -1499,6 +1499,76 @@ struct AIUsageBarTests {
             Issue.record("unexpected error type for JSON 403")
         }
     }
+
+    @Test("Grok session probe includes all applicable grok.com cookies")
+    func grokSessionProbeIncludesAllApplicableCookies() throws {
+        let url = GrokSessionContextProbe.rateLimitsURL
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
+        let ssoRw = try #require(cookie(name: "sso-rw", value: "dummy-sso-rw", domain: "grok.com"))
+        let clearance = try #require(cookie(name: "cf_clearance", value: "dummy-cf", domain: "grok.com"))
+        let bot = try #require(cookie(name: "__cf_bm", value: "dummy-bm", domain: ".grok.com"))
+        let foreign = try #require(cookie(name: "session-token", value: "dummy-foreign", domain: "chatgpt.com"))
+        let expired = try #require(HTTPCookie(properties: [
+            .domain: "grok.com",
+            .path: "/",
+            .name: "expired",
+            .value: "dummy-expired",
+            .expires: Date().addingTimeInterval(-60)
+        ]))
+
+        let names = GrokSessionContextProbe.safeNames(
+            from: [sso, ssoRw, clearance, bot, foreign, expired],
+            to: url
+        )
+        #expect(names == ["__cf_bm", "cf_clearance", "sso", "sso-rw"])
+
+        let header = try #require(
+            GrokSessionContextProbe.cookieHeader(
+                from: [sso, ssoRw, clearance, bot, foreign, expired],
+                to: url
+            )
+        )
+        let headerNames = GrokSessionContextProbe.cookieNames(fromHeader: header)
+        #expect(headerNames == ["__cf_bm", "cf_clearance", "sso", "sso-rw"])
+        #expect(header.contains("sso="))
+        #expect(header.contains("sso-rw="))
+        #expect(header.contains("cf_clearance="))
+        #expect(header.contains("__cf_bm="))
+        #expect(GrokSessionContextProbe.snapshot(
+            webKitCookies: [sso, ssoRw, clearance, bot, foreign, expired],
+            fallbackHeader: "sso=dummy-fallback"
+        ).diagnosticLabel.contains("names=[__cf_bm,cf_clearance,sso,sso-rw]"))
+    }
+
+    @Test("Grok session probe falls back when WebKit cookies lack sso")
+    func grokSessionProbeFallsBackWithoutWebKitSSO() throws {
+        let clearance = try #require(cookie(name: "cf_clearance", value: "dummy-cf", domain: "grok.com"))
+        let snapshot = GrokSessionContextProbe.snapshot(
+            webKitCookies: [clearance],
+            fallbackHeader: "sso=dummy-sso; sso-rw=dummy-sso-rw"
+        )
+
+        #expect(snapshot.source == "keychain-partial")
+        #expect(snapshot.cookieNames == ["sso", "sso-rw"])
+        #expect(snapshot.cookieHeader == "sso=dummy-sso; sso-rw=dummy-sso-rw")
+        #expect(snapshot.diagnosticLabel.contains("probe:keychain-partial"))
+    }
+
+    @Test("Grok session probe prefers full WebKit cookie context when sso exists")
+    func grokSessionProbePrefersWebKitWhenSSOExists() throws {
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
+        let clearance = try #require(cookie(name: "cf_clearance", value: "dummy-cf", domain: "grok.com"))
+        let snapshot = GrokSessionContextProbe.snapshot(
+            webKitCookies: [sso, clearance],
+            fallbackHeader: "sso=dummy-fallback"
+        )
+
+        #expect(snapshot.source == "webkit-full")
+        #expect(snapshot.cookieNames == ["cf_clearance", "sso"])
+        #expect(snapshot.cookieCount == 2)
+        #expect(snapshot.diagnosticLabel.contains("webkit-full"))
+    }
+
     private func cookie(
         name: String,
         value: String,

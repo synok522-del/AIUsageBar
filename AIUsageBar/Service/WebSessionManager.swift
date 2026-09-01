@@ -275,7 +275,7 @@ enum GrokWeeklyDiscoveryProbe {
         )
     }
 
-    func fetch(cookieHeader: String) async -> Outcome {
+    static func fetch(cookieHeader: String) async -> Outcome {
         var request = URLRequest(url: Self.creditsURL)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")

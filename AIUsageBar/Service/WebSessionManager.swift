@@ -57,7 +57,11 @@ enum WebSessionProvider {
 
 /// 17F-009B diagnostic: build a temporary Cookie header from the current
 /// WKWebView/WebKit cookie store for Grok URLSession probing.
-/// Cookie VALUES are never logged — names/domain/path metadata only.
+///
+/// Values are allowed in the in-memory Cookie header for the authenticated
+/// request. Observability must never log/print/persist/expose those values —
+/// only names, domains, paths, counts, expiration presence, and response
+/// classification metadata.
 enum GrokSessionContextProbe {
     static let rateLimitsURL = URL(string: "https://grok.com/rest/rate-limits")!
 

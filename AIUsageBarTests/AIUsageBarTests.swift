@@ -1500,7 +1500,7 @@ struct AIUsageBarTests {
         }
     }
 
-    @Test("Grok session probe includes all applicable grok.com cookies")
+    @Test("Grok session probe Cookie header carries synthetic values but diagnostics do not")
     func grokSessionProbeIncludesAllApplicableCookies() throws {
         let url = GrokSessionContextProbe.rateLimitsURL
         let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
@@ -1530,14 +1530,25 @@ struct AIUsageBarTests {
         )
         let headerNames = GrokSessionContextProbe.cookieNames(fromHeader: header)
         #expect(headerNames == ["__cf_bm", "cf_clearance", "sso", "sso-rw"])
-        #expect(header.contains("sso="))
-        #expect(header.contains("sso-rw="))
-        #expect(header.contains("cf_clearance="))
-        #expect(header.contains("__cf_bm="))
-        #expect(GrokSessionContextProbe.snapshot(
+
+        // Request construction may include synthetic values.
+        #expect(header.contains("sso=dummy-sso"))
+        #expect(header.contains("sso-rw=dummy-sso-rw"))
+        #expect(header.contains("cf_clearance=dummy-cf"))
+        #expect(header.contains("__cf_bm=dummy-bm"))
+        #expect(!header.contains("dummy-foreign"))
+        #expect(!header.contains("dummy-expired"))
+
+        let snapshot = GrokSessionContextProbe.snapshot(
             webKitCookies: [sso, ssoRw, clearance, bot, foreign, expired],
             fallbackHeader: "sso=dummy-fallback"
-        ).diagnosticLabel.contains("names=[__cf_bm,cf_clearance,sso,sso-rw]"))
+        )
+        #expect(snapshot.diagnosticLabel.contains("names=[__cf_bm,cf_clearance,sso,sso-rw]"))
+        // Observability must not expose cookie values.
+        #expect(!snapshot.diagnosticLabel.contains("dummy-sso"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-cf"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-bm"))
+        #expect(!snapshot.diagnosticLabel.contains("="))
     }
 
     @Test("Grok session probe falls back when WebKit cookies lack sso")
@@ -1550,8 +1561,11 @@ struct AIUsageBarTests {
 
         #expect(snapshot.source == "keychain-partial")
         #expect(snapshot.cookieNames == ["sso", "sso-rw"])
+        // Fallback header may retain synthetic values for request use.
         #expect(snapshot.cookieHeader == "sso=dummy-sso; sso-rw=dummy-sso-rw")
         #expect(snapshot.diagnosticLabel.contains("probe:keychain-partial"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-sso"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-sso-rw"))
     }
 
     @Test("Grok session probe prefers full WebKit cookie context when sso exists")
@@ -1566,7 +1580,11 @@ struct AIUsageBarTests {
         #expect(snapshot.source == "webkit-full")
         #expect(snapshot.cookieNames == ["cf_clearance", "sso"])
         #expect(snapshot.cookieCount == 2)
+        #expect(snapshot.cookieHeader.contains("sso=dummy-sso"))
+        #expect(snapshot.cookieHeader.contains("cf_clearance=dummy-cf"))
         #expect(snapshot.diagnosticLabel.contains("webkit-full"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-sso"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-cf"))
     }
 
     private func cookie(

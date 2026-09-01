@@ -9,6 +9,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         case settings
         case claudeLogin
         case chatGPTLogin
+        case grokLogin
         case welcome
     }
 
@@ -21,7 +22,8 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
     func showWelcomeIfNeeded(
         viewModel: UsageViewModel,
         onLoginClaude: @escaping () -> Void,
-        onLoginChatGPT: @escaping () -> Void
+        onLoginChatGPT: @escaping () -> Void,
+        onLoginGrok: @escaping () -> Void
     ) {
         guard !welcomeSuppressedForCurrentSession else {
             return
@@ -30,6 +32,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         let policy = WelcomePresentationPolicy(
             isClaudeLoggedIn: !viewModel.claudeSessionKey.isEmpty,
             isChatGPTLoggedIn: !viewModel.chatGPTSessionToken.isEmpty,
+            isGrokLoggedIn: !viewModel.grokSessionToken.isEmpty,
             isSuppressedForCurrentSession: welcomeSuppressedForCurrentSession
         )
 
@@ -52,6 +55,10 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
                     self?.close(.welcome)
                     onLoginClaude()
                 },
+                onLoginGrok: { [weak self] in
+                    self?.close(.welcome)
+                    onLoginGrok()
+                },
                 onLater: { [weak self] in
                     self?.suppressWelcomeForCurrentSession()
                 }
@@ -65,7 +72,8 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
     func showSettings(
         viewModel: UsageViewModel,
         onLoginClaude: @escaping () -> Void,
-        onLoginChatGPT: @escaping () -> Void
+        onLoginChatGPT: @escaping () -> Void,
+        onLoginGrok: @escaping () -> Void
     ) {
 
         present(
@@ -77,8 +85,9 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
             SettingsView(
                 viewModel: viewModel,
+                onLoginChatGPT: onLoginChatGPT,
                 onLoginClaude: onLoginClaude,
-                onLoginChatGPT: onLoginChatGPT
+                onLoginGrok: onLoginGrok
             )
         }
     }
@@ -126,6 +135,30 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
                 onSuccess: { value in
                     onSuccess(value)
                     self?.close(.chatGPTLogin)
+                }
+            )
+        }
+    }
+
+
+    // MARK: - Grok Login
+
+    func showGrokLogin(
+        onSuccess: @escaping (WebCredential) -> Void
+    ) {
+
+        present(
+            id: .grokLogin,
+            title: "登入 Grok",
+            size: NSSize(width: 900, height: 700),
+            styleMask: [.titled, .closable, .resizable]
+        ) { [weak self] in
+
+            GrokLoginView(
+
+                onSuccess: { value in
+                    onSuccess(value)
+                    self?.close(.grokLogin)
                 }
             )
         }

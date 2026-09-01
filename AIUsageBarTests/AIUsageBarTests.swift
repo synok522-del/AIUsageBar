@@ -315,6 +315,298 @@ struct AIUsageBarTests {
         #expect(policy.menuBarHelpText == "AIUsageBar")
     }
 
+    @Test("Welcome stays hidden when only Grok is logged in")
+    func welcomeStaysHiddenWhenOnlyGrokIsLoggedIn() {
+        #expect(WelcomePresentationPolicy(
+            isClaudeLoggedIn: false,
+            isChatGPTLoggedIn: false,
+            isGrokLoggedIn: true,
+            isSuppressedForCurrentSession: false
+        ).shouldShow == false)
+    }
+
+    @Test("Provider visibility shows only authenticated Grok")
+    func providerVisibilityShowsOnlyAuthenticatedGrok() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: false,
+            isGrokAuthenticated: true
+        )
+
+        #expect(policy.visibleProviders == [.grok])
+        #expect(policy.isVisible(.grok))
+        #expect(policy.isVisible(.chatGPT) == false)
+        #expect(policy.isVisible(.claude) == false)
+        #expect(policy.shouldShowSetupState == false)
+    }
+
+    @Test("Provider visibility order is ChatGPT then Claude then Grok")
+    func providerVisibilityOrderIsChatGPTClaudeGrok() {
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: true,
+                isClaudeAuthenticated: true,
+                isGrokAuthenticated: true
+            ).visibleProviders == [.chatGPT, .claude, .grok]
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: true,
+                isClaudeAuthenticated: false,
+                isGrokAuthenticated: true
+            ).visibleProviders == [.chatGPT, .grok]
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: false,
+                isClaudeAuthenticated: true,
+                isGrokAuthenticated: true
+            ).visibleProviders == [.claude, .grok]
+        )
+    }
+
+    @Test("Unauthenticated Grok is hidden")
+    func unauthenticatedGrokIsHidden() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: true,
+            isClaudeAuthenticated: true,
+            isGrokAuthenticated: false
+        )
+
+        #expect(policy.isVisible(.grok) == false)
+        #expect(policy.visibleProviders == [.chatGPT, .claude])
+    }
+
+    @Test("Zero remaining Grok does not hide authenticated Grok")
+    func zeroRemainingGrokDoesNotHideAuthenticatedGrok() {
+        let policy = ProviderVisibilityPolicy(
+            isChatGPTAuthenticated: false,
+            isClaudeAuthenticated: false,
+            isGrokAuthenticated: true
+        )
+        let grok = UsageInfo(sessionPercent: 0, weeklyPercent: 0, isLoaded: true)
+
+        #expect(grok.sessionPercent == 0)
+        #expect(policy.isVisible(.grok))
+        #expect(policy.visibleProviders == [.grok])
+    }
+
+    @Test("Fetch failure does not hide authenticated Grok")
+    func fetchFailureDoesNotHideAuthenticatedGrok() {
+        let policy = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "",
+            claudeSessionKey: "",
+            grokSessionToken: "configured"
+        )
+        let failed = UsageRefreshStatePolicy.state(
+            afterFailure: UsageInfo(sessionPercent: 40, isLoaded: true),
+            error: URLError(.timedOut)
+        )
+
+        #expect(failed?.isLoaded == true)
+        #expect(failed?.sessionPercent == 40)
+        #expect(failed?.errorMessage != nil)
+        #expect(policy.isVisible(.grok))
+    }
+
+    @Test("Logging out Grok does not hide ChatGPT or Claude")
+    func loggingOutGrokDoesNotHideChatGPTOrClaude() {
+        let before = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "chatgpt",
+            claudeSessionKey: "claude",
+            grokSessionToken: "grok"
+        )
+        let after = ProviderVisibilityPolicy(
+            chatGPTSessionToken: "chatgpt",
+            claudeSessionKey: "claude",
+            grokSessionToken: ""
+        )
+
+        #expect(before.visibleProviders == [.chatGPT, .claude, .grok])
+        #expect(after.visibleProviders == [.chatGPT, .claude])
+        #expect(after.isVisible(.grok) == false)
+        #expect(after.isVisible(.chatGPT))
+        #expect(after.isVisible(.claude))
+    }
+
+    @Test("Grok window label uses seconds not a hardcoded five hours")
+    func grokWindowLabelUsesSecondsNotHardcodedFiveHours() {
+        #expect(GrokService.sessionRowLabel(windowSeconds: 7200) == "2 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 18000) == "5 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3600) == "1 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 1800) == "30 分鐘")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 90) == "1 分鐘 30 秒")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 45) == "45 秒")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3599) == "59 分鐘 59 秒")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 5400) == "1 小時 30 分鐘")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 0) == "短窗")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 7200) != "5 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 1800) != "1 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3599) != "1 小時")
+    }
+
+    @Test("Menu bar layout is 24 by 10 with 4px bars for one or two providers")
+    func menuBarLayoutUsesTwoBarMetricsForOneOrTwoProviders() {
+        #expect(MenuBarStatusLayout.imageSize(providerCount: 0) == (24, 10))
+        #expect(MenuBarStatusLayout.imageSize(providerCount: 1) == (24, 10))
+        #expect(MenuBarStatusLayout.imageSize(providerCount: 2) == (24, 10))
+        #expect(MenuBarStatusLayout.barHeight(providerCount: 0) == 4)
+        #expect(MenuBarStatusLayout.barHeight(providerCount: 1) == 4)
+        #expect(MenuBarStatusLayout.barHeight(providerCount: 2) == 4)
+        #expect(
+            MenuBarStatusLayout.barY(
+                index: 0,
+                providerCount: 1,
+                imageHeight: 10,
+                barHeight: 4
+            ) == 3
+        )
+    }
+
+    @Test("Menu bar layout is 24 by 16 with 3px bars for three providers")
+    func menuBarLayoutUsesThreeBarMetricsForThreeProviders() {
+        #expect(MenuBarStatusLayout.imageSize(providerCount: 3) == (24, 16))
+        #expect(MenuBarStatusLayout.barHeight(providerCount: 3) == 3)
+        #expect(
+            MenuBarStatusLayout.barY(
+                index: 0,
+                providerCount: 3,
+                imageHeight: 16,
+                barHeight: 3
+            ) == 13
+        )
+        #expect(
+            MenuBarStatusLayout.barY(
+                index: 2,
+                providerCount: 3,
+                imageHeight: 16,
+                barHeight: 3
+            ) == 0
+        )
+    }
+
+    @Test("Menu bar help text covers Grok-only and every pair plus all three")
+    func menuBarHelpTextCoversGrokCombinations() {
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: false,
+                isClaudeAuthenticated: false,
+                isGrokAuthenticated: true
+            ).menuBarHelpText == "Grok 剩餘用量"
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: true,
+                isClaudeAuthenticated: false,
+                isGrokAuthenticated: true
+            ).menuBarHelpText == "ChatGPT 與 Grok 剩餘用量"
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: false,
+                isClaudeAuthenticated: true,
+                isGrokAuthenticated: true
+            ).menuBarHelpText == "Claude 與 Grok 剩餘用量"
+        )
+        #expect(
+            ProviderVisibilityPolicy(
+                isChatGPTAuthenticated: true,
+                isClaudeAuthenticated: true,
+                isGrokAuthenticated: true
+            ).menuBarHelpText == "ChatGPT、Claude 與 Grok 剩餘用量"
+        )
+    }
+
+    @Test("Grok low usage notification triggers once at 20 percent")
+    func grokLowUsageNotificationTriggersOnceAtTwentyPercent() {
+        var state = UsageNotificationState()
+
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 10,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+    }
+
+    @Test("Grok notification recovery above 20 percent re-arms")
+    func grokNotificationRecoveryRearms() {
+        var state = UsageNotificationState()
+
+        _ = state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        )
+        _ = state.shouldNotify(
+            for: .grok,
+            remainingPercent: 15,
+            isLoaded: true,
+            hasError: false
+        )
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 50,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+    }
+
+    @Test("Grok notification is independent of Claude and ChatGPT")
+    func grokNotificationIsIndependentOfOtherProviders() {
+        var state = UsageNotificationState()
+
+        _ = state.shouldNotify(
+            for: .claude,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        )
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 20,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 10,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+    }
+
     @Test("ServiceSupport.percent clamps and rounds values")
     func percentCoversBoundaryNumericAndInvalidValues() {
         #expect(ServiceSupport.percent(0) == 0)
@@ -397,6 +689,15 @@ struct AIUsageBarTests {
         #expect(WebSessionProvider.chatGPT.matches("notchatgpt.com") == false)
         #expect(WebSessionProvider.chatGPT.matches("chatgpt.com.evil") == false)
         #expect(WebSessionProvider.claude.matches("anthropic.com.evil") == false)
+        #expect(WebSessionProvider.grok.matches("grok.com"))
+        #expect(WebSessionProvider.grok.matches("accounts.grok.com"))
+        #expect(WebSessionProvider.grok.matches("accounts.x.ai") == false)
+        #expect(WebSessionProvider.grok.matches("x.ai") == false)
+        #expect(WebSessionProvider.grok.matches("x.com") == false)
+        #expect(WebSessionProvider.grok.matches("notgrok.com") == false)
+        #expect(WebSessionProvider.matchesGrokProductHost("grok.com"))
+        #expect(WebSessionProvider.matchesGrokProductHost("x.ai") == false)
+        #expect(WebSessionProvider.matchesGrokProductHost("x.com") == false)
     }
 
     @Test("Refresh timestamp updates only after a provider succeeds")
@@ -418,6 +719,20 @@ struct AIUsageBarTests {
                 claudeSucceeded: false,
                 chatGPTSucceeded: true
             )
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldUpdateLastUpdated(
+                claudeSucceeded: false,
+                chatGPTSucceeded: false,
+                grokSucceeded: true
+            )
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldUpdateLastUpdated(
+                claudeSucceeded: false,
+                chatGPTSucceeded: false,
+                grokSucceeded: false
+            ) == false
         )
     }
 
@@ -925,6 +1240,413 @@ struct AIUsageBarTests {
                 error: URLError(.cancelled)
             ) == nil
         )
+    }
+
+    @Test("Grok login URL and display name are product-scoped")
+    func grokLoginProviderUsesGrokDotCom() {
+        #expect(WebLoginProvider.grok.displayName == "Grok")
+        #expect(WebLoginProvider.grok.loginURL.host == "grok.com")
+        #expect(WebLoginProvider.grok.loginURL.path == "/" || WebLoginProvider.grok.loginURL.path.isEmpty)
+    }
+
+    @Test("Grok credential extracts dummy sso and optional sso-rw")
+    func grokCredentialExtractsSsoAndOptionalSsoRw() throws {
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso-value", domain: "grok.com"))
+        let ssoRw = try #require(cookie(name: "sso-rw", value: "dummy-sso-rw-value", domain: "grok.com"))
+        let unrelated = try #require(cookie(name: "sso", value: "dummy-x-sso", domain: "x.com"))
+
+        let withBoth = try #require(WebLoginProvider.grok.credential(from: [sso, ssoRw, unrelated]))
+        #expect(withBoth.cookieName == "sso")
+        #expect(withBoth.value == "dummy-sso-value")
+        #expect(withBoth.cookieHeader == "sso=dummy-sso-value; sso-rw=dummy-sso-rw-value")
+
+        let ssoOnly = try #require(WebLoginProvider.grok.credential(from: [sso]))
+        #expect(ssoOnly.value == "dummy-sso-value")
+        #expect(ssoOnly.cookieHeader == "sso=dummy-sso-value")
+
+        let emptySSO = try #require(cookie(name: "sso", value: "", domain: "grok.com"))
+        #expect(WebLoginProvider.grok.credential(from: [emptySSO]) == nil)
+        #expect(WebLoginProvider.grok.credential(from: [unrelated]) == nil)
+        #expect(WebLoginProvider.grok.credential(from: [ssoRw]) == nil)
+    }
+
+    @Test("Grok credential requires grok.com and ignores x.ai and x.com")
+    func grokCredentialPrefersGrokDotCom() throws {
+        let grokSSO = try #require(cookie(name: "sso", value: "dummy-grok-sso", domain: "grok.com"))
+        let xaiSSO = try #require(cookie(name: "sso", value: "dummy-xai-sso", domain: "x.ai"))
+        let xcomSSO = try #require(cookie(name: "sso", value: "dummy-xcom-sso", domain: "x.com"))
+
+        let preferred = try #require(GrokService.credential(from: [xaiSSO, grokSSO, xcomSSO]))
+        #expect(preferred.value == "dummy-grok-sso")
+
+        #expect(GrokService.credential(from: [xaiSSO, xcomSSO]) == nil)
+        #expect(GrokService.credential(from: [xaiSSO]) == nil)
+        #expect(GrokService.credential(from: [xcomSSO]) == nil)
+    }
+
+    @Test("Grok rate-limits live shape 140/140/7200 is 100 percent")
+    func grokRateLimitsLiveShapeParsesToFullRemaining() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 140,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200,
+            "lowEffortRateLimits": NSNull(),
+            "highEffortRateLimits": NSNull()
+        ])
+
+        #expect(parsed.remainingPercent == 100)
+        #expect(parsed.windowSeconds == 7200)
+        #expect(parsed.resetText.isEmpty)
+        #expect(GrokService.sessionRowLabel(windowSeconds: parsed.windowSeconds) == "2 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 0) == "短窗")
+    }
+
+    @Test("Grok remaining percent uses totalQueries even when totalTokens is present")
+    func grokRateLimitsUsesTotalQueriesNotTotalTokens() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 25,
+            "totalTokens": 100,
+            "totalQueries": 50,
+            "windowSizeSeconds": 3600
+        ])
+
+        #expect(parsed.remainingPercent == 50)
+        #expect(parsed.windowSeconds == 3600)
+        #expect(parsed.resetText.isEmpty)
+    }
+
+    @Test("Grok remaining percent uses totalQueries when totalTokens is absent")
+    func grokRateLimitsUsesTotalQueriesWhenTokensAbsent() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 70,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+
+        #expect(parsed.remainingPercent == 50)
+        #expect(parsed.resetText.isEmpty)
+    }
+
+    @Test("Grok remaining percent ignores zero or missing totalTokens when totalQueries is valid")
+    func grokRateLimitsIgnoresZeroOrMissingTotalTokens() throws {
+        let zeroTokens = try GrokService.parseRateLimits([
+            "remainingQueries": 140,
+            "totalTokens": 0,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+        #expect(zeroTokens.remainingPercent == 100)
+
+        let missingTokens = try GrokService.parseRateLimits([
+            "remainingQueries": 70,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+        #expect(missingTokens.remainingPercent == 50)
+    }
+
+    @Test("Grok remaining percent never divides remainingQueries by totalTokens")
+    func grokRateLimitsRejectsTokenOnlyDenominator() {
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([
+                "remainingQueries": 25,
+                "totalTokens": 100,
+                "windowSizeSeconds": 3600
+            ])
+        }
+    }
+
+    @Test("Grok does not fabricate a reset timestamp from windowSizeSeconds")
+    func grokRateLimitsDoesNotFabricateResetFromWindow() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 140,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+
+        #expect(parsed.windowSeconds == 7200)
+        #expect(parsed.resetText.isEmpty)
+        #expect(!parsed.resetText.hasPrefix("重置於 "))
+    }
+
+    @Test("Grok uses a genuine reset timestamp when one is present")
+    func grokRateLimitsUsesGenuineResetTimestamp() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 70,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200,
+            "resetAt": 1_700_000_000
+        ])
+
+        #expect(parsed.windowSeconds == 7200)
+        #expect(parsed.resetText.hasPrefix("重置於 "))
+        #expect(!parsed.resetText.isEmpty)
+    }
+
+    @Test("Grok missing or zero denominator does not invent a percent")
+    func grokRateLimitsRejectsMissingOrZeroDenominator() {
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([
+                "remainingQueries": 140
+            ])
+        }
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([
+                "remainingQueries": 140,
+                "totalQueries": 0,
+                "windowSizeSeconds": 7200
+            ])
+        }
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([
+                "remainingQueries": 140,
+                "totalTokens": 100
+            ])
+        }
+        #expect(throws: AIUsageServiceError.self) {
+            _ = try GrokService.parseRateLimits([:])
+        }
+    }
+
+    @Test("Grok zero remaining percent is a valid parsed payload")
+    func grokZeroRemainingPercentIsValid() throws {
+        let parsed = try GrokService.parseRateLimits([
+            "remainingQueries": 0,
+            "totalQueries": 140,
+            "windowSizeSeconds": 7200
+        ])
+
+        #expect(parsed.remainingPercent == 0)
+        #expect(parsed.windowSeconds == 7200)
+    }
+
+    @Test("HTML or Cloudflare bodies become a WAF error")
+    func htmlBodiesBecomeWAFError() {
+        let html = Data("<!DOCTYPE html><html><body>Just a moment</body></html>".utf8)
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 200,
+                contentType: "text/html; charset=utf-8",
+                data: html,
+                serviceName: "Grok"
+            )
+            Issue.record("expected WAF error for 200 HTML")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+        } catch {
+            Issue.record("unexpected error type for 200 HTML")
+        }
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 403,
+                contentType: "text/html",
+                data: html,
+                serviceName: "Grok"
+            )
+            Issue.record("expected WAF error for 403 HTML")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+        } catch {
+            Issue.record("unexpected error type for 403 HTML")
+        }
+
+        do {
+            _ = try ServiceSupport.jsonObject(from: html, serviceName: "Grok")
+            Issue.record("expected WAF error for HTML jsonObject")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+        } catch {
+            Issue.record("unexpected error type for HTML jsonObject")
+        }
+    }
+
+    @Test("HTTP 401 remains an auth error even when the body is HTML")
+    func http401RemainsAuthError() {
+        let html = Data("<html><body>login</body></html>".utf8)
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 401,
+                contentType: "text/html",
+                data: html,
+                serviceName: "Grok"
+            )
+            Issue.record("expected 401 auth error")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 登入已失效，請重新登入")
+        } catch {
+            Issue.record("unexpected error type for 401")
+        }
+    }
+
+    @Test("JSON 403 stays a permission error rather than WAF")
+    func json403StaysPermissionError() {
+        let json = Data("{\"error\":true}".utf8)
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 403,
+                contentType: "application/json",
+                data: json,
+                serviceName: "Grok"
+            )
+            Issue.record("expected 403 permission error")
+        } catch let error as AIUsageServiceError {
+            #expect(error.localizedDescription == "Grok 沒有權限，請重新登入")
+        } catch {
+            Issue.record("unexpected error type for JSON 403")
+        }
+    }
+
+    @Test("Grok session probe Cookie header carries synthetic values but diagnostics do not")
+    func grokSessionProbeIncludesAllApplicableCookies() throws {
+        let url = GrokSessionContextProbe.rateLimitsURL
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
+        let ssoRw = try #require(cookie(name: "sso-rw", value: "dummy-sso-rw", domain: "grok.com"))
+        let clearance = try #require(cookie(name: "cf_clearance", value: "dummy-cf", domain: "grok.com"))
+        let bot = try #require(cookie(name: "__cf_bm", value: "dummy-bm", domain: ".grok.com"))
+        let foreign = try #require(cookie(name: "session-token", value: "dummy-foreign", domain: "chatgpt.com"))
+        let expired = try #require(HTTPCookie(properties: [
+            .domain: "grok.com",
+            .path: "/",
+            .name: "expired",
+            .value: "dummy-expired",
+            .expires: Date().addingTimeInterval(-60)
+        ]))
+
+        let names = GrokSessionContextProbe.safeNames(
+            from: [sso, ssoRw, clearance, bot, foreign, expired],
+            to: url
+        )
+        #expect(names == ["__cf_bm", "cf_clearance", "sso", "sso-rw"])
+
+        let header = try #require(
+            GrokSessionContextProbe.cookieHeader(
+                from: [sso, ssoRw, clearance, bot, foreign, expired],
+                to: url
+            )
+        )
+        let headerNames = GrokSessionContextProbe.cookieNames(fromHeader: header)
+        #expect(headerNames == ["__cf_bm", "cf_clearance", "sso", "sso-rw"])
+
+        // Request construction may include synthetic values.
+        #expect(header.contains("sso=dummy-sso"))
+        #expect(header.contains("sso-rw=dummy-sso-rw"))
+        #expect(header.contains("cf_clearance=dummy-cf"))
+        #expect(header.contains("__cf_bm=dummy-bm"))
+        #expect(!header.contains("dummy-foreign"))
+        #expect(!header.contains("dummy-expired"))
+
+        let snapshot = GrokSessionContextProbe.snapshot(
+            webKitCookies: [sso, ssoRw, clearance, bot, foreign, expired],
+            fallbackHeader: "sso=dummy-fallback"
+        )
+        #expect(snapshot.diagnosticLabel.contains("names=[__cf_bm,cf_clearance,sso,sso-rw]"))
+        // Observability must not expose cookie values.
+        #expect(!snapshot.diagnosticLabel.contains("dummy-sso"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-cf"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-bm"))
+        #expect(!snapshot.diagnosticLabel.contains("sso="))
+        #expect(!snapshot.diagnosticLabel.contains("cf_clearance="))
+    }
+
+    @Test("Grok session probe falls back when WebKit cookies lack sso")
+    func grokSessionProbeFallsBackWithoutWebKitSSO() throws {
+        let clearance = try #require(cookie(name: "cf_clearance", value: "dummy-cf", domain: "grok.com"))
+        let snapshot = GrokSessionContextProbe.snapshot(
+            webKitCookies: [clearance],
+            fallbackHeader: "sso=dummy-sso; sso-rw=dummy-sso-rw"
+        )
+
+        #expect(snapshot.source == "keychain-partial")
+        #expect(snapshot.cookieNames == ["sso", "sso-rw"])
+        // Fallback header may retain synthetic values for request use.
+        #expect(snapshot.cookieHeader == "sso=dummy-sso; sso-rw=dummy-sso-rw")
+        #expect(snapshot.diagnosticLabel.contains("probe:keychain-partial"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-sso"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-sso-rw"))
+    }
+
+    @Test("Grok session probe prefers full WebKit cookie context when sso exists")
+    func grokSessionProbePrefersWebKitWhenSSOExists() throws {
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
+        let clearance = try #require(cookie(name: "cf_clearance", value: "dummy-cf", domain: "grok.com"))
+        let snapshot = GrokSessionContextProbe.snapshot(
+            webKitCookies: [sso, clearance],
+            fallbackHeader: "sso=dummy-fallback"
+        )
+
+        #expect(snapshot.source == "webkit-full")
+        #expect(snapshot.cookieNames == ["cf_clearance", "sso"])
+        #expect(snapshot.cookieCount == 2)
+        #expect(snapshot.cookieHeader.contains("sso=dummy-sso"))
+        #expect(snapshot.cookieHeader.contains("cf_clearance=dummy-cf"))
+        #expect(snapshot.diagnosticLabel.contains("webkit-full"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-sso"))
+        #expect(!snapshot.diagnosticLabel.contains("dummy-cf"))
+    }
+
+    @Test("Grok weekly discovery parses SuperGrok credits response")
+    func grokWeeklyDiscoveryParsesCreditsResponse() {
+        let outcome = GrokWeeklyDiscoveryProbe.parseCreditsResponse([
+            "config": [
+                "creditUsagePercent": 13,
+                "currentPeriod": [
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-08-29T07:11:00.000000+00:00",
+                    "end": "2026-09-05T07:11:00.000000+00:00"
+                ],
+                "productUsage": [
+                    ["product": "GrokChat", "usagePercent": 10],
+                    ["product": "GrokBuild", "usagePercent": 3]
+                ],
+                "billingPeriodEnd": "2026-09-05T07:11:00.000000+00:00"
+            ]
+        ])
+
+        guard case .parsed(let weekly) = outcome else {
+            Issue.record("expected parsed weekly credits response")
+            return
+        }
+
+        #expect(weekly.usedPercent == 13)
+        #expect(weekly.remainingPercent == 87)
+        #expect(weekly.periodType == "USAGE_PERIOD_TYPE_WEEKLY")
+        #expect(weekly.resetTimestamp == "2026-09-05T07:11:00.000000+00:00")
+        #expect(weekly.productUsage == [
+            GrokWeeklyDiscoveryProbe.ProductUsage(product: "GrokChat", usedPercent: 10),
+            GrokWeeklyDiscoveryProbe.ProductUsage(product: "GrokBuild", usedPercent: 3)
+        ])
+        #expect(weekly.diagnosticLabel.contains("weekly:used=13%"))
+        #expect(weekly.diagnosticLabel.contains("remaining=87%"))
+        #expect(!weekly.diagnosticLabel.contains("sso="))
+    }
+
+    @Test("Grok weekly discovery rejects non-weekly period")
+    func grokWeeklyDiscoveryRejectsNonWeeklyPeriod() {
+        let outcome = GrokWeeklyDiscoveryProbe.parseCreditsResponse([
+            "config": [
+                "creditUsagePercent": 13,
+                "currentPeriod": [
+                    "type": "USAGE_PERIOD_TYPE_MONTHLY",
+                    "end": "2026-09-05T07:11:00.000000+00:00"
+                ]
+            ]
+        ])
+
+        guard case .unavailable(let reason) = outcome else {
+            Issue.record("expected unavailable weekly credits response")
+            return
+        }
+
+        #expect(reason == "non-weekly-period")
+    }
+
+    @Test("Xcode test host is detected when XCTest launches the app")
+    func xcodeTestHostIsDetected() {
+        #expect(ProcessInfo.processInfo.isRunningUnderXcodeTests)
     }
 
     private func cookie(

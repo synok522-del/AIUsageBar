@@ -17,6 +17,7 @@ enum UsageNotificationSettings {
 enum UsageNotificationProvider: String, Hashable, Sendable {
     case chatGPT
     case claude
+    case grok
 
     var displayName: String {
         switch self {
@@ -24,6 +25,8 @@ enum UsageNotificationProvider: String, Hashable, Sendable {
             "ChatGPT"
         case .claude:
             "Claude"
+        case .grok:
+            "Grok"
         }
     }
 }
@@ -117,7 +120,8 @@ final class UsageNotificationManager {
 
     func evaluate(
         claude: UsageInfo,
-        chatGPT: UsageInfo
+        chatGPT: UsageInfo,
+        grok: UsageInfo
     ) {
         let notificationsEnabled = notificationsAreEnabled
 
@@ -137,6 +141,14 @@ final class UsageNotificationManager {
             notificationsEnabled: notificationsEnabled
         )
 
+        let shouldNotifyGrok = state.shouldNotifyIfEnabled(
+            for: .grok,
+            remainingPercent: grok.sessionPercent,
+            isLoaded: grok.isLoaded,
+            hasError: grok.errorMessage != nil,
+            notificationsEnabled: notificationsEnabled
+        )
+
         var payloads: [UsageNotificationPayload] = []
 
         if shouldNotifyClaude {
@@ -145,6 +157,10 @@ final class UsageNotificationManager {
 
         if shouldNotifyChatGPT {
             payloads.append(makePayload(for: .chatGPT, info: chatGPT))
+        }
+
+        if shouldNotifyGrok {
+            payloads.append(makePayload(for: .grok, info: grok))
         }
 
         requestAuthorizationIfNeeded(for: payloads)

@@ -127,7 +127,8 @@ struct UsagePanelView: View {
         // Authentication comes from the existing Keychain-backed session state.
         ProviderVisibilityPolicy(
             chatGPTSessionToken: viewModel.chatGPTSessionToken,
-            claudeSessionKey: viewModel.claudeSessionKey
+            claudeSessionKey: viewModel.claudeSessionKey,
+            grokSessionToken: viewModel.grokSessionToken
         )
     }
 
@@ -152,6 +153,19 @@ struct UsagePanelView: View {
                 sessionRowLabel: "5 小時",
                 sessionAccessibilityLabel: "5 小時"
             )
+
+        case .grok:
+            providerCard(
+                title: "Grok",
+                info: viewModel.grok,
+                supportsWeeklyQuota: viewModel.grok.weeklyAvailable,
+                sessionRowLabel: GrokService.sessionRowLabel(
+                    windowSeconds: viewModel.grok.sessionWindowSeconds
+                ),
+                sessionAccessibilityLabel: GrokService.sessionRowLabel(
+                    windowSeconds: viewModel.grok.sessionWindowSeconds
+                )
+            )
         }
     }
 
@@ -162,7 +176,7 @@ struct UsagePanelView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.textPrimary)
 
-            Text("登入 ChatGPT 或 Claude\n即可開始查看使用量。")
+            Text("登入 ChatGPT、Claude 或 Grok\n即可開始查看使用量。")
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -309,6 +323,20 @@ struct UsagePanelView: View {
 
                     model.setChatGPTCredential(credential)
                     model.statusMessage = "ChatGPT 登入成功"
+
+                    Task {
+                        await model.refreshAll()
+                    }
+                }
+            },
+
+
+            onLoginGrok: {
+
+                coordinator.showGrokLogin { credential in
+
+                    model.setGrokCredential(credential)
+                    model.statusMessage = "Grok 登入成功"
 
                     Task {
                         await model.refreshAll()

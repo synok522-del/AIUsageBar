@@ -563,8 +563,10 @@ final class UsageViewModel: ObservableObject {
                 errorMessage: nil
             )
 
+            let weeklyDiscovery = await GrokWeeklyDiscoveryProbe()
+                .fetch(cookieHeader: probeSnapshot.cookieHeader)
             statusMessage =
-                "Grok：用量更新成功（\(probeSnapshot.diagnosticLabel)）"
+                "Grok：用量更新成功（\(probeSnapshot.diagnosticLabel); \(weeklyDiscovery.diagnosticLabel)）"
             return true
 
 

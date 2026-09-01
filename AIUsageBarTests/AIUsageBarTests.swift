@@ -1588,6 +1588,62 @@ struct AIUsageBarTests {
         #expect(!snapshot.diagnosticLabel.contains("dummy-cf"))
     }
 
+    @Test("Grok weekly discovery parses SuperGrok credits response")
+    func grokWeeklyDiscoveryParsesCreditsResponse() {
+        let outcome = GrokWeeklyDiscoveryProbe.parseCreditsResponse([
+            "config": [
+                "creditUsagePercent": 13,
+                "currentPeriod": [
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-08-29T07:11:00.000000+00:00",
+                    "end": "2026-09-05T07:11:00.000000+00:00"
+                ],
+                "productUsage": [
+                    ["product": "GrokChat", "usagePercent": 10],
+                    ["product": "GrokBuild", "usagePercent": 3]
+                ],
+                "billingPeriodEnd": "2026-09-05T07:11:00.000000+00:00"
+            ]
+        ])
+
+        guard case .parsed(let weekly) = outcome else {
+            Issue.record("expected parsed weekly credits response")
+            return
+        }
+
+        #expect(weekly.usedPercent == 13)
+        #expect(weekly.remainingPercent == 87)
+        #expect(weekly.periodType == "USAGE_PERIOD_TYPE_WEEKLY")
+        #expect(weekly.resetTimestamp == "2026-09-05T07:11:00.000000+00:00")
+        #expect(weekly.productUsage == [
+            GrokWeeklyDiscoveryProbe.ProductUsage(product: "GrokChat", usedPercent: 10),
+            GrokWeeklyDiscoveryProbe.ProductUsage(product: "GrokBuild", usedPercent: 3)
+        ])
+        #expect(weekly.diagnosticLabel.contains("weekly:used=13%"))
+        #expect(weekly.diagnosticLabel.contains("remaining=87%"))
+        #expect(!weekly.diagnosticLabel.contains("sso="))
+    }
+
+    @Test("Grok weekly discovery rejects non-weekly period")
+    func grokWeeklyDiscoveryRejectsNonWeeklyPeriod() {
+        let outcome = GrokWeeklyDiscoveryProbe.parseCreditsResponse([
+            "config": [
+                "creditUsagePercent": 13,
+                "currentPeriod": [
+                    "type": "USAGE_PERIOD_TYPE_MONTHLY",
+                    "end": "2026-09-05T07:11:00.000000+00:00"
+                ]
+            ]
+        ])
+
+        guard case .unavailable(let reason) = outcome else {
+            Issue.record("expected unavailable weekly credits response")
+            return
+        }
+
+        #expect(reason == "non-weekly-period")
+    }
+
     private func cookie(
         name: String,
         value: String,

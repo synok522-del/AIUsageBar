@@ -185,6 +185,131 @@ enum GrokSessionContextProbe {
     }
 }
 
+/// 17F-009C discovery: probe the structured weekly SuperGrok credits source.
+enum GrokWeeklyDiscoveryProbe {
+    static let creditsURL = URL(string: "https://grok.com/rest/grok/credits")!
+
+    struct ProductUsage: Equatable {
+        let product: String
+        let usedPercent: Int
+    }
+
+    struct ParsedWeekly: Equatable {
+        let usedPercent: Int
+        let remainingPercent: Int
+        let periodType: String
+        let resetTimestamp: String
+        let productUsage: [ProductUsage]
+
+        var diagnosticLabel: String {
+            let products = productUsage
+                .map { "\($0.product)=\($0.usedPercent)%" }
+                .joined(separator: ",")
+            let productSuffix = products.isEmpty ? "" : " products=[\(products)]"
+            return "weekly:used=\(usedPercent)% remaining=\(remainingPercent)% period=\(periodType) reset=\(resetTimestamp)\(productSuffix)"
+        }
+    }
+
+    enum Outcome: Equatable {
+        case parsed(ParsedWeekly)
+        case unavailable(String)
+
+        var diagnosticLabel: String {
+            switch self {
+            case .parsed(let weekly):
+                return weekly.diagnosticLabel
+            case .unavailable(let reason):
+                return "weekly:unavailable(\(reason))"
+            }
+        }
+    }
+
+    static func parseCreditsResponse(_ object: [String: Any]) -> Outcome {
+        guard let config = object["config"] as? [String: Any] else {
+            return .unavailable("missing-config")
+        }
+
+        let period = config["currentPeriod"] as? [String: Any]
+        let periodType = period?["type"] as? String ?? ""
+        guard periodType.contains("WEEKLY") else {
+            return .unavailable("non-weekly-period")
+        }
+
+        guard let used = ServiceSupport.parsedNumber(config["creditUsagePercent"]) else {
+            return .unavailable("missing-creditUsagePercent")
+        }
+
+        let usedPercent = ServiceSupport.percent(used)
+        let remainingPercent = max(0, 100 - usedPercent)
+
+        let resetTimestamp =
+            (period?["end"] as? String)
+            ?? (config["billingPeriodEnd"] as? String)
+            ?? ""
+
+        guard !resetTimestamp.isEmpty else {
+            return .unavailable("missing-reset")
+        }
+
+        let productUsage = (config["productUsage"] as? [[String: Any]] ?? [])
+            .compactMap { entry -> ProductUsage? in
+                guard let product = entry["product"] as? String,
+                      let percent = ServiceSupport.parsedNumber(entry["usagePercent"]) else {
+                    return nil
+                }
+
+                return ProductUsage(
+                    product: product,
+                    usedPercent: ServiceSupport.percent(percent)
+                )
+            }
+
+        return .parsed(
+            ParsedWeekly(
+                usedPercent: usedPercent,
+                remainingPercent: remainingPercent,
+                periodType: periodType,
+                resetTimestamp: resetTimestamp,
+                productUsage: productUsage
+            )
+        )
+    }
+
+    func fetch(cookieHeader: String) async -> Outcome {
+        var request = URLRequest(url: Self.creditsURL)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        request.setValue("https://grok.com", forHTTPHeaderField: "Origin")
+        request.setValue("https://grok.com/?_s=usage", forHTTPHeaderField: "Referer")
+        request.setValue(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+            forHTTPHeaderField: "User-Agent"
+        )
+
+        do {
+            let data = try await ServiceSupport.data(for: request, serviceName: "Grok")
+            let object = try ServiceSupport.jsonObject(from: data, serviceName: "Grok")
+            return Self.parseCreditsResponse(object)
+        } catch let error as AIUsageServiceError {
+            switch error {
+            case .wafBlocked:
+                return .unavailable("HTML/WAF")
+            case .httpStatus(_, let statusCode):
+                return .unavailable("HTTP_\(statusCode)")
+            case .invalidPayload:
+                return .unavailable("invalid-payload")
+            case .invalidResponse:
+                return .unavailable("invalid-response")
+            case .missingValue:
+                return .unavailable("missing-value")
+            }
+        } catch {
+            return .unavailable("network")
+        }
+    }
+}
+
 final class WebSessionManager {
 
     static let shared = WebSessionManager()

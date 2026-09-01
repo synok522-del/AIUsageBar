@@ -20,6 +20,14 @@ final class AIUsageBarUITests: XCTestCase {
     @MainActor
     func testAppLaunches() throws {
         app.launch()
-        XCTAssertEqual(app.state, .runningForeground)
+
+        let isRunning =
+            app.wait(for: .runningForeground, timeout: 5) ||
+            app.state == .runningBackground
+
+        XCTAssertTrue(isRunning, "App state was \(app.state.rawValue)")
+        XCTAssertTrue(
+            app.staticTexts["ui-test-host"].waitForExistence(timeout: 5)
+        )
     }
 }

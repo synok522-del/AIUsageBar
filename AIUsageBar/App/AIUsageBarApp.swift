@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -12,10 +13,24 @@ enum AIUsageBarAppLauncher {
     }
 }
 
+private final class TestHostAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // LSUIElement keeps the real app out of the Dock; UI tests need a
+        // regular, activatable windowed process.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
 private struct TestHostApp: App {
+    @NSApplicationDelegateAdaptor(TestHostAppDelegate.self) private var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            EmptyView()
+        WindowGroup("UI Test Host") {
+            Text("AIUsageBar UI Test Host")
+                .accessibilityIdentifier("ui-test-host")
+                .frame(minWidth: 240, minHeight: 80)
+                .padding()
         }
     }
 }

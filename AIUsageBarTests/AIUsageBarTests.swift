@@ -1644,9 +1644,9 @@ struct AIUsageBarTests {
         #expect(reason == "non-weekly-period")
     }
 
-    @Test("Unit test host is detected when XCTest launches the app")
-    func unitTestHostIsDetected() {
-        #expect(ProcessInfo.processInfo.isUnitTestHost)
+    @Test("Xcode test host is detected when XCTest launches the app")
+    func xcodeTestHostIsDetected() {
+        #expect(ProcessInfo.processInfo.isRunningUnderXcodeTests)
     }
 
     private func cookie(

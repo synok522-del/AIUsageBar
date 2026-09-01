@@ -7,7 +7,7 @@ struct AIUsageBarApp: App {
     @State private var didEvaluateWelcome = false
 
     var body: some Scene {
-        if ProcessInfo.processInfo.isUnitTestHost {
+        if ProcessInfo.processInfo.isRunningUnderXcodeTests {
             // MenuBarExtra + LSUIElement can exit before XCTest connects.
             WindowGroup {
                 EmptyView()

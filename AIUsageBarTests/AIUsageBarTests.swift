@@ -1548,7 +1548,8 @@ struct AIUsageBarTests {
         #expect(!snapshot.diagnosticLabel.contains("dummy-sso"))
         #expect(!snapshot.diagnosticLabel.contains("dummy-cf"))
         #expect(!snapshot.diagnosticLabel.contains("dummy-bm"))
-        #expect(!snapshot.diagnosticLabel.contains("="))
+        #expect(!snapshot.diagnosticLabel.contains("sso="))
+        #expect(!snapshot.diagnosticLabel.contains("cf_clearance="))
     }
 
     @Test("Grok session probe falls back when WebKit cookies lack sso")

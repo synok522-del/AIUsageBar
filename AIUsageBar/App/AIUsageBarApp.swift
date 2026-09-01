@@ -7,6 +7,17 @@ struct AIUsageBarApp: App {
     @State private var didEvaluateWelcome = false
 
     var body: some Scene {
+        if ProcessInfo.processInfo.isUnitTestHost {
+            // MenuBarExtra + LSUIElement can exit before XCTest connects.
+            WindowGroup {
+                EmptyView()
+            }
+        } else {
+            menuBarScene
+        }
+    }
+
+    private var menuBarScene: some Scene {
         MenuBarExtra {
             UsagePanelView(viewModel: viewModel)
         } label: {

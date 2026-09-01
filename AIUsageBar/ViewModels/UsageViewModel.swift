@@ -100,7 +100,9 @@ final class UsageViewModel: ObservableObject {
                 return "sso=\(savedGrokToken)"
             }()
 
-        startAutoRefresh()
+        if !ProcessInfo.processInfo.isUnitTestHost {
+            startAutoRefresh()
+        }
     }
 
 

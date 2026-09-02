@@ -24,7 +24,7 @@ Stop the deterministic launch crash from first-touching `WKWebsiteDataStore.defa
 
 ## Ending SHA
 
-`PENDING_COMMIT`
+`d76bb29d567418a17b5cb66f0c354d722ab0473a`
 
 ## Files Changed
 

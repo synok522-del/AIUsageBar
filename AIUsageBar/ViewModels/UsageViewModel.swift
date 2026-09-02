@@ -264,6 +264,7 @@ final class UsageViewModel: ObservableObject {
             KeychainManager.shared.delete(
                 StorageKey.grokCookieHeader
             )
+            GrokWebKitSessionRestorer.shared.reset()
 
         } else {
 
@@ -522,6 +523,7 @@ final class UsageViewModel: ObservableObject {
         let fallbackHeader = grokCookieHeader.isEmpty
             ? "sso=\(token)"
             : grokCookieHeader
+        await GrokWebKitSessionRestorer.shared.restoreIfNeeded()
         let webKitCookies = await WebSessionManager.shared.cookies(for: .grok)
         let cookieHeader = GrokSessionContext.cookieHeaderForRequest(
             webKitCookies: webKitCookies,

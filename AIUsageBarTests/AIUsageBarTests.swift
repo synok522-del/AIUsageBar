@@ -1611,6 +1611,46 @@ struct AIUsageBarTests {
         #expect(!names.contains(where: { $0.contains("=") }))
     }
 
+    @Test("Session-only grok.com cookies remain applicable to rate-limits")
+    func sessionOnlyGrokCookiesRemainApplicable() throws {
+        let url = GrokSessionContext.rateLimitsURL
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
+        let clearance = try #require(HTTPCookie(properties: [
+            .domain: "grok.com",
+            .path: "/",
+            .name: "cf_clearance",
+            .value: "dummy-cf",
+            .secure: "TRUE"
+        ]))
+
+        #expect(clearance.isSessionOnly)
+
+        let descriptors = GrokSessionContext.descriptors(
+            from: [sso, clearance],
+            to: url
+        )
+        let names = descriptors.map(\.name)
+        #expect(names == ["cf_clearance", "sso"])
+        #expect(descriptors.contains { $0.name == "cf_clearance" && $0.isSessionOnly })
+        #expect(!descriptors.contains { $0.name == "cf_clearance" && $0.hasExpiration })
+
+        let header = try #require(
+            GrokSessionContext.cookieHeader(from: [sso, clearance], to: url)
+        )
+        #expect(header.contains("cf_clearance=dummy-cf"))
+        #expect(header.contains("sso=dummy-sso"))
+        #expect(!descriptors.map(\.name).joined().contains("dummy"))
+    }
+
+    @Test("Grok cold-start restorer loads grok.com without credential automation")
+    func grokColdStartRestorerLoadsGrokHome() {
+        #expect(GrokWebKitSessionRestorer.restoreURL.absoluteString == "https://grok.com/")
+        #expect(GrokWebKitSessionRestorer.restoreURL.host == "grok.com")
+        #expect(GrokWebKitSessionRestorer.restoreURL.path == "/" ||
+                GrokWebKitSessionRestorer.restoreURL.path.isEmpty)
+        #expect(WebLoginProvider.grok.loginURL == GrokWebKitSessionRestorer.restoreURL)
+    }
+
     @Test("Web session manager is isolated to the main actor")
     @MainActor
     func webSessionManagerIsIsolatedToTheMainActor() {

@@ -120,6 +120,34 @@ enum GrokSessionContext {
         }.sorted()
     }
 
+    struct CookieDescriptor: Equatable {
+        let name: String
+        let domain: String
+        let path: String
+        let isSecure: Bool
+        let isSessionOnly: Bool
+        let hasExpiration: Bool
+
+        init(_ cookie: HTTPCookie) {
+            name = cookie.name
+            domain = cookie.domain
+            path = cookie.path
+            isSecure = cookie.isSecure
+            isSessionOnly = cookie.isSessionOnly
+            hasExpiration = cookie.expiresDate != nil
+        }
+    }
+
+    static func descriptors(
+        from cookies: [HTTPCookie],
+        to url: URL,
+        now: Date = Date()
+    ) -> [CookieDescriptor] {
+        applicableCookies(from: cookies, to: url, now: now)
+            .map(CookieDescriptor.init)
+            .sorted { $0.name < $1.name }
+    }
+
     private static func pathMatches(requestPath: String, cookiePath: String) -> Bool {
         if cookiePath == "/" {
             return true

@@ -519,13 +519,20 @@ final class UsageViewModel: ObservableObject {
         }
 
 
+        let fallbackHeader = grokCookieHeader.isEmpty
+            ? "sso=\(token)"
+            : grokCookieHeader
+        let webKitCookies = await WebSessionManager.shared.cookies(for: .grok)
+        let cookieHeader = GrokSessionContext.cookieHeaderForRequest(
+            webKitCookies: webKitCookies,
+            fallbackHeader: fallbackHeader
+        )
+
         do {
 
             let usage =
             try await grokService.fetchUsage(
-                cookieHeader: grokCookieHeader.isEmpty
-                    ? "sso=\(token)"
-                    : grokCookieHeader
+                cookieHeader: cookieHeader
             )
 
 

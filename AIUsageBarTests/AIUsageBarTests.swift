@@ -1499,6 +1499,118 @@ struct AIUsageBarTests {
             Issue.record("unexpected error type for JSON 403")
         }
     }
+
+    @Test("Grok session context includes applicable grok.com cookies and excludes others")
+    func grokSessionContextIncludesApplicableCookiesOnly() throws {
+        let url = GrokSessionContext.rateLimitsURL
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
+        let ssoRw = try #require(cookie(name: "sso-rw", value: "dummy-sso-rw", domain: "grok.com"))
+        let clearance = try #require(cookie(name: "cf_clearance", value: "dummy-cf", domain: "grok.com"))
+        let bot = try #require(cookie(name: "__cf_bm", value: "dummy-bm", domain: ".grok.com"))
+        let chatgpt = try #require(cookie(
+            name: "session-token",
+            value: "dummy-chatgpt",
+            domain: "chatgpt.com"
+        ))
+        let xai = try #require(cookie(name: "sso", value: "dummy-xai", domain: "x.ai"))
+        let xcom = try #require(cookie(name: "sso", value: "dummy-xcom", domain: "x.com"))
+        let expired = try #require(HTTPCookie(properties: [
+            .domain: "grok.com",
+            .path: "/",
+            .name: "expired",
+            .value: "dummy-expired",
+            .expires: Date().addingTimeInterval(-60)
+        ]))
+        let otherPath = try #require(HTTPCookie(properties: [
+            .domain: "grok.com",
+            .path: "/account",
+            .name: "account",
+            .value: "dummy-account"
+        ]))
+        let restPath = try #require(HTTPCookie(properties: [
+            .domain: "grok.com",
+            .path: "/rest",
+            .name: "rest-scope",
+            .value: "dummy-rest"
+        ]))
+
+        let header = try #require(
+            GrokSessionContext.cookieHeader(
+                from: [
+                    sso, ssoRw, clearance, bot, chatgpt, xai, xcom, expired,
+                    otherPath, restPath
+                ],
+                to: url
+            )
+        )
+        let headerNames = GrokSessionContext.cookieNames(fromHeader: header)
+
+        #expect(headerNames.contains("sso"))
+        #expect(headerNames.contains("sso-rw"))
+        #expect(headerNames.contains("cf_clearance"))
+        #expect(headerNames.contains("__cf_bm"))
+        #expect(headerNames.contains("rest-scope"))
+        #expect(!headerNames.contains("session-token"))
+        #expect(!headerNames.contains("expired"))
+        #expect(!headerNames.contains("account"))
+
+        #expect(header.contains("sso=dummy-sso"))
+        #expect(header.contains("sso-rw=dummy-sso-rw"))
+        #expect(header.contains("cf_clearance=dummy-cf"))
+        #expect(header.contains("__cf_bm=dummy-bm"))
+        #expect(header.contains("rest-scope=dummy-rest"))
+        #expect(!header.contains("dummy-chatgpt"))
+        #expect(!header.contains("dummy-xai"))
+        #expect(!header.contains("dummy-xcom"))
+        #expect(!header.contains("dummy-expired"))
+        #expect(!header.contains("dummy-account"))
+    }
+
+    @Test("Grok session context falls back when WebKit cookies lack sso")
+    func grokSessionContextFallsBackWithoutWebKitSSO() throws {
+        let clearance = try #require(cookie(
+            name: "cf_clearance",
+            value: "dummy-cf",
+            domain: "grok.com"
+        ))
+        let header = GrokSessionContext.cookieHeaderForRequest(
+            webKitCookies: [clearance],
+            fallbackHeader: "sso=dummy-sso; sso-rw=dummy-sso-rw"
+        )
+
+        #expect(header == "sso=dummy-sso; sso-rw=dummy-sso-rw")
+        #expect(GrokSessionContext.cookieHeader(from: [clearance], to: GrokSessionContext.rateLimitsURL) == nil)
+    }
+
+    @Test("Grok session context prefers current WebKit cookies when sso exists")
+    func grokSessionContextPrefersWebKitWhenSSOExists() throws {
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
+        let clearance = try #require(cookie(
+            name: "cf_clearance",
+            value: "dummy-cf",
+            domain: "grok.com"
+        ))
+        let header = GrokSessionContext.cookieHeaderForRequest(
+            webKitCookies: [sso, clearance],
+            fallbackHeader: "sso=dummy-fallback"
+        )
+
+        #expect(header.contains("sso=dummy-sso"))
+        #expect(header.contains("cf_clearance=dummy-cf"))
+        #expect(!header.contains("dummy-fallback"))
+    }
+
+    @Test("Grok session context cookie-name helper does not include values")
+    func grokSessionContextCookieNamesExcludeValues() {
+        let names = GrokSessionContext.cookieNames(
+            fromHeader: "sso=dummy-sso; cf_clearance=dummy-cf"
+        )
+
+        #expect(names == ["cf_clearance", "sso"])
+        #expect(!names.contains(where: { $0.contains("dummy") }))
+        #expect(!names.contains(where: { $0.contains("=") }))
+    }
+
     private func cookie(
         name: String,
         value: String,

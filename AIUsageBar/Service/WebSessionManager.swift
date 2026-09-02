@@ -141,6 +141,7 @@ enum GrokSessionContext {
     }
 }
 
+@MainActor
 final class WebSessionManager {
 
     static let shared = WebSessionManager()
@@ -148,8 +149,12 @@ final class WebSessionManager {
     private init() {}
 
     func cookies(for provider: WebSessionProvider) async -> [HTTPCookie] {
-        await withCheckedContinuation { continuation in
-            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+        // WKWebsiteDataStore.default() initializes WebKit and must run on the
+        // main thread. This type is MainActor-isolated so startup refreshAll
+        // cannot first-touch the default store on a cooperative executor.
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        return await withCheckedContinuation { continuation in
+            store.getAllCookies { cookies in
                 continuation.resume(
                     returning: cookies.filter { provider.matches($0.domain) }
                 )

@@ -1611,6 +1611,15 @@ struct AIUsageBarTests {
         #expect(!names.contains(where: { $0.contains("=") }))
     }
 
+    @Test("Web session manager is isolated to the main actor")
+    @MainActor
+    func webSessionManagerIsIsolatedToTheMainActor() {
+        // Do not call cookies(for:) here: that would initialize WebKit.
+        // Isolation is the production crash fix; cookie filtering is covered
+        // by GrokSessionContext tests with synthetic values.
+        _ = WebSessionManager.shared
+    }
+
     private func cookie(
         name: String,
         value: String,

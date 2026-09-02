@@ -299,15 +299,15 @@ final class UsageViewModel: ObservableObject {
         async let chatGPTRefresh: Bool =
             refreshChatGPT()
 
+        // Keep Grok cookie-store access on this MainActor task. `async let`
+        // would still hop to MainActor for refreshGrok, but the WebKit
+        // default-store first-touch must not start on a child executor.
+        let grokSucceeded = await refreshGrok()
 
-        async let grokRefresh: Bool =
-            refreshGrok()
 
-
-        let (claudeSucceeded, chatGPTSucceeded, grokSucceeded) = await (
+        let (claudeSucceeded, chatGPTSucceeded) = await (
             claudeRefresh,
-            chatGPTRefresh,
-            grokRefresh
+            chatGPTRefresh
         )
 
         usageNotificationManager.evaluate(

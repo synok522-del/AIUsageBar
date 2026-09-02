@@ -17,7 +17,7 @@ Live session numbers were **not** fetched in this environment. Do **not** treat 
 | Base Branch | `review/17f-010c-grok-session-self-recovery` |
 | Base SHA | `68c505edc44457e8796562b33b04e0fe2edca777` |
 | Probe Branch | `probe/17f-013-supergrok-weekly-rpc-discovery` |
-| Probe SHA | (this commit) |
+| Probe SHA | `d707905e145f685454b531b9492dda7b83710d39` |
 | Working Tree | discovery report only; production Grok quota UI unchanged |
 | origin/main | `b1fcda95150592dbb28d7790a3126c0d06ff72de` |
 

@@ -24,7 +24,7 @@ After process restart, restore a legitimate grok.com WebKit browsing session so 
 
 ## Ending SHA
 
-`PENDING_COMMIT`
+`2b3b404ca1af780f8ec0fa4c3e684072f896e150`
 
 ## Files Changed
 

@@ -1761,6 +1761,130 @@ struct AIUsageBarTests {
         _ = WebSessionManager.shared
     }
 
+    @Test("Weekly gRPC-Web probe request uses empty frame and grok.com path")
+    func weeklyRPCProbeRequestShape() {
+        let request = GrokWeeklyRPCProbe.makeRequest(
+            cookieHeader: "sso=dummy-sso-value",
+            baseURL: URL(string: "https://grok.com")!
+        )
+        #expect(request.httpMethod == "POST")
+        #expect(
+            request.url?.absoluteString ==
+                "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig"
+        )
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/grpc-web+proto")
+        #expect(request.value(forHTTPHeaderField: "X-Grpc-Web") == "1")
+        #expect(request.httpShouldHandleCookies == false)
+        #expect(request.httpBody == GrokWeeklyRPCProbe.emptyFrame)
+        #expect(request.httpBody == Data([0x00, 0x00, 0x00, 0x00, 0x00]))
+    }
+
+    @Test("Weekly gRPC-Web probe decodes ground-truth shaped credits config")
+    func weeklyRPCProbeDecodesGroundTruthShape() throws {
+        let start = protoTimestamp(seconds: 1_788_067_860)
+        let end = protoTimestamp(seconds: 1_788_592_260)
+        let period =
+            protoVarint(1, 2) +
+            protoBytes(2, start) +
+            protoBytes(3, end)
+        let config =
+            protoFloat(1, 53) +
+            protoBytes(5, protoTimestamp(seconds: 1_790_000_000)) +
+            protoBytes(7, protoVarint(1, 4) + protoFloat(2, 36)) +
+            protoBytes(7, protoVarint(1, 7) + protoFloat(2, 16)) +
+            protoBytes(7, protoVarint(1, 5) + protoFloat(2, 1)) +
+            protoBytes(8, period)
+        let message = protoBytes(1, config)
+        let body = grpcWebFrame(message) + grpcWebTrailer("grpc-status: 0\r\n")
+
+        let outcome = GrokWeeklyRPCProbe.interpret(
+            statusCode: 200,
+            contentType: "application/grpc-web+proto",
+            body: body
+        )
+        let line = GrokWeeklyRPCProbe.diagnosticLine(from: outcome)
+        #expect(line.contains("http=200"))
+        #expect(line.contains("grpc=OK"))
+        #expect(line.contains("used=53"))
+        #expect(line.contains("remaining=47"))
+        #expect(line.contains("period=WEEKLY"))
+        #expect(line.contains("start=2026-08-29T07:11:00"))
+        #expect(line.contains("end=2026-09-05T07:11:00"))
+        #expect(line.contains("chat=36"))
+        #expect(line.contains("appBuilder=16"))
+        #expect(line.contains("imagine=1"))
+        #expect(line.contains("billingEnd="))
+        #expect(!line.contains("sso"))
+        #expect(!line.contains("Cookie"))
+        #expect(
+            UsageRefreshStatePolicy.shouldClearStatusMessage(line, for: "Grok") == false
+        )
+    }
+
+    @Test("Weekly gRPC-Web probe failure reports classification without payload")
+    func weeklyRPCProbeFailureDoesNotExposePayload() {
+        let html = Data("<html>attention required cloudflare</html>".utf8)
+        let outcome = GrokWeeklyRPCProbe.interpret(
+            statusCode: 403,
+            contentType: "text/html",
+            body: html
+        )
+        let line = GrokWeeklyRPCProbe.diagnosticLine(from: outcome)
+        #expect(line.contains("http=403"))
+        #expect(line.contains("decode=HTML_OR_WAF"))
+        #expect(!line.contains("cloudflare"))
+        #expect(!line.contains("<html"))
+    }
+
+    private func protoVarint(_ field: Int, _ value: Int) -> Data {
+        var data = Data()
+        appendVarint(&data, UInt64(field << 3))
+        appendVarint(&data, UInt64(value))
+        return data
+    }
+
+    private func protoFloat(_ field: Int, _ value: Float) -> Data {
+        var data = Data()
+        appendVarint(&data, UInt64((field << 3) | 5))
+        var bits = value.bitPattern.littleEndian
+        Swift.withUnsafeBytes(of: &bits) { data.append(contentsOf: $0) }
+        return data
+    }
+
+    private func protoBytes(_ field: Int, _ payload: Data) -> Data {
+        var data = Data()
+        appendVarint(&data, UInt64((field << 3) | 2))
+        appendVarint(&data, UInt64(payload.count))
+        data.append(payload)
+        return data
+    }
+
+    private func protoTimestamp(seconds: Int) -> Data {
+        protoVarint(1, seconds)
+    }
+
+    private func grpcWebFrame(_ payload: Data, flag: UInt8 = 0) -> Data {
+        var header = Data([flag, 0, 0, 0, 0])
+        let length = UInt32(payload.count).bigEndian
+        Swift.withUnsafeBytes(of: &length) { bytes in
+            header.replaceSubrange(1..<5, with: bytes)
+        }
+        return header + payload
+    }
+
+    private func grpcWebTrailer(_ text: String) -> Data {
+        grpcWebFrame(Data(text.utf8), flag: 0x80)
+    }
+
+    private func appendVarint(_ data: inout Data, _ value: UInt64) {
+        var value = value
+        while value > 0x7F {
+            data.append(UInt8(value & 0x7F) | 0x80)
+            value >>= 7
+        }
+        data.append(UInt8(value))
+    }
+
     private func cookie(
         name: String,
         value: String,

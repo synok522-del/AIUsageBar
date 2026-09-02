@@ -23,12 +23,17 @@ struct GrokService {
         let rateLimits = try await fetchRateLimits(cookieHeader: cookieHeader)
         let session = try Self.parseRateLimits(rateLimits)
 
+        let weeklyRPCDiagnostic = await probeWeeklyCreditsConfig(
+            cookieHeader: cookieHeader
+        )
+
         return GrokUsage(
             sessionRemainingPercent: session.remainingPercent,
             resetText: session.resetText,
             sessionWindowSeconds: session.windowSeconds,
             weeklyRemainingPercent: nil,
-            weeklyResetText: nil
+            weeklyResetText: nil,
+            weeklyRPCDiagnostic: weeklyRPCDiagnostic
         )
     }
 
@@ -156,5 +161,27 @@ struct GrokService {
             session: session
         )
         return try ServiceSupport.jsonObject(from: data, serviceName: "Grok")
+    }
+
+    private func probeWeeklyCreditsConfig(cookieHeader: String) async -> String {
+        var request = GrokWeeklyRPCProbe.makeRequest(
+            cookieHeader: cookieHeader,
+            baseURL: webBaseURL
+        )
+        request.timeoutInterval = 15
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            let http = response as? HTTPURLResponse
+            let outcome = GrokWeeklyRPCProbe.interpret(
+                statusCode: http?.statusCode ?? -1,
+                contentType: http?.value(forHTTPHeaderField: "Content-Type"),
+                body: data,
+                grpcStatusHeader: http?.value(forHTTPHeaderField: "Grpc-Status")
+            )
+            return GrokWeeklyRPCProbe.diagnosticLine(from: outcome)
+        } catch {
+            return "weeklyRPC: http=n/a contentType=n/a frames=n/a grpc=n/a decode=TRANSPORT_ERROR"
+        }
     }
 }

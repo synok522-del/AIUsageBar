@@ -2,6 +2,22 @@ import Foundation
 
 struct GrokService {
     private let webBaseURL = URL(string: "https://grok.com")!
+    private let session: URLSession
+
+    init(session: URLSession = GrokService.sharedSession) {
+        self.session = session
+    }
+
+    private static let sharedSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        return URLSession(
+            configuration: configuration,
+            delegate: GrokURLSessionRedirectDelegate.shared,
+            delegateQueue: nil
+        )
+    }()
 
     func fetchUsage(cookieHeader: String) async throws -> GrokUsage {
         let rateLimits = try await fetchRateLimits(cookieHeader: cookieHeader)
@@ -131,9 +147,14 @@ struct GrokService {
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
             forHTTPHeaderField: "User-Agent"
         )
+        request.httpShouldHandleCookies = false
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let data = try await ServiceSupport.data(for: request, serviceName: "Grok")
+        let data = try await ServiceSupport.data(
+            for: request,
+            serviceName: "Grok",
+            session: session
+        )
         return try ServiceSupport.jsonObject(from: data, serviceName: "Grok")
     }
 }

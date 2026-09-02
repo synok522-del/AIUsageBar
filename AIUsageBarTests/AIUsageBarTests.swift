@@ -1651,6 +1651,107 @@ struct AIUsageBarTests {
         #expect(WebLoginProvider.grok.loginURL == GrokWebKitSessionRestorer.restoreURL)
     }
 
+    @Test("Successful restoration with usable sso becomes READY")
+    func grokRestorerSuccessBecomesReady() {
+        var gate = GrokSessionRestorerGate()
+        let generation = gate.beginRestore()
+        gate.complete(attemptGeneration: generation, outcome: .success)
+        #expect(gate.phase == .ready)
+    }
+
+    @Test("Failed restoration does not become READY")
+    func grokRestorerFailureDoesNotBecomeReady() {
+        var gate = GrokSessionRestorerGate()
+        let generation = gate.beginRestore()
+        gate.complete(attemptGeneration: generation, outcome: .failure)
+        #expect(gate.phase == .unknown)
+    }
+
+    @Test("Timed out restoration does not become READY")
+    func grokRestorerTimeoutDoesNotBecomeReady() {
+        var gate = GrokSessionRestorerGate()
+        let generation = gate.beginRestore()
+        gate.complete(attemptGeneration: generation, outcome: .timeout)
+        #expect(gate.phase == .unknown)
+    }
+
+    @Test("Reset invalidates in-flight restoration completion")
+    func grokRestorerResetInvalidatesInFlightCompletion() {
+        var gate = GrokSessionRestorerGate()
+        let generation = gate.beginRestore()
+        gate.reset()
+        gate.complete(attemptGeneration: generation, outcome: .success)
+        #expect(gate.phase == .unknown)
+        #expect(gate.generation != generation)
+    }
+
+    @Test("Recoverable Grok WAF permits exactly one restoration retry")
+    func grokRecoverableWAFPermitsExactlyOneRetry() {
+        let error = AIUsageServiceError.wafBlocked("Grok")
+        #expect(
+            GrokSessionRecoveryPolicy.shouldAttemptRecovery(
+                didAlreadyRetry: false,
+                error: error
+            )
+        )
+        #expect(
+            GrokSessionRecoveryPolicy.shouldAttemptRecovery(
+                didAlreadyRetry: true,
+                error: error
+            ) == false
+        )
+        #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+    }
+
+    @Test("HTTP 401 is a recoverable Grok session failure")
+    func grokHTTP401IsRecoverableSessionFailure() {
+        #expect(
+            GrokSessionRecoveryPolicy.isRecoverableSessionFailure(
+                AIUsageServiceError.httpStatus("Grok", 401)
+            )
+        )
+    }
+
+    @Test("Parser and network errors do not trigger Grok restoration")
+    func grokParserAndNetworkErrorsDoNotTriggerRestoration() {
+        #expect(
+            GrokSessionRecoveryPolicy.shouldAttemptRecovery(
+                didAlreadyRetry: false,
+                error: AIUsageServiceError.invalidPayload("Grok")
+            ) == false
+        )
+        #expect(
+            GrokSessionRecoveryPolicy.shouldAttemptRecovery(
+                didAlreadyRetry: false,
+                error: URLError(.notConnectedToInternet)
+            ) == false
+        )
+        #expect(
+            GrokSessionRecoveryPolicy.shouldAttemptRecovery(
+                didAlreadyRetry: false,
+                error: AIUsageServiceError.httpStatus("Grok", 500)
+            ) == false
+        )
+    }
+
+    @Test("Grok Cookie header is stripped on redirect outside grok.com")
+    func grokCookieHeaderIsStrippedOutsideGrokHost() {
+        var foreign = URLRequest(url: URL(string: "https://example.com/steal")!)
+        foreign.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
+        let rewritten = GrokRedirectPolicy.requestAfterRedirect(foreign)
+        #expect(rewritten?.url?.host == "example.com")
+        #expect(rewritten?.value(forHTTPHeaderField: "Cookie") == nil)
+
+        var grok = URLRequest(url: URL(string: "https://accounts.grok.com/continue")!)
+        grok.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
+        let kept = GrokRedirectPolicy.requestAfterRedirect(grok)
+        #expect(kept?.value(forHTTPHeaderField: "Cookie") == "sso=dummy-sso")
+
+        var xai = URLRequest(url: URL(string: "https://x.ai/auth")!)
+        xai.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
+        #expect(GrokRedirectPolicy.requestAfterRedirect(xai)?.value(forHTTPHeaderField: "Cookie") == nil)
+    }
+
     @Test("Web session manager is isolated to the main actor")
     @MainActor
     func webSessionManagerIsIsolatedToTheMainActor() {

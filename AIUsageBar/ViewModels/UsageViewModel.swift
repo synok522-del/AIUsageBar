@@ -523,6 +523,17 @@ final class UsageViewModel: ObservableObject {
         let fallbackHeader = grokCookieHeader.isEmpty
             ? "sso=\(token)"
             : grokCookieHeader
+
+        return await fetchGrokUsage(
+            fallbackHeader: fallbackHeader,
+            allowRecovery: true
+        )
+    }
+
+    private func fetchGrokUsage(
+        fallbackHeader: String,
+        allowRecovery: Bool
+    ) async -> Bool {
         await GrokWebKitSessionRestorer.shared.restoreIfNeeded()
         let webKitCookies = await WebSessionManager.shared.cookies(for: .grok)
         let cookieHeader = GrokSessionContext.cookieHeaderForRequest(
@@ -567,6 +578,17 @@ final class UsageViewModel: ObservableObject {
 
 
         } catch {
+            if GrokSessionRecoveryPolicy.shouldAttemptRecovery(
+                didAlreadyRetry: !allowRecovery,
+                error: error
+            ) {
+                _ = await GrokWebKitSessionRestorer.shared.restoreAfterRecoverableFailure()
+                return await fetchGrokUsage(
+                    fallbackHeader: fallbackHeader,
+                    allowRecovery: false
+                )
+            }
+
             if let nextState = UsageRefreshStatePolicy.state(
                 afterFailure: grok,
                 error: error

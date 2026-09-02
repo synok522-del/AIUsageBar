@@ -11,13 +11,14 @@ enum ServiceSupport {
 
     static func data(
         for request: URLRequest,
-        serviceName: String
+        serviceName: String,
+        session: URLSession = .shared
     ) async throws -> Data {
 
         var request = request
         request.timeoutInterval = 15
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AIUsageServiceError.invalidResponse(serviceName)

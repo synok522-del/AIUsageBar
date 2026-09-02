@@ -2,13 +2,11 @@ import AppKit
 import Foundation
 import WebKit
 
-/// Restores a process-local grok.com WebKit browsing session after cold start.
+/// Restores a process-local grok.com WebKit browsing session.
 ///
-/// Keychain still holds `sso`, but Cloudflare/session cookies are typically
-/// session-only and vanish when the app quits. Opening the Grok login WebView
-/// works because it creates a WKWebView on the default data store and navigates
-/// to grok.com. This performs the same navigation off-screen, without showing
-/// UI or entering credentials.
+/// READY is latched only after navigation completes with a usable grok.com
+/// `sso` cookie. Failure, timeout, and logout cannot latch READY. A later
+/// recoverable fetch failure can invalidate READY and restore once more.
 @MainActor
 final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate {
     static let shared = GrokWebKitSessionRestorer()
@@ -16,50 +14,64 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate {
     static let userAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
+    private var gate = GrokSessionRestorerGate()
     private var webView: WKWebView?
     private var hostWindow: NSWindow?
-    private var didRestoreThisProcess = false
-    private var pending: CheckedContinuation<Void, Never>?
+    private var pending: (
+        generation: UInt,
+        continuation: CheckedContinuation<GrokSessionRestoreOutcome, Never>
+    )?
     private var timeoutTask: Task<Void, Never>?
 
     private override init() {
         super.init()
     }
 
-    func restoreIfNeeded() async {
-        if didRestoreThisProcess {
-            return
+    func restoreIfNeeded() async -> GrokSessionRestoreOutcome {
+        if gate.phase == .ready {
+            return .success
         }
 
-        await withCheckedContinuation { continuation in
-            pending = continuation
-            startNavigation()
-            timeoutTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 20_000_000_000)
-                self?.finishRestore()
-            }
-        }
+        return await performRestore()
+    }
 
-        didRestoreThisProcess = true
+    func restoreAfterRecoverableFailure() async -> GrokSessionRestoreOutcome {
+        invalidateInFlight(resume: .cancelled)
+        gate.invalidateForRecovery()
+        teardownWebView()
+        return await performRestore()
     }
 
     func reset() {
-        timeoutTask?.cancel()
-        timeoutTask = nil
-        finishRestore()
-        didRestoreThisProcess = false
-        webView?.navigationDelegate = nil
-        webView?.stopLoading()
-        webView = nil
-        hostWindow?.contentView = nil
-        hostWindow = nil
+        invalidateInFlight(resume: .cancelled)
+        gate.reset()
+        teardownWebView()
+    }
+
+    private func performRestore() async -> GrokSessionRestoreOutcome {
+        let attempt = gate.beginRestore()
+        let outcome: GrokSessionRestoreOutcome = await withCheckedContinuation { continuation in
+            pending = (attempt, continuation)
+            startNavigation()
+            timeoutTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                self?.finish(.timeout, generation: attempt)
+            }
+        }
+        gate.complete(attemptGeneration: attempt, outcome: outcome)
+        return outcome
     }
 
     private func startNavigation() {
+        teardownWebView()
+
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
 
-        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 240), configuration: configuration)
+        let webView = WKWebView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240),
+            configuration: configuration
+        )
         webView.customUserAgent = Self.userAgent
         webView.navigationDelegate = self
         self.webView = webView
@@ -81,7 +93,22 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        finishRestore()
+        let generation = pending?.generation
+        Task { @MainActor [weak self] in
+            guard let self, let generation else {
+                return
+            }
+
+            let cookies = await WebSessionManager.shared.cookies(for: .grok)
+            let hasUsableSSO = GrokSessionContext.cookieHeader(
+                from: cookies,
+                to: GrokSessionContext.rateLimitsURL
+            ) != nil
+            self.finish(
+                hasUsableSSO ? .success : .failure,
+                generation: generation
+            )
+        }
     }
 
     func webView(
@@ -89,7 +116,7 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate {
         didFail navigation: WKNavigation!,
         withError error: Error
     ) {
-        finishRestore()
+        finish(.failure, generation: pending?.generation)
     }
 
     func webView(
@@ -97,16 +124,40 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
-        finishRestore()
+        finish(.failure, generation: pending?.generation)
     }
 
-    private func finishRestore() {
+    private func finish(
+        _ outcome: GrokSessionRestoreOutcome,
+        generation: UInt?
+    ) {
         timeoutTask?.cancel()
         timeoutTask = nil
-        guard let pending else {
+
+        guard let pending,
+              let generation,
+              pending.generation == generation else {
             return
         }
+
         self.pending = nil
-        pending.resume()
+        pending.continuation.resume(returning: outcome)
+    }
+
+    private func invalidateInFlight(resume outcome: GrokSessionRestoreOutcome) {
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        if let pending {
+            self.pending = nil
+            pending.continuation.resume(returning: outcome)
+        }
+    }
+
+    private func teardownWebView() {
+        webView?.navigationDelegate = nil
+        webView?.stopLoading()
+        webView = nil
+        hostWindow?.contentView = nil
+        hostWindow = nil
     }
 }

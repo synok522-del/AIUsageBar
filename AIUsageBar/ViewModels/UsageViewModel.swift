@@ -573,7 +573,11 @@ final class UsageViewModel: ObservableObject {
                 errorMessage: nil
             )
 
-            clearStatusMessage(for: "Grok")
+            if let diagnostic = usage.weeklyRPCDiagnostic, !diagnostic.isEmpty {
+                statusMessage = diagnostic
+            } else {
+                clearStatusMessage(for: "Grok")
+            }
             return true
 
 

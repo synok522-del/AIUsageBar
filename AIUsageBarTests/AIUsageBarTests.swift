@@ -1651,6 +1651,38 @@ struct AIUsageBarTests {
         #expect(WebLoginProvider.grok.loginURL == GrokWebKitSessionRestorer.restoreURL)
     }
 
+    @Test("SuperGrok weekly live probe extracts used remaining period and products")
+    func grokWeeklyLiveProbeExtractsWeeklyFields() {
+        let snapshot = GrokWeeklyLiveProbe.parseJSON([
+            "config": [
+                "creditUsagePercent": 53,
+                "currentPeriod": [
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-08-29T07:11:00Z",
+                    "end": "2026-09-05T07:11:00Z"
+                ],
+                "billingPeriodEnd": "2026-09-05T07:11:00Z",
+                "productUsage": [
+                    ["product": "GrokChat", "usagePercent": 36],
+                    ["product": "GrokBuild", "usagePercent": 16],
+                    ["product": "Imagine", "usagePercent": 1]
+                ]
+            ]
+        ])
+
+        #expect(snapshot.used == "53")
+        #expect(snapshot.remaining == "47")
+        #expect(snapshot.periodType == "WEEKLY")
+        #expect(snapshot.periodEnd == "2026-09-05T07:11:00Z")
+        #expect(snapshot.products.contains("GrokChat=36%"))
+        #expect(snapshot.products.contains("GrokBuild=16%"))
+        #expect(snapshot.products.contains("Imagine=1%"))
+        #expect(snapshot.diagnosticLabel.contains("used=53"))
+        #expect(snapshot.diagnosticLabel.contains("remaining=47"))
+        #expect(!snapshot.diagnosticLabel.contains("sso="))
+        #expect(GrokWeeklyLiveProbe.creditsURL.absoluteString == "https://grok.com/rest/grok/credits")
+    }
+
     @Test("Successful restoration with usable sso becomes READY")
     func grokRestorerSuccessBecomesReady() {
         var gate = GrokSessionRestorerGate()

@@ -24,7 +24,7 @@ Production-fix Grok short-window usage fetch so refresh uses the current applica
 
 ## Ending SHA
 
-`dd52b7a8d6367e4ae667a43f79584988a42b4814`
+`11e756d848c67db7c85bb3ceb6d73d7f4fd34bdf`
 
 ## Files Changed
 

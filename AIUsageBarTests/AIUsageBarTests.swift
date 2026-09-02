@@ -1651,6 +1651,103 @@ struct AIUsageBarTests {
         #expect(WebLoginProvider.grok.loginURL == GrokWebKitSessionRestorer.restoreURL)
     }
 
+    @Test("Free-account credits probe classifies non-weekly JSON as no entitlement")
+    func grokFreeCreditsProbeClassifiesNonWeeklyJSON() {
+        let fields = GrokFreeCreditsProbe.parseJSON([
+            "config": [
+                "creditUsagePercent": 0,
+                "currentPeriod": [
+                    "type": "USAGE_PERIOD_TYPE_UNSPECIFIED"
+                ]
+            ]
+        ])
+        #expect(fields.creditUsagePercent == "0")
+        #expect(fields.periodType == "USAGE_PERIOD_TYPE_UNSPECIFIED")
+        let classification = GrokFreeCreditsProbe.classify(
+            httpStatus: 200,
+            responseClass: "JSON",
+            jsonParsed: true,
+            fields: fields
+        )
+        #expect(classification == .noWeeklyEntitlement)
+        #expect(!fields.creditUsagePercent.contains("sso="))
+    }
+
+    @Test("Free-account credits probe treats past weekly end as historical")
+    func grokFreeCreditsProbeTreatsPastWeeklyEndAsHistorical() {
+        let fields = GrokFreeCreditsProbe.parseJSON(
+            [
+                "config": [
+                    "creditUsagePercent": 13,
+                    "currentPeriod": [
+                        "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                        "start": "2026-08-01T00:00:00Z",
+                        "end": "2026-08-08T00:00:00Z"
+                    ],
+                    "billingPeriodEnd": "2026-08-08T00:00:00Z",
+                    "productUsage": [
+                        ["product": "GrokChat", "usagePercent": 10]
+                    ]
+                ]
+            ],
+            now: Date(timeIntervalSince1970: 1_788_000_000)
+        )
+        #expect(fields.periodEndRelation == "PAST")
+        #expect(fields.productUsage == "GrokChat=10%")
+        let classification = GrokFreeCreditsProbe.classify(
+            httpStatus: 200,
+            responseClass: "JSON",
+            jsonParsed: true,
+            fields: fields
+        )
+        #expect(classification == .historicalOrStaleWeeklyData)
+    }
+
+    @Test("Free-account credits probe treats future weekly end as unexpected")
+    func grokFreeCreditsProbeTreatsFutureWeeklyEndAsUnexpected() {
+        let fields = GrokFreeCreditsProbe.parseJSON(
+            [
+                "config": [
+                    "creditUsagePercent": 13,
+                    "currentPeriod": [
+                        "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                        "end": "2099-01-01T00:00:00Z"
+                    ]
+                ]
+            ],
+            now: Date(timeIntervalSince1970: 1_788_000_000)
+        )
+        #expect(fields.periodEndRelation == "FUTURE")
+        let classification = GrokFreeCreditsProbe.classify(
+            httpStatus: 200,
+            responseClass: "JSON",
+            jsonParsed: true,
+            fields: fields
+        )
+        #expect(classification == .activeWeeklyDataUnexpected)
+        let label = GrokFreeCreditsProbe.Result(
+            httpStatus: 200,
+            responseClass: "JSON",
+            jsonParsed: true,
+            fields: fields,
+            classification: classification
+        ).diagnosticLabel
+        #expect(!label.contains("dummy"))
+        #expect(label.contains("ACTIVE_WEEKLY_DATA_UNEXPECTED"))
+    }
+
+    @Test("Free-account credits probe classifies WAF as unavailable")
+    func grokFreeCreditsProbeClassifiesWAFAsUnavailable() {
+        let classification = GrokFreeCreditsProbe.classify(
+            httpStatus: 403,
+            responseClass: "HTML/WAF",
+            jsonParsed: false,
+            fields: GrokFreeCreditsProbe.FieldReport()
+        )
+        #expect(classification == .endpointUnavailable)
+        #expect(GrokFreeCreditsProbe.creditsURL.absoluteString == "https://grok.com/rest/grok/credits")
+    }
+
     @Test("Web session manager is isolated to the main actor")
     @MainActor
     func webSessionManagerIsIsolatedToTheMainActor() {

@@ -562,7 +562,11 @@ final class UsageViewModel: ObservableObject {
                 errorMessage: nil
             )
 
-            clearStatusMessage(for: "Grok")
+            let creditsProbe = await GrokFreeCreditsProbe.fetch(
+                cookieHeader: cookieHeader
+            )
+            statusMessage =
+                "Grok：用量更新成功｜\(creditsProbe.diagnosticLabel)"
             return true
 
 
@@ -573,7 +577,11 @@ final class UsageViewModel: ObservableObject {
             ) {
                 grok = nextState
                 let message = nextState.errorMessage ?? "更新失敗"
-                statusMessage = "Grok：\(message)"
+                let creditsProbe = await GrokFreeCreditsProbe.fetch(
+                    cookieHeader: cookieHeader
+                )
+                statusMessage =
+                    "Grok：\(message)｜\(creditsProbe.diagnosticLabel)"
             }
 
             return false

@@ -143,7 +143,7 @@ final class UsageNotificationManager {
 
         let shouldNotifyGrok = state.shouldNotifyIfEnabled(
             for: .grok,
-            remainingPercent: grok.sessionPercent,
+            remainingPercent: grok.primaryRemainingPercent,
             isLoaded: grok.isLoaded,
             hasError: grok.errorMessage != nil,
             notificationsEnabled: notificationsEnabled
@@ -180,11 +180,20 @@ final class UsageNotificationManager {
         for provider: UsageNotificationProvider,
         info: UsageInfo
     ) -> UsageNotificationPayload {
-        UsageNotificationPayload(
-            provider: provider,
-            remainingPercent: info.sessionPercent,
-            resetText: info.resetText
-        )
+        switch provider {
+        case .grok:
+            return UsageNotificationPayload(
+                provider: provider,
+                remainingPercent: info.primaryRemainingPercent,
+                resetText: info.primaryResetText
+            )
+        case .chatGPT, .claude:
+            return UsageNotificationPayload(
+                provider: provider,
+                remainingPercent: info.sessionPercent,
+                resetText: info.resetText
+            )
+        }
     }
 
     private func makeRequest(

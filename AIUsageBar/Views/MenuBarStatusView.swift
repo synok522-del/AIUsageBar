@@ -135,6 +135,7 @@ struct MenuBarStatusView: View {
                     imageHeight: imageSize.height,
                     barHeight: barHeight
                 ),
+                provider: provider,
                 info: usageInfo(for: provider),
                 imageSize: imageSize,
                 barHeight: barHeight
@@ -158,11 +159,12 @@ struct MenuBarStatusView: View {
 
     private func drawBar(
         atY y: CGFloat,
+        provider: UsageProvider,
         info: UsageInfo,
         imageSize: NSSize,
         barHeight: CGFloat
     ) {
-        let percent = min(max(info.sessionPercent, 0), 100)
+        let percent = menuBarPercent(provider: provider, info: info)
         let barWidth = imageSize.width
 
         NSColor.black.withAlphaComponent(0.55).setFill()
@@ -199,18 +201,23 @@ struct MenuBarStatusView: View {
     private func accessibilityBar(for provider: UsageProvider) -> some View {
         switch provider {
         case .chatGPT:
-            accessibilityBar(label: "ChatGPT", info: viewModel.chatGPT)
+            accessibilityBar(label: "ChatGPT", info: viewModel.chatGPT, provider: .chatGPT)
         case .claude:
-            accessibilityBar(label: "Claude", info: viewModel.claude)
+            accessibilityBar(label: "Claude", info: viewModel.claude, provider: .claude)
         case .grok:
-            accessibilityBar(label: "Grok", info: viewModel.grok)
+            accessibilityBar(label: "Grok", info: viewModel.grok, provider: .grok)
         }
     }
 
-    private func accessibilityBar(label: String, info: UsageInfo) -> some View {
+    private func accessibilityBar(
+        label: String,
+        info: UsageInfo,
+        provider: UsageProvider
+    ) -> some View {
         let barHeight = MenuBarStatusLayout.barHeight(
             providerCount: providerVisibility.visibleProviders.count
         )
+        let percent = menuBarPercent(provider: provider, info: info)
 
         return Rectangle()
             .fill(.clear)
@@ -219,8 +226,13 @@ struct MenuBarStatusView: View {
             .accessibilityLabel("\(label) 剩餘用量")
             .accessibilityValue(
                 info.isLoaded
-                ? "\(min(max(info.sessionPercent, 0), 100))%"
+                ? "\(percent)%"
                 : "尚未載入"
             )
+    }
+
+    private func menuBarPercent(provider: UsageProvider, info: UsageInfo) -> Int {
+        let raw = provider == .grok ? info.primaryRemainingPercent : info.sessionPercent
+        return min(max(raw, 0), 100)
     }
 }

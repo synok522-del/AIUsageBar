@@ -18,6 +18,58 @@ struct UsageInfo {
     var sessionWindowSeconds: Int = 0
     var isLoaded: Bool = false
     var errorMessage: String?
+
+    var primaryRemainingPercent: Int {
+        weeklyAvailable ? weeklyPercent : sessionPercent
+    }
+
+    var primaryResetText: String {
+        if weeklyAvailable {
+            return ServiceSupport.combinedResetText(
+                session: resetText,
+                weekly: weeklyResetText
+            )
+        }
+        return resetText
+    }
+}
+
+struct GrokCardPresentation: Equatable {
+    var showsSessionRow: Bool
+    var showsWeeklyRow: Bool
+    var sessionPercent: Int?
+    var weeklyPercent: Int?
+
+    var displayedRowCount: Int {
+        (showsSessionRow ? 1 : 0) + (showsWeeklyRow ? 1 : 0)
+    }
+
+    static func from(_ info: UsageInfo) -> GrokCardPresentation {
+        guard info.isLoaded, info.errorMessage == nil else {
+            return GrokCardPresentation(
+                showsSessionRow: true,
+                showsWeeklyRow: false,
+                sessionPercent: nil,
+                weeklyPercent: nil
+            )
+        }
+
+        if info.weeklyAvailable {
+            return GrokCardPresentation(
+                showsSessionRow: false,
+                showsWeeklyRow: true,
+                sessionPercent: nil,
+                weeklyPercent: info.weeklyPercent
+            )
+        }
+
+        return GrokCardPresentation(
+            showsSessionRow: true,
+            showsWeeklyRow: false,
+            sessionPercent: info.sessionPercent,
+            weeklyPercent: nil
+        )
+    }
 }
 
 enum UsageProvider: Hashable {

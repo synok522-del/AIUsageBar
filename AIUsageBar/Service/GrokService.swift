@@ -23,12 +23,23 @@ struct GrokService {
         let rateLimits = try await fetchRateLimits(cookieHeader: cookieHeader)
         let session = try Self.parseRateLimits(rateLimits)
 
+        let weekly = await fetchWeeklyQuota(cookieHeader: cookieHeader)
+
         return GrokUsage(
             sessionRemainingPercent: session.remainingPercent,
             resetText: session.resetText,
             sessionWindowSeconds: session.windowSeconds,
-            weeklyRemainingPercent: nil,
-            weeklyResetText: nil
+            weeklyRemainingPercent: weekly?.remainingPercent,
+            weeklyResetText: weekly.map {
+                ServiceSupport.absoluteResetText(
+                    NSNumber(value: $0.resetAt.timeIntervalSince1970)
+                )
+            },
+            weeklyRelativeResetText: weekly.map {
+                ServiceSupport.resetText(
+                    NSNumber(value: $0.resetAt.timeIntervalSince1970)
+                )
+            }
         )
     }
 
@@ -156,5 +167,26 @@ struct GrokService {
             session: session
         )
         return try ServiceSupport.jsonObject(from: data, serviceName: "Grok")
+    }
+
+    private func fetchWeeklyQuota(cookieHeader: String) async -> GrokWeeklyQuota? {
+        var request = GrokCreditsConfigDecoder.makeRequest(
+            cookieHeader: cookieHeader,
+            baseURL: webBaseURL
+        )
+        request.timeoutInterval = 15
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            let http = response as? HTTPURLResponse
+            return GrokCreditsConfigDecoder.weeklyQuota(
+                httpStatus: http?.statusCode ?? 0,
+                contentType: http?.value(forHTTPHeaderField: "Content-Type"),
+                body: data,
+                grpcStatusHeader: http?.value(forHTTPHeaderField: "Grpc-Status")
+            )
+        } catch {
+            return nil
+        }
     }
 }

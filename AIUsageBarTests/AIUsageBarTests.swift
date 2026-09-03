@@ -2035,8 +2035,7 @@ struct AIUsageBarTests {
     private func protoFloat(_ field: Int, _ value: Float) -> Data {
         var data = Data()
         appendVarint(&data, UInt64((field << 3) | 5))
-        var bits = value.bitPattern.littleEndian
-        Swift.withUnsafeBytes(of: &bits) { data.append(contentsOf: $0) }
+        appendLittleEndianUInt32(&data, value.bitPattern)
         return data
     }
 
@@ -2053,16 +2052,27 @@ struct AIUsageBarTests {
     }
 
     private func grpcWebFrame(_ payload: Data, flag: UInt8 = 0) -> Data {
-        var header = Data([flag, 0, 0, 0, 0])
-        let length = UInt32(payload.count).bigEndian
-        Swift.withUnsafeBytes(of: length) { bytes in
-            header.replaceSubrange(1..<5, with: bytes)
-        }
+        var header = Data([flag])
+        appendBigEndianUInt32(&header, UInt32(payload.count))
         return header + payload
     }
 
     private func grpcWebTrailer(_ text: String) -> Data {
         grpcWebFrame(Data(text.utf8), flag: 0x80)
+    }
+
+    private func appendLittleEndianUInt32(_ data: inout Data, _ value: UInt32) {
+        data.append(UInt8(truncatingIfNeeded: value))
+        data.append(UInt8(truncatingIfNeeded: value >> 8))
+        data.append(UInt8(truncatingIfNeeded: value >> 16))
+        data.append(UInt8(truncatingIfNeeded: value >> 24))
+    }
+
+    private func appendBigEndianUInt32(_ data: inout Data, _ value: UInt32) {
+        data.append(UInt8(truncatingIfNeeded: value >> 24))
+        data.append(UInt8(truncatingIfNeeded: value >> 16))
+        data.append(UInt8(truncatingIfNeeded: value >> 8))
+        data.append(UInt8(truncatingIfNeeded: value))
     }
 
     private func appendVarint(_ data: inout Data, _ value: UInt64) {

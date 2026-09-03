@@ -11,4 +11,5 @@ struct GrokUsage {
     let sessionWindowSeconds: Int
     let weeklyRemainingPercent: Int?
     let weeklyResetText: String?
+    let weeklyRelativeResetText: String?
 }

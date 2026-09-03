@@ -141,6 +141,7 @@ struct UsagePanelView: View {
                 title: "ChatGPT",
                 info: viewModel.chatGPT,
                 supportsWeeklyQuota: viewModel.chatGPT.weeklyAvailable,
+                showsSessionRow: true,
                 sessionRowLabel: "5 小時",
                 sessionAccessibilityLabel: "5 小時"
             )
@@ -150,15 +151,18 @@ struct UsagePanelView: View {
                 title: "Claude",
                 info: viewModel.claude,
                 supportsWeeklyQuota: true,
+                showsSessionRow: true,
                 sessionRowLabel: "5 小時",
                 sessionAccessibilityLabel: "5 小時"
             )
 
         case .grok:
+            let presentation = GrokCardPresentation.from(viewModel.grok)
             providerCard(
                 title: "Grok",
                 info: viewModel.grok,
-                supportsWeeklyQuota: viewModel.grok.weeklyAvailable,
+                supportsWeeklyQuota: presentation.showsWeeklyRow,
+                showsSessionRow: presentation.showsSessionRow,
                 sessionRowLabel: GrokService.sessionRowLabel(
                     windowSeconds: viewModel.grok.sessionWindowSeconds
                 ),
@@ -210,6 +214,7 @@ struct UsagePanelView: View {
         title: String,
         info: UsageInfo,
         supportsWeeklyQuota: Bool,
+        showsSessionRow: Bool,
         sessionRowLabel: String?,
         sessionAccessibilityLabel: String
     ) -> some View {
@@ -219,7 +224,7 @@ struct UsagePanelView: View {
 
             ModernCard(
                 title: title,
-                session: info.sessionPercent,
+                session: showsSessionRow ? info.sessionPercent : nil,
                 sessionRowLabel: sessionRowLabel,
                 sessionAccessibilityLabel: sessionAccessibilityLabel,
                 weekly: supportsWeeklyQuota ? info.weeklyPercent : nil,

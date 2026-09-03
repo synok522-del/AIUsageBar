@@ -560,7 +560,9 @@ final class UsageViewModel: ObservableObject {
                     usage.weeklyRemainingPercent != nil,
 
                 resetText:
-                    usage.resetText,
+                    usage.weeklyRemainingPercent != nil
+                    ? (usage.weeklyRelativeResetText ?? "")
+                    : usage.resetText,
 
                 weeklyResetText:
                     usage.weeklyResetText ?? "",

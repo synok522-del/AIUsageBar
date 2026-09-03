@@ -1761,6 +1761,319 @@ struct AIUsageBarTests {
         _ = WebSessionManager.shared
     }
 
+    @Test("T1 Grok 63 percent used becomes 37 percent remaining")
+    func grokWeeklyUsed63BecomesRemaining37() throws {
+        #expect(GrokCreditsConfigDecoder.remainingPercent(usedPercent: 63) == 37)
+        let quota = try GrokCreditsConfigDecoder.validatedWeekly(
+            usedRaw: 63,
+            periodType: 2,
+            periodEnd: Date(timeIntervalSince1970: 1_788_592_260)
+        )
+        #expect(quota.usedPercent == 63)
+        #expect(quota.remainingPercent == 37)
+    }
+
+    @Test("T2 Grok weekly used clamps to 0...100")
+    func grokWeeklyUsedClampsToClosedRange() throws {
+        #expect(GrokCreditsConfigDecoder.remainingPercent(usedRaw: -8) == 100)
+        #expect(GrokCreditsConfigDecoder.remainingPercent(usedRaw: 150) == 0)
+        let high = try GrokCreditsConfigDecoder.validatedWeekly(
+            usedRaw: 150,
+            periodType: 2,
+            periodEnd: Date(timeIntervalSince1970: 1_788_592_260)
+        )
+        #expect(high.usedPercent == 100)
+        #expect(high.remainingPercent == 0)
+        let low = try GrokCreditsConfigDecoder.validatedWeekly(
+            usedRaw: -4,
+            periodType: 2,
+            periodEnd: Date(timeIntervalSince1970: 1_788_592_260)
+        )
+        #expect(low.usedPercent == 0)
+        #expect(low.remainingPercent == 100)
+    }
+
+    @Test("T3 WEEKLY period with valid end is accepted")
+    func grokWeeklyRequiresWeeklyPeriodAndEnd() throws {
+        let end = Date(timeIntervalSince1970: 1_788_592_260)
+        let quota = try GrokCreditsConfigDecoder.validatedWeekly(
+            usedRaw: 63,
+            periodType: GrokCreditsConfigDecoder.weeklyPeriodType,
+            periodEnd: end
+        )
+        #expect(quota.resetAt == end)
+    }
+
+    @Test("T4 non-WEEKLY period is rejected")
+    func grokNonWeeklyPeriodIsRejected() {
+        #expect(throws: Error.self) {
+            _ = try GrokCreditsConfigDecoder.validatedWeekly(
+                usedRaw: 63,
+                periodType: 1,
+                periodEnd: Date(timeIntervalSince1970: 1_788_592_260)
+            )
+        }
+    }
+
+    @Test("T5 missing current period is rejected")
+    func grokMissingPeriodIsRejected() {
+        #expect(throws: Error.self) {
+            _ = try GrokCreditsConfigDecoder.validatedWeekly(
+                usedRaw: 63,
+                periodType: nil,
+                periodEnd: Date(timeIntervalSince1970: 1_788_592_260)
+            )
+        }
+    }
+
+    @Test("T6 missing or invalid end is rejected")
+    func grokMissingEndIsRejected() {
+        #expect(throws: Error.self) {
+            _ = try GrokCreditsConfigDecoder.validatedWeekly(
+                usedRaw: 63,
+                periodType: 2,
+                periodEnd: nil
+            )
+        }
+    }
+
+    @Test("T7 protobuf decode failure does not yield Weekly")
+    func grokProtobufDecodeFailureYieldsNoWeekly() {
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: Data([0x00, 0x00, 0x00, 0x00, 0x03, 0xFF, 0xFF, 0xFF])
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("T8 Weekly HTTP failure leaves short-window usable")
+    func grokWeeklyHTTPFailureLeavesShortWindowUsable() throws {
+        #expect(
+            GrokCreditsConfigDecoder.weeklyQuota(
+                httpStatus: 404,
+                contentType: "application/json",
+                body: Data(#"{"error":"not found"}"#.utf8)
+            ) == nil
+        )
+        let session = try GrokService.parseRateLimits([
+            "remainingQueries": 97,
+            "totalQueries": 100,
+            "windowSizeSeconds": 86400
+        ])
+        let usage = GrokUsage(
+            sessionRemainingPercent: session.remainingPercent,
+            resetText: session.resetText,
+            sessionWindowSeconds: session.windowSeconds,
+            weeklyRemainingPercent: nil,
+            weeklyResetText: nil,
+            weeklyRelativeResetText: nil
+        )
+        #expect(usage.sessionRemainingPercent == 97)
+        #expect(usage.sessionWindowSeconds == 86400)
+        #expect(usage.weeklyRemainingPercent == nil)
+
+        let info = UsageInfo(
+            sessionPercent: usage.sessionRemainingPercent,
+            weeklyPercent: 0,
+            weeklyAvailable: false,
+            resetText: usage.resetText,
+            sessionWindowSeconds: usage.sessionWindowSeconds,
+            isLoaded: true
+        )
+        let presentation = GrokCardPresentation.from(info)
+        #expect(presentation.showsSessionRow)
+        #expect(!presentation.showsWeeklyRow)
+        #expect(presentation.displayedRowCount == 1)
+    }
+
+    @Test("T9 valid Weekly shows exactly one Weekly row")
+    func grokValidWeeklyShowsOneWeeklyRow() {
+        let info = UsageInfo(
+            sessionPercent: 99,
+            weeklyPercent: 37,
+            weeklyAvailable: true,
+            resetText: "重置於 2 天後",
+            weeklyResetText: "9 月 5 日 下午 3:11",
+            sessionWindowSeconds: 7200,
+            isLoaded: true
+        )
+        let presentation = GrokCardPresentation.from(info)
+        #expect(presentation.showsWeeklyRow)
+        #expect(!presentation.showsSessionRow)
+        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.weeklyPercent == 37)
+        #expect(presentation.sessionPercent == nil)
+    }
+
+    @Test("T10 no Weekly shows exactly one short-window row")
+    func grokWithoutWeeklyShowsOneShortWindowRow() {
+        let info = UsageInfo(
+            sessionPercent: 97,
+            weeklyPercent: 0,
+            weeklyAvailable: false,
+            sessionWindowSeconds: 86400,
+            isLoaded: true
+        )
+        let presentation = GrokCardPresentation.from(info)
+        #expect(presentation.showsSessionRow)
+        #expect(!presentation.showsWeeklyRow)
+        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.sessionPercent == 97)
+    }
+
+    @Test("T11 valid Weekly does not display the short-window bar")
+    func grokValidWeeklyHidesShortWindowBar() {
+        let info = UsageInfo(
+            sessionPercent: 100,
+            weeklyPercent: 37,
+            weeklyAvailable: true,
+            sessionWindowSeconds: 7200,
+            isLoaded: true
+        )
+        let presentation = GrokCardPresentation.from(info)
+        #expect(presentation.showsSessionRow == false)
+        #expect(presentation.sessionPercent == nil)
+        #expect(info.sessionPercent == 100)
+    }
+
+    @Test("T12 notification uses Weekly remaining when Weekly is primary")
+    func grokNotificationUsesWeeklyWhenPrimary() {
+        let info = UsageInfo(
+            sessionPercent: 99,
+            weeklyPercent: 18,
+            weeklyAvailable: true,
+            resetText: "重置於 2 天後",
+            weeklyResetText: "9 月 5 日 下午 3:11",
+            isLoaded: true
+        )
+        #expect(info.primaryRemainingPercent == 18)
+        var state = UsageNotificationState()
+        _ = state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        )
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: info.primaryRemainingPercent,
+            isLoaded: true,
+            hasError: false
+        ))
+        #expect(info.primaryResetText.contains("重置於 2 天後"))
+        #expect(info.primaryResetText.contains("9 月 5 日 下午 3:11"))
+    }
+
+    @Test("T13 notification uses short-window remaining when Weekly is absent")
+    func grokNotificationUsesShortWindowWhenFallback() {
+        let info = UsageInfo(
+            sessionPercent: 18,
+            weeklyPercent: 0,
+            weeklyAvailable: false,
+            resetText: "重置於 20 小時後",
+            isLoaded: true
+        )
+        #expect(info.primaryRemainingPercent == 18)
+        #expect(info.primaryResetText == "重置於 20 小時後")
+        var state = UsageNotificationState()
+        _ = state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        )
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: info.primaryRemainingPercent,
+            isLoaded: true,
+            hasError: false
+        ))
+    }
+
+    @Test("T16 production Grok UI has no weeklyRPC probe diagnostic")
+    func grokProductionHasNoWeeklyRPCProbeDiagnostic() {
+        let info = UsageInfo(
+            sessionPercent: 99,
+            weeklyPercent: 37,
+            weeklyAvailable: true,
+            resetText: "重置於 2 天後",
+            weeklyResetText: "9 月 5 日 下午 3:11",
+            isLoaded: true
+        )
+        #expect(!info.primaryResetText.contains("weeklyRPC"))
+        #expect(!info.primaryResetText.contains("probe:"))
+        #expect(!info.primaryResetText.contains("credits:"))
+    }
+
+    @Test("Live-shaped gRPC-Web Weekly payload decodes used remaining and reset")
+    func grokLiveShapedGrpcWebPayloadDecodesWeekly() throws {
+        let end = protoTimestamp(seconds: 1_788_592_260)
+        let period = protoVarint(1, 2) + protoBytes(3, end)
+        let config = protoFloat(1, 63) + protoBytes(8, period)
+        let message = protoBytes(1, config)
+        let body = grpcWebFrame(message) + grpcWebTrailer("grpc-status: 0\r\n")
+        let quota = try #require(
+            GrokCreditsConfigDecoder.weeklyQuota(
+                httpStatus: 200,
+                contentType: "application/grpc-web+proto",
+                body: body
+            )
+        )
+        #expect(quota.usedPercent == 63)
+        #expect(quota.remainingPercent == 37)
+        #expect(quota.resetAt.timeIntervalSince1970 == 1_788_592_260)
+    }
+
+    private func protoVarint(_ field: Int, _ value: Int) -> Data {
+        var data = Data()
+        appendVarint(&data, UInt64(field << 3))
+        appendVarint(&data, UInt64(value))
+        return data
+    }
+
+    private func protoFloat(_ field: Int, _ value: Float) -> Data {
+        var data = Data()
+        appendVarint(&data, UInt64((field << 3) | 5))
+        var bits = value.bitPattern.littleEndian
+        Swift.withUnsafeBytes(of: &bits) { data.append(contentsOf: $0) }
+        return data
+    }
+
+    private func protoBytes(_ field: Int, _ payload: Data) -> Data {
+        var data = Data()
+        appendVarint(&data, UInt64((field << 3) | 2))
+        appendVarint(&data, UInt64(payload.count))
+        data.append(payload)
+        return data
+    }
+
+    private func protoTimestamp(seconds: Int) -> Data {
+        protoVarint(1, seconds)
+    }
+
+    private func grpcWebFrame(_ payload: Data, flag: UInt8 = 0) -> Data {
+        var header = Data([flag, 0, 0, 0, 0])
+        let length = UInt32(payload.count).bigEndian
+        Swift.withUnsafeBytes(of: length) { bytes in
+            header.replaceSubrange(1..<5, with: bytes)
+        }
+        return header + payload
+    }
+
+    private func grpcWebTrailer(_ text: String) -> Data {
+        grpcWebFrame(Data(text.utf8), flag: 0x80)
+    }
+
+    private func appendVarint(_ data: inout Data, _ value: UInt64) {
+        var value = value
+        while value > 0x7F {
+            data.append(UInt8(value & 0x7F) | 0x80)
+            value >>= 7
+        }
+        data.append(UInt8(value))
+    }
+
     private func cookie(
         name: String,
         value: String,

@@ -1,8 +1,8 @@
 # Sprint 17F-015C — UI launch-performance test stabilization
 
-**Base:** `f45c4adca05705a789a4da25c5de06ff468c4c96`  
-**Branch:** `review/17f-015c-ui-test-stabilization`  
-**Production source:** NO  
+**Base:** `f45c4adca05705a789a4da25c5de06ff468c4c96`
+**Branch:** `review/17f-015c-ui-test-stabilization`
+**Production source:** NO
 **Merge to main:** NO
 
 ## Classification

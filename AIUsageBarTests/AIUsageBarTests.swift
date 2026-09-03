@@ -2027,6 +2027,234 @@ struct AIUsageBarTests {
         #expect(quota.resetAt.timeIntervalSince1970 == 1_788_592_260)
     }
 
+    @Test("Malformed trailing nested protobuf rejects Weekly without crashing")
+    func grokMalformedTrailingNestedProtobufRejectsWeekly() {
+        let end = protoTimestamp(seconds: 1_788_592_260)
+        let validPeriod = protoVarint(1, 2) + protoBytes(3, end)
+        let malformedTrailing = Data([0x1F])
+        let config = protoFloat(1, 63) + protoBytes(8, validPeriod) + malformedTrailing
+        let body = grpcWebFrame(protoBytes(1, config)) + grpcWebTrailer("grpc-status: 0\r\n")
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: body
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("Oversized protobuf length varint rejects Weekly without crashing")
+    func grokOversizedProtobufLengthVarintRejectsWeekly() {
+        var oversized = Data([0x12])
+        oversized.append(contentsOf: Array(repeating: 0xFF, count: 10))
+        let body = grpcWebFrame(oversized)
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: body
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("Truncated length-delimited protobuf rejects Weekly without crashing")
+    func grokTruncatedLengthDelimitedProtobufRejectsWeekly() {
+        let truncated = Data([0x0A, 0x20, 0x01])
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: grpcWebFrame(truncated)
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("Malformed Timestamp nested in Period rejects Weekly")
+    func grokMalformedTimestampRejectsWeekly() {
+        let truncatedTimestamp = Data([0x0A, 0x08, 0x01])
+        let period = protoVarint(1, 2) + protoBytes(3, truncatedTimestamp)
+        let config = protoFloat(1, 63) + protoBytes(8, period)
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: grpcWebFrame(protoBytes(1, config))
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("Malformed Period nested field rejects Weekly")
+    func grokMalformedPeriodRejectsWeekly() {
+        let truncatedPeriod = protoVarint(1, 2) + Data([0x1A, 0x08, 0x01])
+        let config = protoFloat(1, 63) + protoBytes(8, truncatedPeriod)
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: grpcWebFrame(protoBytes(1, config))
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("Failed refresh after valid Weekly keeps panel menu and notification primary aligned")
+    func grokStaleWeeklyRefreshFailureKeepsPrimaryQuotaConsistent() throws {
+        let loaded = UsageInfo(
+            sessionPercent: 99,
+            weeklyPercent: 37,
+            weeklyAvailable: true,
+            resetText: "重置於 2 天後",
+            weeklyResetText: "9 月 5 日 下午 3:11",
+            sessionWindowSeconds: 7200,
+            isLoaded: true
+        )
+        let failed = UsageRefreshStatePolicy.state(
+            afterFailure: loaded,
+            error: AIUsageServiceError.httpStatus("Grok", 500)
+        )
+        let info = try #require(failed)
+        let presentation = GrokCardPresentation.from(info)
+        let menuBarPrimary = info.primaryRemainingPercent
+        let notificationPrimary = info.primaryRemainingPercent
+
+        #expect(info.weeklyAvailable)
+        #expect(info.errorMessage != nil)
+        #expect(presentation.showsWeeklyRow)
+        #expect(!presentation.showsSessionRow)
+        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.weeklyPercent == 37)
+        #expect(presentation.sessionPercent == nil)
+        #expect(menuBarPrimary == 37)
+        #expect(notificationPrimary == 37)
+        #expect(presentation.weeklyPercent == menuBarPrimary)
+    }
+
+    @Test("Logout generation rejects in-flight Grok HTTP completion")
+    func grokLogoutGenerationRejectsOldHTTPCompletion() {
+        var generation = GrokHTTPAuthGeneration()
+        let captured = generation.value
+        generation.invalidate()
+        #expect(
+            GrokHTTPRefreshAuthPolicy.shouldCommit(
+                captured: captured,
+                current: generation.value
+            ) == false
+        )
+    }
+
+    @Test("Logout before WAF recovery blocks old-auth retry")
+    func grokLogoutBeforeRecoveryBlocksOldAuthRetry() {
+        var generation = GrokHTTPAuthGeneration()
+        let captured = generation.value
+        generation.invalidate()
+        #expect(
+            GrokHTTPRefreshAuthPolicy.shouldAttemptRecovery(
+                captured: captured,
+                current: generation.value,
+                didAlreadyRetry: false,
+                error: AIUsageServiceError.wafBlocked("Grok")
+            ) == false
+        )
+        #expect(
+            GrokSessionRecoveryPolicy.shouldAttemptRecovery(
+                didAlreadyRetry: false,
+                error: AIUsageServiceError.wafBlocked("Grok")
+            )
+        )
+    }
+
+    @Test("Old Grok HTTP generation cannot overwrite a newer login generation")
+    func grokOldHTTPGenerationCannotOverwriteNewLogin() {
+        var generation = GrokHTTPAuthGeneration()
+        let old = generation.value
+        generation.invalidate()
+        let newLogin = generation.value
+        #expect(old != newLogin)
+        #expect(
+            GrokHTTPRefreshAuthPolicy.shouldCommit(
+                captured: old,
+                current: newLogin
+            ) == false
+        )
+        #expect(
+            GrokHTTPRefreshAuthPolicy.shouldCommit(
+                captured: newLogin,
+                current: generation.value
+            )
+        )
+    }
+
+    @Test("Host-only accounts.grok.com cookies are not sent to grok.com")
+    func grokHostOnlyAccountsCookieIsNotSentToGrokCom() throws {
+        let hostOnly = try #require(HTTPCookie(properties: [
+            .domain: "accounts.grok.com",
+            .path: "/",
+            .name: "sso",
+            .value: "dummy-accounts-sso"
+        ]))
+        let domainCookie = try #require(HTTPCookie(properties: [
+            .domain: ".grok.com",
+            .path: "/",
+            .name: "sso",
+            .value: "dummy-domain-sso"
+        ]))
+        let rateLimits = GrokSessionContext.rateLimitsURL
+        #expect(
+            GrokSessionContext.cookieHeader(from: [hostOnly], to: rateLimits) == nil
+        )
+        let domainHeader = try #require(
+            GrokSessionContext.cookieHeader(from: [domainCookie], to: rateLimits)
+        )
+        #expect(domainHeader.contains("sso=dummy-domain-sso"))
+        #expect(!domainHeader.contains("dummy-accounts-sso"))
+    }
+
+    @Test("Rate-limits path cookies are not reused for Weekly request URL")
+    func grokRestScopedCookieIsNotSentToWeeklyURL() throws {
+        let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
+        let rest = try #require(HTTPCookie(properties: [
+            .domain: "grok.com",
+            .path: "/rest",
+            .name: "rest-scope",
+            .value: "dummy-rest"
+        ]))
+        let weeklyPath = try #require(HTTPCookie(properties: [
+            .domain: "grok.com",
+            .path: "/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig",
+            .name: "weekly-scope",
+            .value: "dummy-weekly"
+        ]))
+
+        let rateLimitsHeader = try #require(
+            GrokSessionContext.cookieHeader(
+                from: [sso, rest, weeklyPath],
+                to: GrokSessionContext.rateLimitsURL
+            )
+        )
+        let weeklyHeader = try #require(
+            GrokSessionContext.cookieHeader(
+                from: [sso, rest, weeklyPath],
+                to: GrokSessionContext.weeklyCreditsURL
+            )
+        )
+
+        #expect(rateLimitsHeader.contains("rest-scope=dummy-rest"))
+        #expect(!rateLimitsHeader.contains("dummy-weekly"))
+        #expect(weeklyHeader.contains("weekly-scope=dummy-weekly"))
+        #expect(!weeklyHeader.contains("dummy-rest"))
+    }
+
+    @Test("Secure Grok cookies are omitted from non-HTTPS request URLs")
+    func grokSecureCookieOmittedFromHTTPURL() throws {
+        let sso = try #require(HTTPCookie(properties: [
+            .domain: "grok.com",
+            .path: "/",
+            .name: "sso",
+            .value: "dummy-sso",
+            .secure: "TRUE"
+        ]))
+        let httpURL = URL(string: "http://grok.com/rest/rate-limits")!
+        #expect(GrokSessionContext.cookieHeader(from: [sso], to: httpURL) == nil)
+        let httpsHeader = try #require(
+            GrokSessionContext.cookieHeader(from: [sso], to: GrokSessionContext.rateLimitsURL)
+        )
+        #expect(httpsHeader.contains("sso=dummy-sso"))
+    }
+
     private func protoVarint(_ field: Int, _ value: Int) -> Data {
         var data = Data()
         appendVarint(&data, UInt64(field << 3))

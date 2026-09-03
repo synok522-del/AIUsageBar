@@ -61,14 +61,27 @@ enum WebSessionProvider {
 /// or show cookie values, names lists, or source labels in production UI.
 enum GrokSessionContext {
     static let rateLimitsURL = URL(string: "https://grok.com/rest/rate-limits")!
+    static let weeklyCreditsURL = URL(
+        string: "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig"
+    )!
 
     static func applicableCookies(
         from cookies: [HTTPCookie],
         to url: URL,
         now: Date = Date()
     ) -> [HTTPCookie] {
-        cookies.filter { cookie in
+        guard let requestHost = url.host, !requestHost.isEmpty else {
+            return []
+        }
+
+        return cookies.filter { cookie in
             guard WebSessionProvider.matchesGrokProductHost(cookie.domain) else {
+                return false
+            }
+            guard WebSessionProvider.matchesGrokProductHost(requestHost) else {
+                return false
+            }
+            guard domainMatches(requestHost: requestHost, cookieDomain: cookie.domain) else {
                 return false
             }
 
@@ -146,6 +159,19 @@ enum GrokSessionContext {
         applicableCookies(from: cookies, to: url, now: now)
             .map(CookieDescriptor.init)
             .sorted { $0.name < $1.name }
+    }
+
+    private static func domainMatches(requestHost: String, cookieDomain: String) -> Bool {
+        let host = requestHost.lowercased()
+        let domain = cookieDomain.lowercased()
+        if domain.hasPrefix(".") {
+            let suffix = String(domain.dropFirst())
+            guard !suffix.isEmpty else {
+                return false
+            }
+            return host == suffix || host.hasSuffix("." + suffix)
+        }
+        return host == domain
     }
 
     private static func pathMatches(requestPath: String, cookiePath: String) -> Bool {

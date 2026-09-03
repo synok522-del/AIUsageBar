@@ -1,8 +1,8 @@
 # Sprint 17F-015A — Test compile fix
 
-**Base:** `ba17c3ab47be7a24148a3e72e2e5d9732c4a5691`  
-**Branch:** `review/17f-015a-test-compile-fix`  
-**Production UI:** unchanged  
+**Base:** `ba17c3ab47be7a24148a3e72e2e5d9732c4a5691`
+**Branch:** `review/17f-015a-test-compile-fix`
+**Production UI:** unchanged
 **Merge to main:** NO
 
 ## Root cause

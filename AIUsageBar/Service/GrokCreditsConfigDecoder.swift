@@ -68,7 +68,7 @@ enum GrokCreditsConfigDecoder {
             case (1, 5):
                 usedRaw = field.float32
             case (8, 2):
-                let period = decodePeriod(field.bytes)
+                let period = try decodePeriod(field.bytes)
                 periodType = period.type
                 periodEnd = period.end
             default:
@@ -145,17 +145,27 @@ enum GrokCreditsConfigDecoder {
                 throw DecodeError.truncatedFrame
             }
             let flag = data[offset]
-            let length =
-                Int(data[offset + 1]) << 24
-                | Int(data[offset + 2]) << 16
-                | Int(data[offset + 3]) << 8
-                | Int(data[offset + 4])
-            offset += 5
-            guard offset + length <= data.count else {
+            let length = Int(
+                UInt32(data[offset + 1]) << 24
+                | UInt32(data[offset + 2]) << 16
+                | UInt32(data[offset + 3]) << 8
+                | UInt32(data[offset + 4])
+            )
+            let headerEnd: Int
+            let headerOverflow: Bool
+            (headerEnd, headerOverflow) = offset.addingReportingOverflow(5)
+            guard !headerOverflow, headerEnd <= data.count else {
                 throw DecodeError.truncatedFrame
             }
-            let payload = data.subdata(in: offset..<(offset + length))
-            offset += length
+            offset = headerEnd
+            let payloadEnd: Int
+            let payloadOverflow: Bool
+            (payloadEnd, payloadOverflow) = offset.addingReportingOverflow(length)
+            guard !payloadOverflow, payloadEnd <= data.count else {
+                throw DecodeError.truncatedFrame
+            }
+            let payload = data.subdata(in: offset..<payloadEnd)
+            offset = payloadEnd
             if flag & 0x01 != 0 {
                 frames.compressedCount += 1
                 continue
@@ -171,16 +181,16 @@ enum GrokCreditsConfigDecoder {
         return frames
     }
 
-    private static func decodePeriod(_ data: Data) -> (type: Int?, end: Date?) {
+    private static func decodePeriod(_ data: Data) throws -> (type: Int?, end: Date?) {
         var reader = ProtoReader(data: data)
         var type: Int?
         var end: Date?
-        while let field = try? reader.next() {
+        while let field = try reader.next() {
             switch (field.number, field.wire) {
             case (1, 0):
-                type = field.varint
+                type = try requireInt(field.varint)
             case (3, 2):
-                end = decodeTimestamp(field.bytes)
+                end = try decodeTimestamp(field.bytes)
             default:
                 break
             }
@@ -188,16 +198,19 @@ enum GrokCreditsConfigDecoder {
         return (type, end)
     }
 
-    private static func decodeTimestamp(_ data: Data) -> Date? {
+    private static func decodeTimestamp(_ data: Data) throws -> Date? {
         var reader = ProtoReader(data: data)
         var seconds: Int64 = 0
         var nanos: Int32 = 0
-        while let field = try? reader.next() {
+        while let field = try reader.next() {
             switch (field.number, field.wire) {
             case (1, 0):
-                seconds = Int64(field.varint)
+                seconds = Int64(bitPattern: field.varint)
             case (2, 0):
-                nanos = Int32(truncatingIfNeeded: field.varint)
+                guard field.varint <= UInt64(UInt32.max) else {
+                    throw GrokCreditsConfigDecoderError.truncated
+                }
+                nanos = Int32(bitPattern: UInt32(field.varint))
             default:
                 break
             }
@@ -235,7 +248,7 @@ enum GrokCreditsConfigDecoder {
 private struct ProtoField {
     var number: Int
     var wire: Int
-    var varint: Int = 0
+    var varint: UInt64 = 0
     var bytes: Data = Data()
     var float32: Float = 0
 }
@@ -249,16 +262,17 @@ private struct ProtoReader {
             return nil
         }
         let key = try readVarint()
-        let number = Int(key >> 3)
+        let number = try requireInt(key >> 3)
         let wire = Int(key & 0x7)
         switch wire {
         case 0:
-            return ProtoField(number: number, wire: wire, varint: Int(try readVarint()))
+            let value = try readVarint()
+            return ProtoField(number: number, wire: wire, varint: value)
         case 1:
             _ = try readBytes(8)
             return ProtoField(number: number, wire: wire)
         case 2:
-            let length = Int(try readVarint())
+            let length = try requireInt(try readVarint())
             return ProtoField(number: number, wire: wire, bytes: try readBytes(length))
         case 5:
             let bytes = try readBytes(4)
@@ -296,13 +310,26 @@ private struct ProtoReader {
     }
 
     private mutating func readBytes(_ count: Int) throws -> Data {
-        guard offset + count <= data.count else {
+        guard count >= 0 else {
             throw GrokCreditsConfigDecoderError.truncated
         }
-        let slice = data.subdata(in: offset..<(offset + count))
-        offset += count
+        let end: Int
+        let overflow: Bool
+        (end, overflow) = offset.addingReportingOverflow(count)
+        guard !overflow, end <= data.count else {
+            throw GrokCreditsConfigDecoderError.truncated
+        }
+        let slice = data.subdata(in: offset..<end)
+        offset = end
         return slice
     }
+}
+
+private func requireInt(_ value: UInt64) throws -> Int {
+    guard let converted = Int(exactly: value) else {
+        throw GrokCreditsConfigDecoderError.truncated
+    }
+    return converted
 }
 
 private enum GrokCreditsConfigDecoderError: Error {

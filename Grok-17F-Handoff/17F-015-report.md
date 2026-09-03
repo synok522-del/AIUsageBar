@@ -1,7 +1,7 @@
 # Sprint 17F-015 — Grok Weekly Production Integration
 
-**Date:** 2026-09-03  
-**Merge to main:** NO  
+**Date:** 2026-09-03
+**Merge to main:** NO
 **PR targeting main:** NO
 
 ## Git Boundary

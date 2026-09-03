@@ -19,11 +19,14 @@ struct GrokService {
         )
     }()
 
-    func fetchUsage(cookieHeader: String) async throws -> GrokUsage {
-        let rateLimits = try await fetchRateLimits(cookieHeader: cookieHeader)
+    func fetchUsage(
+        rateLimitsCookieHeader: String,
+        weeklyCookieHeader: String
+    ) async throws -> GrokUsage {
+        let rateLimits = try await fetchRateLimits(cookieHeader: rateLimitsCookieHeader)
         let session = try Self.parseRateLimits(rateLimits)
 
-        let weekly = await fetchWeeklyQuota(cookieHeader: cookieHeader)
+        let weekly = await fetchWeeklyQuota(cookieHeader: weeklyCookieHeader)
 
         return GrokUsage(
             sessionRemainingPercent: session.remainingPercent,

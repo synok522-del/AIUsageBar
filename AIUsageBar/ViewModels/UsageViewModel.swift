@@ -38,6 +38,7 @@ final class UsageViewModel: ObservableObject {
 
     private var chatGPTCookieHeader = ""
     private var grokCookieHeader = ""
+    private var grokHTTPAuthGeneration = GrokHTTPAuthGeneration()
 
 
     private let claudeService: ClaudeService
@@ -252,11 +253,13 @@ final class UsageViewModel: ObservableObject {
     }
 
     func setGrokCredential(_ credential: WebCredential) {
+        grokHTTPAuthGeneration.invalidate()
 
         grokSessionToken = credential.value
         grokCookieHeader = credential.cookieHeader
 
         if credential.value.isEmpty {
+            grok = UsageInfo()
 
             KeychainManager.shared.delete(
                 StorageKey.grokSessionToken
@@ -523,31 +526,61 @@ final class UsageViewModel: ObservableObject {
         let fallbackHeader = grokCookieHeader.isEmpty
             ? "sso=\(token)"
             : grokCookieHeader
+        let authGeneration = grokHTTPAuthGeneration.value
 
         return await fetchGrokUsage(
             fallbackHeader: fallbackHeader,
-            allowRecovery: true
+            allowRecovery: true,
+            authGeneration: authGeneration
         )
     }
 
     private func fetchGrokUsage(
         fallbackHeader: String,
-        allowRecovery: Bool
+        allowRecovery: Bool,
+        authGeneration: UInt
     ) async -> Bool {
         await GrokWebKitSessionRestorer.shared.restoreIfNeeded()
+        guard GrokHTTPRefreshAuthPolicy.shouldCommit(
+            captured: authGeneration,
+            current: grokHTTPAuthGeneration.value
+        ) else {
+            return false
+        }
+
         let webKitCookies = await WebSessionManager.shared.cookies(for: .grok)
-        let cookieHeader = GrokSessionContext.cookieHeaderForRequest(
+        guard GrokHTTPRefreshAuthPolicy.shouldCommit(
+            captured: authGeneration,
+            current: grokHTTPAuthGeneration.value
+        ) else {
+            return false
+        }
+
+        let rateLimitsCookieHeader = GrokSessionContext.cookieHeaderForRequest(
             webKitCookies: webKitCookies,
-            fallbackHeader: fallbackHeader
+            fallbackHeader: fallbackHeader,
+            url: GrokSessionContext.rateLimitsURL
+        )
+        let weeklyCookieHeader = GrokSessionContext.cookieHeaderForRequest(
+            webKitCookies: webKitCookies,
+            fallbackHeader: fallbackHeader,
+            url: GrokSessionContext.weeklyCreditsURL
         )
 
         do {
 
             let usage =
             try await grokService.fetchUsage(
-                cookieHeader: cookieHeader
+                rateLimitsCookieHeader: rateLimitsCookieHeader,
+                weeklyCookieHeader: weeklyCookieHeader
             )
 
+            guard GrokHTTPRefreshAuthPolicy.shouldCommit(
+                captured: authGeneration,
+                current: grokHTTPAuthGeneration.value
+            ) else {
+                return false
+            }
 
             grok = UsageInfo(
                 sessionPercent:
@@ -580,14 +613,30 @@ final class UsageViewModel: ObservableObject {
 
 
         } catch {
-            if GrokSessionRecoveryPolicy.shouldAttemptRecovery(
+            guard GrokHTTPRefreshAuthPolicy.shouldCommit(
+                captured: authGeneration,
+                current: grokHTTPAuthGeneration.value
+            ) else {
+                return false
+            }
+
+            if GrokHTTPRefreshAuthPolicy.shouldAttemptRecovery(
+                captured: authGeneration,
+                current: grokHTTPAuthGeneration.value,
                 didAlreadyRetry: !allowRecovery,
                 error: error
             ) {
                 _ = await GrokWebKitSessionRestorer.shared.restoreAfterRecoverableFailure()
+                guard GrokHTTPRefreshAuthPolicy.shouldCommit(
+                    captured: authGeneration,
+                    current: grokHTTPAuthGeneration.value
+                ) else {
+                    return false
+                }
                 return await fetchGrokUsage(
                     fallbackHeader: fallbackHeader,
-                    allowRecovery: false
+                    allowRecovery: false,
+                    authGeneration: authGeneration
                 )
             }
 
@@ -595,6 +644,12 @@ final class UsageViewModel: ObservableObject {
                 afterFailure: grok,
                 error: error
             ) {
+                guard GrokHTTPRefreshAuthPolicy.shouldCommit(
+                    captured: authGeneration,
+                    current: grokHTTPAuthGeneration.value
+                ) else {
+                    return false
+                }
                 grok = nextState
                 let message = nextState.errorMessage ?? "更新失敗"
                 statusMessage = "Grok：\(message)"

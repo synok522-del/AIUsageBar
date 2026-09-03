@@ -50,6 +50,36 @@ struct GrokSessionRestorerGate: Equatable {
     }
 }
 
+/// Invalidated synchronously on Grok logout or credential replacement.
+/// In-flight HTTP refresh captures a generation and must not recover, retry,
+/// or write usage after it no longer matches.
+struct GrokHTTPAuthGeneration: Equatable {
+    private(set) var value: UInt = 0
+
+    mutating func invalidate() {
+        value += 1
+    }
+}
+
+enum GrokHTTPRefreshAuthPolicy {
+    static func shouldCommit(captured: UInt, current: UInt) -> Bool {
+        captured == current
+    }
+
+    static func shouldAttemptRecovery(
+        captured: UInt,
+        current: UInt,
+        didAlreadyRetry: Bool,
+        error: Error
+    ) -> Bool {
+        shouldCommit(captured: captured, current: current)
+            && GrokSessionRecoveryPolicy.shouldAttemptRecovery(
+                didAlreadyRetry: didAlreadyRetry,
+                error: error
+            )
+    }
+}
+
 enum GrokSessionRecoveryPolicy {
     static func isRecoverableSessionFailure(_ error: Error) -> Bool {
         guard let serviceError = error as? AIUsageServiceError else {

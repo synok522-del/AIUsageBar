@@ -1,8 +1,8 @@
 # 17F-010A WebKit Cookie Store Crash Fix
 
-**Date:** 2026-09-02  
-**GitHub Push to main:** NO  
-**Merge to main:** NO  
+**Date:** 2026-09-02
+**GitHub Push to main:** NO
+**Merge to main:** NO
 **Release:** NO
 
 ## Stage
@@ -15,7 +15,7 @@ Stop the deterministic launch crash from first-touching `WKWebsiteDataStore.defa
 
 ## Base SHA
 
-`9ad91e16092a6fa0683605d6850a44f39224e8a8`  
+`9ad91e16092a6fa0683605d6850a44f39224e8a8`
 (`review/17f-010-grok-session-context-fix`)
 
 ## Branch

@@ -1,8 +1,8 @@
 # 17F-010 Production Session Context Fix
 
-**Date:** 2026-09-02  
-**GitHub Push to main:** NO  
-**Merge to main:** NO  
+**Date:** 2026-09-02
+**GitHub Push to main:** NO
+**Merge to main:** NO
 **Release:** NO
 
 ## Stage
@@ -15,7 +15,7 @@ Production-fix Grok short-window usage fetch so refresh uses the current applica
 
 ## Base SHA
 
-`a5aff3e5488df641cc5f048764034b28723644d5`  
+`a5aff3e5488df641cc5f048764034b28723644d5`
 (`review/17f-007-grok-review-fixes`)
 
 ## Branch
@@ -90,8 +90,8 @@ Release Build: **NOT RUN**
 
 Diff vs 17F-007 is the session-context helper, `refreshGrok` header selection, unit tests, and this report.
 
-No 009C weekly code (`/rest/grok/credits`, `creditUsagePercent`).  
-No probe UI/status strings (`probe:`, `webkit-full`, `cookies=`).  
+No 009C weekly code (`/rest/grok/credits`, `creditUsagePercent`).
+No probe UI/status strings (`probe:`, `webkit-full`, `cookies=`).
 No secrets. No ChatGPT/Claude edits. `origin/main` not modified.
 
 ## Acceptance Review

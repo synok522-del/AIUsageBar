@@ -1,8 +1,8 @@
 # Sprint 17F-015B — Swift Testing #expect mutating-state compile fix
 
-**Base:** `7dc5cde1f93760ecd5e163971a6a94d357b0b601`  
-**Branch:** `review/17f-015b-test-compile-fix`  
-**Production source:** NO  
+**Base:** `7dc5cde1f93760ecd5e163971a6a94d357b0b601`
+**Branch:** `review/17f-015b-test-compile-fix`
+**Production source:** NO
 **Merge to main:** NO
 
 ## Failures

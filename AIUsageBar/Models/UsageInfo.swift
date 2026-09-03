@@ -45,7 +45,9 @@ struct GrokCardPresentation: Equatable {
     }
 
     static func from(_ info: UsageInfo) -> GrokCardPresentation {
-        guard info.isLoaded, info.errorMessage == nil else {
+        // Keep the displayed Grok quota identical to `primaryRemainingPercent`
+        // even when a later refresh failed and preserved stale loaded values.
+        guard info.isLoaded else {
             return GrokCardPresentation(
                 showsSessionRow: true,
                 showsWeeklyRow: false,

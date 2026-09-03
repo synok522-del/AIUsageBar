@@ -1,8 +1,8 @@
 # 17F-010B Grok Cold-Start Session Restoration
 
-**Date:** 2026-09-02  
-**GitHub Push to main:** NO  
-**Merge to main:** NO  
+**Date:** 2026-09-02
+**GitHub Push to main:** NO
+**Merge to main:** NO
 **Release:** NO
 
 ## Stage
@@ -15,7 +15,7 @@ After process restart, restore a legitimate grok.com WebKit browsing session so 
 
 ## Base SHA
 
-`c1e14fb485dd5752bf35c0624595af5362b37145`  
+`c1e14fb485dd5752bf35c0624595af5362b37145`
 (`review/17f-010a-webkit-cookie-crash-fix`)
 
 ## Branch
@@ -58,6 +58,6 @@ No weekly. No probe UI. No new Keychain jar persistence.
 
 ## Tests / Builds Actually Run
 
-Automated Mac Tests: **NOT RUN**  
-Debug Build: **NOT RUN**  
+Automated Mac Tests: **NOT RUN**
+Debug Build: **NOT RUN**
 Release Build: **NOT RUN**

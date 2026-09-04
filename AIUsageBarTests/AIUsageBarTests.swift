@@ -2350,10 +2350,7 @@ struct AIUsageBarTests {
     func grokIdleLoginRequestsExactlyOneRefresh() async throws {
         let service = ControllableGrokUsageService()
         let restorer = GrokSessionRestorerSpy()
-        let model = UsageViewModel(
-            grokService: service,
-            grokSessionRestorer: restorer
-        )
+        let model = grokLifecycleModel(service: service, restorer: restorer)
         #expect(model.isLoading == false)
 
         let usage = GrokUsage(
@@ -2368,9 +2365,10 @@ struct AIUsageBarTests {
         model.setGrokCredential(
             WebCredential(cookieName: "sso", value: "token-B", cookieHeader: "sso=token-B")
         )
-        try await waitUntil {
-            !model.isLoading && model.grok.isLoaded && model.grok.weeklyPercent == 12
-        }
+        await service.waitUntilFetchStartedCount(1)
+        await waitUntilRefreshIdle(model)
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyPercent == 12)
         #expect(service.fetchCount(containing: "token-B") == 1)
         #expect(service.cookieHeaders.count == 1)
         #expect(service.pending.isEmpty)
@@ -2382,10 +2380,7 @@ struct AIUsageBarTests {
     func grokAccountReplacementClearsStaleUsageAndRearmsRefresh() async throws {
         let service = ControllableGrokUsageService()
         let restorer = GrokSessionRestorerSpy()
-        let model = UsageViewModel(
-            grokService: service,
-            grokSessionRestorer: restorer
-        )
+        let model = grokLifecycleModel(service: service, restorer: restorer)
 
         let usageA = GrokUsage(
             sessionRemainingPercent: 11,
@@ -2408,12 +2403,15 @@ struct AIUsageBarTests {
         model.setGrokCredential(
             WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
         )
-        try await waitUntil { model.grok.isLoaded && model.grok.weeklyPercent == 37 }
+        await service.waitUntilFetchStartedCount(1)
+        await waitUntilRefreshIdle(model)
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyPercent == 37)
         #expect(model.grok.sessionPercent == 11)
         let fetchesAfterA = service.cookieHeaders.count
 
         let inFlight = Task { await model.refreshAll() }
-        try await waitUntil { !service.pending.isEmpty }
+        await service.waitUntilFetchStartedCount(2)
         #expect(model.isLoading)
 
         model.setGrokCredential(
@@ -2428,12 +2426,8 @@ struct AIUsageBarTests {
         service.enqueue(.success(usageB))
         service.completeNext(usageA)
         await inFlight.value
-
-        try await waitUntil {
-            !model.isLoading && model.grok.isLoaded && model.grok.weeklyPercent == 12
-        }
         #expect(model.grok.sessionPercent == 88)
-        #expect(model.grok.weeklyPercent != 37)
+        #expect(model.grok.weeklyPercent == 12)
         #expect(service.fetchCount(containing: "token-B") == 1)
         #expect(service.cookieHeaders.count == fetchesAfterA + 2)
         #expect(service.pending.isEmpty)
@@ -2444,10 +2438,7 @@ struct AIUsageBarTests {
     func grokIdenticalCredentialDoesNotInvalidateInFlightRefresh() async throws {
         let service = ControllableGrokUsageService()
         let restorer = GrokSessionRestorerSpy()
-        let model = UsageViewModel(
-            grokService: service,
-            grokSessionRestorer: restorer
-        )
+        let model = grokLifecycleModel(service: service, restorer: restorer)
         let usageA = GrokUsage(
             sessionRemainingPercent: 11,
             resetText: "A",
@@ -2464,10 +2455,11 @@ struct AIUsageBarTests {
 
         service.enqueue(.success(usageA))
         model.setGrokCredential(credential)
-        try await waitUntil { model.grok.isLoaded && model.grok.weeklyPercent == 37 }
+        await service.waitUntilFetchStartedCount(1)
+        await waitUntilRefreshIdle(model)
 
         let inFlight = Task { await model.refreshAll() }
-        try await waitUntil { !service.pending.isEmpty }
+        await service.waitUntilFetchStartedCount(2)
         let generation = model.grokHTTPAuthGenerationValue
         let resets = restorer.resetCount
         let fetches = service.cookieHeaders.count
@@ -2482,7 +2474,6 @@ struct AIUsageBarTests {
 
         service.completeNext(usageA)
         await inFlight.value
-        try await waitUntil { !model.isLoading }
         #expect(model.grok.isLoaded)
         #expect(model.grok.weeklyPercent == 37)
         #expect(service.cookieHeaders.count == fetches)
@@ -2495,10 +2486,10 @@ struct AIUsageBarTests {
         let service = ControllableGrokUsageService()
         let restorer = GrokSessionRestorerSpy()
         let notifications = UsageNotificationManager()
-        let model = UsageViewModel(
-            grokService: service,
-            grokSessionRestorer: restorer,
-            usageNotificationManager: notifications
+        let model = grokLifecycleModel(
+            service: service,
+            restorer: restorer,
+            notifications: notifications
         )
         let usageA = GrokUsage(
             sessionRemainingPercent: 11,
@@ -2521,7 +2512,8 @@ struct AIUsageBarTests {
         model.setGrokCredential(
             WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
         )
-        try await waitUntil { model.grok.isLoaded && model.grok.weeklyPercent == 37 }
+        await service.waitUntilFetchStartedCount(1)
+        await waitUntilRefreshIdle(model)
 
         #expect(notifications.recordSample(
             for: .claude,
@@ -2590,10 +2582,30 @@ struct AIUsageBarTests {
             hasError: false
         ) == true)
 
-        try await waitUntil {
-            !model.isLoading && model.grok.isLoaded && model.grok.weeklyPercent == 12
-        }
+        await service.waitUntilFetchStartedCount(2)
+        await waitUntilRefreshIdle(model)
+        #expect(model.grok.weeklyPercent == 12)
         #expect(service.fetchCount(containing: "token-B") == 1)
+    }
+
+    private func grokLifecycleModel(
+        service: ControllableGrokUsageService,
+        restorer: GrokSessionRestorerSpy,
+        notifications: UsageNotificationManager? = nil
+    ) -> UsageViewModel {
+        UsageViewModel(
+            grokService: service,
+            grokSessionRestorer: restorer,
+            grokCookieSource: EmptyGrokRefreshCookieSource(),
+            usageNotificationManager: notifications
+        )
+    }
+
+    @MainActor
+    private func waitUntilRefreshIdle(_ model: UsageViewModel) async {
+        while model.isLoading {
+            await Task.yield()
+        }
     }
 
     private func protoVarint(_ field: Int, _ value: Int) -> Data {
@@ -2652,19 +2664,6 @@ struct AIUsageBarTests {
         return data
     }
 
-    private func waitUntil(
-        _ condition: @escaping @MainActor () -> Bool
-    ) async throws {
-        for _ in 0..<4_000 {
-            if await MainActor.run(body: condition) {
-                return
-            }
-            await Task.yield()
-        }
-        Issue.record("timed out waiting for Grok refresh lifecycle")
-        throw CancellationError()
-    }
-
     private func cookie(
         name: String,
         value: String,
@@ -2678,6 +2677,13 @@ struct AIUsageBarTests {
         ])
     }
 
+}
+
+@MainActor
+final class EmptyGrokRefreshCookieSource: GrokRefreshCookieSource {
+    func grokCookies() async -> [HTTPCookie] {
+        []
+    }
 }
 
 @MainActor
@@ -2703,7 +2709,10 @@ final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable
         let continuation: CheckedContinuation<GrokUsage, Error>
     }
 
+    private let lock = NSLock()
     private var queued: [Result<GrokUsage, Error>] = []
+    private var startedCount = 0
+    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
     private(set) var pending: [Pending] = []
     private(set) var cookieHeaders: [String] = []
 
@@ -2711,11 +2720,30 @@ final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable
         queued.append(result)
     }
 
+    func waitUntilFetchStartedCount(_ count: Int) async {
+        while true {
+            if noteIfStarted(count) {
+                return
+            }
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if startedCount >= count {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    startedWaiters.append(continuation)
+                    lock.unlock()
+                }
+            }
+        }
+    }
+
     func fetchUsage(
         rateLimitsCookieHeader: String,
         weeklyCookieHeader: String
     ) async throws -> GrokUsage {
         cookieHeaders.append(rateLimitsCookieHeader)
+        noteFetchStarted()
         if !queued.isEmpty {
             return try queued.removeFirst().get()
         }
@@ -2733,5 +2761,20 @@ final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable
 
     func fetchCount(containing token: String) -> Int {
         cookieHeaders.filter { $0.contains(token) }.count
+    }
+
+    private func noteIfStarted(_ count: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return startedCount >= count
+    }
+
+    private func noteFetchStarted() {
+        lock.lock()
+        startedCount += 1
+        let waiters = startedWaiters
+        startedWaiters.removeAll()
+        lock.unlock()
+        waiters.forEach { $0.resume() }
     }
 }

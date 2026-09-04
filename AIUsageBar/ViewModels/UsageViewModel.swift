@@ -46,6 +46,7 @@ final class UsageViewModel: ObservableObject {
     private let chatGPTService: ChatGPTService
     private let grokService: GrokUsageFetching
     private let grokSessionRestorer: GrokSessionRestoring
+    private let grokCookieSource: GrokRefreshCookieSource
     private let usageNotificationManager: UsageNotificationManager
 
 
@@ -57,6 +58,7 @@ final class UsageViewModel: ObservableObject {
         chatGPTService: ChatGPTService = ChatGPTService(),
         grokService: GrokUsageFetching = GrokService(),
         grokSessionRestorer: GrokSessionRestoring? = nil,
+        grokCookieSource: GrokRefreshCookieSource? = nil,
         usageNotificationManager: UsageNotificationManager? = nil
     ) {
 
@@ -65,6 +67,8 @@ final class UsageViewModel: ObservableObject {
         self.grokService = grokService
         self.grokSessionRestorer =
             grokSessionRestorer ?? GrokWebKitSessionRestorer.shared
+        self.grokCookieSource =
+            grokCookieSource ?? WebSessionManager.shared
         self.usageNotificationManager =
             usageNotificationManager ?? UsageNotificationManager()
 
@@ -594,7 +598,7 @@ final class UsageViewModel: ObservableObject {
             return false
         }
 
-        let webKitCookies = await WebSessionManager.shared.cookies(for: .grok)
+        let webKitCookies = await grokCookieSource.grokCookies()
         guard GrokHTTPRefreshAuthPolicy.shouldCommit(
             captured: authGeneration,
             current: grokHTTPAuthGeneration.value

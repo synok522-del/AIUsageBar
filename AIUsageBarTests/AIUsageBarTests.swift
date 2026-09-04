@@ -2588,6 +2588,7 @@ struct AIUsageBarTests {
         #expect(service.fetchCount(containing: "token-B") == 1)
     }
 
+    @MainActor
     private func grokLifecycleModel(
         service: ControllableGrokUsageService,
         restorer: GrokSessionRestorerSpy,

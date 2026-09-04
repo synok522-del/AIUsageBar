@@ -49,6 +49,19 @@ struct UsageNotificationState {
         self.threshold = threshold
     }
 
+    mutating func resetTracking(for provider: UsageNotificationProvider) {
+        lastValidPercent.removeValue(forKey: provider)
+        notifiedProviders.remove(provider)
+    }
+
+    func lastRecordedPercent(for provider: UsageNotificationProvider) -> Int? {
+        lastValidPercent[provider]
+    }
+
+    func hasNotified(_ provider: UsageNotificationProvider) -> Bool {
+        notifiedProviders.contains(provider)
+    }
+
     mutating func shouldNotify(
         for provider: UsageNotificationProvider,
         remainingPercent: Int?,
@@ -115,6 +128,33 @@ final class UsageNotificationManager {
         self.defaults = defaults
         self.authorizationWasRequested = defaults.bool(
             forKey: UsageNotificationSettings.authorizationRequestedKey
+        )
+    }
+
+    func resetTracking(for provider: UsageNotificationProvider) {
+        state.resetTracking(for: provider)
+    }
+
+    func lastRecordedPercent(for provider: UsageNotificationProvider) -> Int? {
+        state.lastRecordedPercent(for: provider)
+    }
+
+    func hasNotified(_ provider: UsageNotificationProvider) -> Bool {
+        state.hasNotified(provider)
+    }
+
+    @discardableResult
+    func recordSample(
+        for provider: UsageNotificationProvider,
+        remainingPercent: Int?,
+        isLoaded: Bool,
+        hasError: Bool
+    ) -> Bool {
+        state.shouldNotify(
+            for: provider,
+            remainingPercent: remainingPercent,
+            isLoaded: isLoaded,
+            hasError: hasError
         )
     }
 

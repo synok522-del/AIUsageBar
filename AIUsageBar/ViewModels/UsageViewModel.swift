@@ -56,15 +56,17 @@ final class UsageViewModel: ObservableObject {
         claudeService: ClaudeService = ClaudeService(),
         chatGPTService: ChatGPTService = ChatGPTService(),
         grokService: GrokUsageFetching = GrokService(),
-        grokSessionRestorer: GrokSessionRestoring = GrokWebKitSessionRestorer.shared,
-        usageNotificationManager: UsageNotificationManager = UsageNotificationManager()
+        grokSessionRestorer: GrokSessionRestoring? = nil,
+        usageNotificationManager: UsageNotificationManager? = nil
     ) {
 
         self.claudeService = claudeService
         self.chatGPTService = chatGPTService
         self.grokService = grokService
-        self.grokSessionRestorer = grokSessionRestorer
-        self.usageNotificationManager = usageNotificationManager
+        self.grokSessionRestorer =
+            grokSessionRestorer ?? GrokWebKitSessionRestorer.shared
+        self.usageNotificationManager =
+            usageNotificationManager ?? UsageNotificationManager()
 
         migrateToKeychain()
 

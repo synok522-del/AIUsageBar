@@ -256,11 +256,19 @@ final class UsageViewModel: ObservableObject {
         )
     }
 
+    var grokHTTPAuthGenerationValue: UInt {
+        grokHTTPAuthGeneration.value
+    }
+
     func setGrokCredential(_ credential: WebCredential) {
         let previousToken = grokSessionToken
         let previousHeader = grokCookieHeader
         let identityChanged =
             previousToken != credential.value || previousHeader != credential.cookieHeader
+
+        if !identityChanged {
+            return
+        }
 
         grokHTTPAuthGeneration.invalidate()
 
@@ -277,6 +285,7 @@ final class UsageViewModel: ObservableObject {
                 StorageKey.grokCookieHeader
             )
             grokSessionRestorer.reset()
+            usageNotificationManager.resetTracking(for: .grok)
         } else {
             KeychainManager.shared.save(
                 credential.value,
@@ -287,14 +296,10 @@ final class UsageViewModel: ObservableObject {
                 forKey: StorageKey.grokCookieHeader
             )
 
-            if identityChanged {
-                grok = UsageInfo()
-                grokSessionRestorer.reset()
-                if isLoading {
-                    pendingRefreshAll = true
-                }
-                Task { await refreshAll() }
-            }
+            grok = UsageInfo()
+            grokSessionRestorer.reset()
+            usageNotificationManager.resetTracking(for: .grok)
+            requestRefreshAll()
         }
     }
 
@@ -303,14 +308,36 @@ final class UsageViewModel: ObservableObject {
     // MARK: - Refresh
 
     func refreshAll() async {
-
-        guard !isLoading else {
+        if isLoading {
             pendingRefreshAll = true
             return
         }
 
         isLoading = true
-        pendingRefreshAll = false
+        while true {
+            pendingRefreshAll = false
+            await performRefreshCycle()
+            if pendingRefreshAll {
+                continue
+            }
+            isLoading = false
+            if pendingRefreshAll {
+                isLoading = true
+                continue
+            }
+            break
+        }
+    }
+
+    private func requestRefreshAll() {
+        if isLoading {
+            pendingRefreshAll = true
+            return
+        }
+        Task { await refreshAll() }
+    }
+
+    private func performRefreshCycle() async {
 
 
         async let claudeRefresh: Bool =
@@ -344,12 +371,6 @@ final class UsageViewModel: ObservableObject {
             grokSucceeded: grokSucceeded
         ) {
             lastUpdated = Date()
-        }
-
-        isLoading = false
-        if pendingRefreshAll {
-            pendingRefreshAll = false
-            await refreshAll()
         }
     }
 

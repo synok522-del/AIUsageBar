@@ -2260,13 +2260,28 @@ struct AIUsageBarTests {
         #expect(httpsHeader.contains("sso=dummy-sso"))
     }
 
-    @Test("Malformed 10th-byte protobuf varint rejects Weekly")
+    @Test("Malformed 10th-byte protobuf varint in Period.type rejects Weekly")
     func grokMalformedTenthByteVarintRejectsWeekly() {
-        let malformed = Data([0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02])
+        // Period.type must carry the malformed ten-byte varint. On 17F-016,
+        // a top-level 82 80…02 message already returned nil for unrelated
+        // structural reasons, so it did not guard the tenth-byte defect.
+        // Field tag 0x08 is type (field 1, wire 0). The old reader kept the
+        // first-byte contribution 2 (WEEKLY) and treated 0x02 << 63 as a
+        // finished varint, so an otherwise-valid Weekly payload could pass.
+        // 016A/016B throw when the tenth byte is greater than 0x01.
+        let malformedTypeValue = Data([
+            0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02
+        ])
+        let periodType = Data([0x08]) + malformedTypeValue
+        let end = protoTimestamp(seconds: 1_788_592_260)
+        let period = periodType + protoBytes(3, end)
+        let config = protoFloat(1, 63) + protoBytes(8, period)
+        let body = grpcWebFrame(protoBytes(1, config)) + grpcWebTrailer("grpc-status: 0\r\n")
         let quota = GrokCreditsConfigDecoder.weeklyQuota(
             httpStatus: 200,
             contentType: "application/grpc-web+proto",
-            body: grpcWebFrame(malformed)
+            body: body,
+            now: Date(timeIntervalSince1970: 1_788_000_000)
         )
         #expect(quota == nil)
     }
@@ -2363,6 +2378,7 @@ struct AIUsageBarTests {
         )
         try await waitUntil { model.grok.isLoaded && model.grok.weeklyPercent == 37 }
         #expect(model.grok.sessionPercent == 11)
+        let fetchesAfterA = service.cookieHeaders.count
 
         let inFlight = Task { await model.refreshAll() }
         try await waitUntil { !service.pending.isEmpty }
@@ -2375,8 +2391,8 @@ struct AIUsageBarTests {
         #expect(model.grok.weeklyPercent == 0)
         #expect(model.grok.weeklyAvailable == false)
         #expect(restorer.resetCount >= 1)
+        #expect(service.pending.count == 1)
 
-        service.enqueue(.success(usageB))
         service.enqueue(.success(usageB))
         service.completeNext(usageA)
         await inFlight.value
@@ -2386,7 +2402,129 @@ struct AIUsageBarTests {
         }
         #expect(model.grok.sessionPercent == 88)
         #expect(model.grok.weeklyPercent != 37)
-        #expect(service.cookieHeaders.contains(where: { $0.contains("token-B") }))
+        #expect(service.fetchCount(containing: "token-B") == 1)
+        #expect(service.cookieHeaders.count == fetchesAfterA + 2)
+        #expect(service.pending.isEmpty)
+    }
+
+    @Test("Identical Grok credential does not invalidate in-flight refresh")
+    @MainActor
+    func grokIdenticalCredentialDoesNotInvalidateInFlightRefresh() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = UsageViewModel(
+            grokService: service,
+            grokSessionRestorer: restorer
+        )
+        let usageA = GrokUsage(
+            sessionRemainingPercent: 11,
+            resetText: "A",
+            sessionWindowSeconds: 7200,
+            weeklyRemainingPercent: 37,
+            weeklyResetText: "A-weekly",
+            weeklyRelativeResetText: "A-rel"
+        )
+        let credential = WebCredential(
+            cookieName: "sso",
+            value: "token-A",
+            cookieHeader: "sso=token-A"
+        )
+
+        service.enqueue(.success(usageA))
+        model.setGrokCredential(credential)
+        try await waitUntil { model.grok.isLoaded && model.grok.weeklyPercent == 37 }
+
+        let inFlight = Task { await model.refreshAll() }
+        try await waitUntil { !service.pending.isEmpty }
+        let generation = model.grokHTTPAuthGenerationValue
+        let resets = restorer.resetCount
+        let fetches = service.cookieHeaders.count
+
+        model.setGrokCredential(credential)
+        #expect(model.grokHTTPAuthGenerationValue == generation)
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyPercent == 37)
+        #expect(restorer.resetCount == resets)
+        #expect(service.cookieHeaders.count == fetches)
+        #expect(service.pending.count == 1)
+
+        service.completeNext(usageA)
+        await inFlight.value
+        try await waitUntil { !model.isLoading }
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyPercent == 37)
+        #expect(service.cookieHeaders.count == fetches)
+        #expect(service.pending.isEmpty)
+    }
+
+    @Test("Grok notification tracking resets on account identity change")
+    func grokNotificationTrackingResetsOnAccountChange() {
+        var state = UsageNotificationState()
+
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .chatGPT,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 18,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+        #expect(state.hasNotified(.grok))
+        #expect(state.lastRecordedPercent(for: .claude) == 40)
+        #expect(state.lastRecordedPercent(for: .chatGPT) == 40)
+
+        state.resetTracking(for: .grok)
+        #expect(state.hasNotified(.grok) == false)
+        #expect(state.lastRecordedPercent(for: .grok) == nil)
+        #expect(state.lastRecordedPercent(for: .claude) == 40)
+        #expect(state.lastRecordedPercent(for: .chatGPT) == 40)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 18,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .claude,
+            remainingPercent: 18,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+        #expect(state.shouldNotify(
+            for: .chatGPT,
+            remainingPercent: 18,
+            isLoaded: true,
+            hasError: false
+        ) == true)
+
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(state.shouldNotify(
+            for: .grok,
+            remainingPercent: 18,
+            isLoaded: true,
+            hasError: false
+        ) == true)
     }
 
     private func protoVarint(_ field: Int, _ value: Int) -> Data {
@@ -2522,5 +2660,9 @@ final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable
     func completeNext(_ usage: GrokUsage) {
         let item = pending.removeFirst()
         item.continuation.resume(returning: usage)
+    }
+
+    func fetchCount(containing token: String) -> Int {
+        cookieHeaders.filter { $0.contains(token) }.count
     }
 }

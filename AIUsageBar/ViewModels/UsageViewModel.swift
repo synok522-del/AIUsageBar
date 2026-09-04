@@ -39,11 +39,13 @@ final class UsageViewModel: ObservableObject {
     private var chatGPTCookieHeader = ""
     private var grokCookieHeader = ""
     private var grokHTTPAuthGeneration = GrokHTTPAuthGeneration()
+    private var pendingRefreshAll = false
 
 
     private let claudeService: ClaudeService
     private let chatGPTService: ChatGPTService
-    private let grokService: GrokService
+    private let grokService: GrokUsageFetching
+    private let grokSessionRestorer: GrokSessionRestoring
     private let usageNotificationManager = UsageNotificationManager()
 
 
@@ -53,12 +55,14 @@ final class UsageViewModel: ObservableObject {
     init(
         claudeService: ClaudeService = ClaudeService(),
         chatGPTService: ChatGPTService = ChatGPTService(),
-        grokService: GrokService = GrokService()
+        grokService: GrokUsageFetching = GrokService(),
+        grokSessionRestorer: GrokSessionRestoring = GrokWebKitSessionRestorer.shared
     ) {
 
         self.claudeService = claudeService
         self.chatGPTService = chatGPTService
         self.grokService = grokService
+        self.grokSessionRestorer = grokSessionRestorer
 
         migrateToKeychain()
 
@@ -253,6 +257,11 @@ final class UsageViewModel: ObservableObject {
     }
 
     func setGrokCredential(_ credential: WebCredential) {
+        let previousToken = grokSessionToken
+        let previousHeader = grokCookieHeader
+        let identityChanged =
+            previousToken != credential.value || previousHeader != credential.cookieHeader
+
         grokHTTPAuthGeneration.invalidate()
 
         grokSessionToken = credential.value
@@ -267,10 +276,8 @@ final class UsageViewModel: ObservableObject {
             KeychainManager.shared.delete(
                 StorageKey.grokCookieHeader
             )
-            GrokWebKitSessionRestorer.shared.reset()
-
+            grokSessionRestorer.reset()
         } else {
-
             KeychainManager.shared.save(
                 credential.value,
                 forKey: StorageKey.grokSessionToken
@@ -279,6 +286,15 @@ final class UsageViewModel: ObservableObject {
                 credential.cookieHeader,
                 forKey: StorageKey.grokCookieHeader
             )
+
+            if identityChanged {
+                grok = UsageInfo()
+                grokSessionRestorer.reset()
+                if isLoading {
+                    pendingRefreshAll = true
+                }
+                Task { await refreshAll() }
+            }
         }
     }
 
@@ -289,11 +305,12 @@ final class UsageViewModel: ObservableObject {
     func refreshAll() async {
 
         guard !isLoading else {
+            pendingRefreshAll = true
             return
         }
 
-
         isLoading = true
+        pendingRefreshAll = false
 
 
         async let claudeRefresh: Bool =
@@ -330,6 +347,10 @@ final class UsageViewModel: ObservableObject {
         }
 
         isLoading = false
+        if pendingRefreshAll {
+            pendingRefreshAll = false
+            await refreshAll()
+        }
     }
 
 
@@ -540,7 +561,7 @@ final class UsageViewModel: ObservableObject {
         allowRecovery: Bool,
         authGeneration: UInt
     ) async -> Bool {
-        await GrokWebKitSessionRestorer.shared.restoreIfNeeded()
+        await grokSessionRestorer.restoreIfNeeded()
         guard GrokHTTPRefreshAuthPolicy.shouldCommit(
             captured: authGeneration,
             current: grokHTTPAuthGeneration.value
@@ -626,7 +647,7 @@ final class UsageViewModel: ObservableObject {
                 didAlreadyRetry: !allowRecovery,
                 error: error
             ) {
-                _ = await GrokWebKitSessionRestorer.shared.restoreAfterRecoverableFailure()
+                _ = await grokSessionRestorer.restoreAfterRecoverableFailure()
                 guard GrokHTTPRefreshAuthPolicy.shouldCommit(
                     captured: authGeneration,
                     current: grokHTTPAuthGeneration.value

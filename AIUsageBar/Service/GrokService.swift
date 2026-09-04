@@ -1,6 +1,13 @@
 import Foundation
 
-struct GrokService {
+protocol GrokUsageFetching {
+    func fetchUsage(
+        rateLimitsCookieHeader: String,
+        weeklyCookieHeader: String
+    ) async throws -> GrokUsage
+}
+
+struct GrokService: GrokUsageFetching {
     private let webBaseURL = URL(string: "https://grok.com")!
     private let session: URLSession
 

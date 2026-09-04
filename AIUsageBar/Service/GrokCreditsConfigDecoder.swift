@@ -24,7 +24,8 @@ enum GrokCreditsConfigDecoder {
         httpStatus: Int,
         contentType: String?,
         body: Data,
-        grpcStatusHeader: String? = nil
+        grpcStatusHeader: String? = nil,
+        now: Date = Date()
     ) -> GrokWeeklyQuota? {
         guard (200..<300).contains(httpStatus) else {
             return nil
@@ -43,10 +44,10 @@ enum GrokCreditsConfigDecoder {
         guard grpc == nil || grpc == "OK" || grpc == "0" else {
             return nil
         }
-        return try? decodeValidatedWeekly(message)
+        return try? decodeValidatedWeekly(message, now: now)
     }
 
-    static func decodeValidatedWeekly(_ message: Data) throws -> GrokWeeklyQuota {
+    static func decodeValidatedWeekly(_ message: Data, now: Date = Date()) throws -> GrokWeeklyQuota {
         var reader = ProtoReader(data: message)
         var config: Data?
         while let field = try reader.next() {
@@ -79,14 +80,16 @@ enum GrokCreditsConfigDecoder {
         return try validatedWeekly(
             usedRaw: usedRaw.map(Double.init),
             periodType: periodType,
-            periodEnd: periodEnd
+            periodEnd: periodEnd,
+            now: now
         )
     }
 
     static func validatedWeekly(
         usedRaw: Double?,
         periodType: Int?,
-        periodEnd: Date?
+        periodEnd: Date?,
+        now: Date = Date()
     ) throws -> GrokWeeklyQuota {
         guard let usedRaw, usedRaw.isFinite else {
             throw DecodeError.invalid
@@ -94,7 +97,7 @@ enum GrokCreditsConfigDecoder {
         guard periodType == weeklyPeriodType else {
             throw DecodeError.invalid
         }
-        guard let periodEnd, periodEnd.timeIntervalSince1970.isFinite else {
+        guard let periodEnd, isPlausibleWeeklyReset(periodEnd, now: now) else {
             throw DecodeError.invalid
         }
 
@@ -207,10 +210,10 @@ enum GrokCreditsConfigDecoder {
             case (1, 0):
                 seconds = Int64(bitPattern: field.varint)
             case (2, 0):
-                guard field.varint <= UInt64(UInt32.max) else {
+                guard field.varint <= 999_999_999 else {
                     throw GrokCreditsConfigDecoderError.truncated
                 }
-                nanos = Int32(bitPattern: UInt32(field.varint))
+                nanos = Int32(field.varint)
             default:
                 break
             }
@@ -221,6 +224,18 @@ enum GrokCreditsConfigDecoder {
         return Date(
             timeIntervalSince1970: TimeInterval(seconds) + TimeInterval(nanos) / 1_000_000_000
         )
+    }
+
+    private static func isPlausibleWeeklyReset(_ date: Date, now: Date) -> Bool {
+        let delta = date.timeIntervalSince(now)
+        guard delta.isFinite else {
+            return false
+        }
+        // Weekly reset must be a real wall-clock time near "now". This is not a
+        // 2026-specific cutoff: it rejects protobuf Timestamps that are finite
+        // Doubles but unusable as a quota reset (year 0 / far-future overflow).
+        let horizon: TimeInterval = 10 * 365.25 * 24 * 60 * 60
+        return abs(delta) <= horizon
     }
 
     private static func grpcStatus(from trailer: String?) -> String? {
@@ -293,20 +308,28 @@ private struct ProtoReader {
 
     private mutating func readVarint() throws -> UInt64 {
         var result: UInt64 = 0
-        var shift = 0
-        while offset < data.count {
+        for byteIndex in 0..<9 {
+            guard offset < data.count else {
+                throw GrokCreditsConfigDecoderError.truncated
+            }
             let byte = data[offset]
             offset += 1
-            result |= UInt64(byte & 0x7F) << shift
+            result |= UInt64(byte & 0x7F) << (7 * byteIndex)
             if byte & 0x80 == 0 {
                 return result
             }
-            shift += 7
-            if shift > 63 {
-                throw GrokCreditsConfigDecoderError.truncated
-            }
         }
-        throw GrokCreditsConfigDecoderError.truncated
+
+        guard offset < data.count else {
+            throw GrokCreditsConfigDecoderError.truncated
+        }
+        let tenth = data[offset]
+        offset += 1
+        guard tenth <= 0x01 else {
+            throw GrokCreditsConfigDecoderError.truncated
+        }
+        result |= UInt64(tenth) << 63
+        return result
     }
 
     private mutating func readBytes(_ count: Int) throws -> Data {

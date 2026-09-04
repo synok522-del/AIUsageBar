@@ -2458,73 +2458,110 @@ struct AIUsageBarTests {
     }
 
     @Test("Grok notification tracking resets on account identity change")
-    func grokNotificationTrackingResetsOnAccountChange() {
-        var state = UsageNotificationState()
+    @MainActor
+    func grokNotificationTrackingResetsOnAccountChange() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let notifications = UsageNotificationManager()
+        let model = UsageViewModel(
+            grokService: service,
+            grokSessionRestorer: restorer,
+            usageNotificationManager: notifications
+        )
+        let usageA = GrokUsage(
+            sessionRemainingPercent: 11,
+            resetText: "A",
+            sessionWindowSeconds: 7200,
+            weeklyRemainingPercent: 37,
+            weeklyResetText: "A-weekly",
+            weeklyRelativeResetText: "A-rel"
+        )
+        let usageB = GrokUsage(
+            sessionRemainingPercent: 88,
+            resetText: "B",
+            sessionWindowSeconds: 7200,
+            weeklyRemainingPercent: 12,
+            weeklyResetText: "B-weekly",
+            weeklyRelativeResetText: "B-rel"
+        )
 
-        #expect(state.shouldNotify(
+        service.enqueue(.success(usageA))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        try await waitUntil { model.grok.isLoaded && model.grok.weeklyPercent == 37 }
+
+        #expect(notifications.recordSample(
             for: .claude,
             remainingPercent: 40,
             isLoaded: true,
             hasError: false
         ) == false)
-        #expect(state.shouldNotify(
+        #expect(notifications.recordSample(
             for: .chatGPT,
             remainingPercent: 40,
             isLoaded: true,
             hasError: false
         ) == false)
-        #expect(state.shouldNotify(
+        #expect(notifications.recordSample(
             for: .grok,
             remainingPercent: 40,
             isLoaded: true,
             hasError: false
         ) == false)
-        #expect(state.shouldNotify(
+        #expect(notifications.recordSample(
             for: .grok,
             remainingPercent: 18,
             isLoaded: true,
             hasError: false
         ) == true)
-        #expect(state.hasNotified(.grok))
-        #expect(state.lastRecordedPercent(for: .claude) == 40)
-        #expect(state.lastRecordedPercent(for: .chatGPT) == 40)
+        #expect(notifications.hasNotified(.grok))
+        #expect(notifications.lastRecordedPercent(for: .claude) == 40)
+        #expect(notifications.lastRecordedPercent(for: .chatGPT) == 40)
 
-        state.resetTracking(for: .grok)
-        #expect(state.hasNotified(.grok) == false)
-        #expect(state.lastRecordedPercent(for: .grok) == nil)
-        #expect(state.lastRecordedPercent(for: .claude) == 40)
-        #expect(state.lastRecordedPercent(for: .chatGPT) == 40)
-        #expect(state.shouldNotify(
+        service.enqueue(.success(usageB))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-B", cookieHeader: "sso=token-B")
+        )
+        #expect(notifications.hasNotified(.grok) == false)
+        #expect(notifications.lastRecordedPercent(for: .grok) == nil)
+        #expect(notifications.lastRecordedPercent(for: .claude) == 40)
+        #expect(notifications.lastRecordedPercent(for: .chatGPT) == 40)
+        #expect(notifications.recordSample(
             for: .grok,
             remainingPercent: 18,
             isLoaded: true,
             hasError: false
         ) == false)
-        #expect(state.shouldNotify(
+        #expect(notifications.recordSample(
             for: .claude,
             remainingPercent: 18,
             isLoaded: true,
             hasError: false
         ) == true)
-        #expect(state.shouldNotify(
+        #expect(notifications.recordSample(
             for: .chatGPT,
             remainingPercent: 18,
             isLoaded: true,
             hasError: false
         ) == true)
-
-        #expect(state.shouldNotify(
+        #expect(notifications.recordSample(
             for: .grok,
             remainingPercent: 40,
             isLoaded: true,
             hasError: false
         ) == false)
-        #expect(state.shouldNotify(
+        #expect(notifications.recordSample(
             for: .grok,
             remainingPercent: 18,
             isLoaded: true,
             hasError: false
         ) == true)
+
+        try await waitUntil {
+            !model.isLoading && model.grok.isLoaded && model.grok.weeklyPercent == 12
+        }
+        #expect(service.fetchCount(containing: "token-B") == 1)
     }
 
     private func protoVarint(_ field: Int, _ value: Int) -> Data {

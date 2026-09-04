@@ -135,6 +135,29 @@ final class UsageNotificationManager {
         state.resetTracking(for: provider)
     }
 
+    func lastRecordedPercent(for provider: UsageNotificationProvider) -> Int? {
+        state.lastRecordedPercent(for: provider)
+    }
+
+    func hasNotified(_ provider: UsageNotificationProvider) -> Bool {
+        state.hasNotified(provider)
+    }
+
+    @discardableResult
+    func recordSample(
+        for provider: UsageNotificationProvider,
+        remainingPercent: Int?,
+        isLoaded: Bool,
+        hasError: Bool
+    ) -> Bool {
+        state.shouldNotify(
+            for: provider,
+            remainingPercent: remainingPercent,
+            isLoaded: isLoaded,
+            hasError: hasError
+        )
+    }
+
     func evaluate(
         claude: UsageInfo,
         chatGPT: UsageInfo,

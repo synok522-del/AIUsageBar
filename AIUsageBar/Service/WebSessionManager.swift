@@ -196,7 +196,12 @@ enum GrokSessionContext {
 }
 
 @MainActor
-final class WebSessionManager {
+protocol GrokRefreshCookieSource: AnyObject {
+    func grokCookies() async -> [HTTPCookie]
+}
+
+@MainActor
+final class WebSessionManager: GrokRefreshCookieSource {
 
     static let shared = WebSessionManager()
 
@@ -214,6 +219,10 @@ final class WebSessionManager {
                 )
             }
         }
+    }
+
+    func grokCookies() async -> [HTTPCookie] {
+        await cookies(for: .grok)
     }
 
     /// 清除指定 provider 的 WebView Cookie 與網站資料。

@@ -2345,6 +2345,38 @@ struct AIUsageBarTests {
         #expect(quota.remainingPercent == 37)
     }
 
+    @Test("Idle Grok login requests exactly one refresh owned by setGrokCredential")
+    @MainActor
+    func grokIdleLoginRequestsExactlyOneRefresh() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = UsageViewModel(
+            grokService: service,
+            grokSessionRestorer: restorer
+        )
+        #expect(model.isLoading == false)
+
+        let usage = GrokUsage(
+            sessionRemainingPercent: 88,
+            resetText: "B",
+            sessionWindowSeconds: 7200,
+            weeklyRemainingPercent: 12,
+            weeklyResetText: "B-weekly",
+            weeklyRelativeResetText: "B-rel"
+        )
+        service.enqueue(.success(usage))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-B", cookieHeader: "sso=token-B")
+        )
+        try await waitUntil {
+            !model.isLoading && model.grok.isLoaded && model.grok.weeklyPercent == 12
+        }
+        #expect(service.fetchCount(containing: "token-B") == 1)
+        #expect(service.cookieHeaders.count == 1)
+        #expect(service.pending.isEmpty)
+        #expect(model.isLoading == false)
+    }
+
     @Test("Grok account replacement clears stale usage and re-arms refresh")
     @MainActor
     func grokAccountReplacementClearsStaleUsageAndRearmsRefresh() async throws {

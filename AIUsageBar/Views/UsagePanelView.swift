@@ -342,10 +342,6 @@ struct UsagePanelView: View {
 
                     model.setGrokCredential(credential)
                     model.statusMessage = "Grok 登入成功"
-
-                    Task {
-                        await model.refreshAll()
-                    }
                 }
             }
         )

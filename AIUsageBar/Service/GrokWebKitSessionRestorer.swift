@@ -8,7 +8,14 @@ import WebKit
 /// `sso` cookie. Failure, timeout, and logout cannot latch READY. A later
 /// recoverable fetch failure can invalidate READY and restore once more.
 @MainActor
-final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate {
+protocol GrokSessionRestoring: AnyObject {
+    func restoreIfNeeded() async -> GrokSessionRestoreOutcome
+    func restoreAfterRecoverableFailure() async -> GrokSessionRestoreOutcome
+    func reset()
+}
+
+@MainActor
+final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessionRestoring {
     static let shared = GrokWebKitSessionRestorer()
     static let restoreURL = URL(string: "https://grok.com/")!
     static let userAgent =

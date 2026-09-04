@@ -1767,7 +1767,8 @@ struct AIUsageBarTests {
         let quota = try GrokCreditsConfigDecoder.validatedWeekly(
             usedRaw: 63,
             periodType: 2,
-            periodEnd: Date(timeIntervalSince1970: 1_788_592_260)
+            periodEnd: Date(timeIntervalSince1970: 1_788_592_260),
+            now: Date(timeIntervalSince1970: 1_788_000_000)
         )
         #expect(quota.usedPercent == 63)
         #expect(quota.remainingPercent == 37)
@@ -1780,14 +1781,16 @@ struct AIUsageBarTests {
         let high = try GrokCreditsConfigDecoder.validatedWeekly(
             usedRaw: 150,
             periodType: 2,
-            periodEnd: Date(timeIntervalSince1970: 1_788_592_260)
+            periodEnd: Date(timeIntervalSince1970: 1_788_592_260),
+            now: Date(timeIntervalSince1970: 1_788_000_000)
         )
         #expect(high.usedPercent == 100)
         #expect(high.remainingPercent == 0)
         let low = try GrokCreditsConfigDecoder.validatedWeekly(
             usedRaw: -4,
             periodType: 2,
-            periodEnd: Date(timeIntervalSince1970: 1_788_592_260)
+            periodEnd: Date(timeIntervalSince1970: 1_788_592_260),
+            now: Date(timeIntervalSince1970: 1_788_000_000)
         )
         #expect(low.usedPercent == 0)
         #expect(low.remainingPercent == 100)
@@ -1799,7 +1802,8 @@ struct AIUsageBarTests {
         let quota = try GrokCreditsConfigDecoder.validatedWeekly(
             usedRaw: 63,
             periodType: GrokCreditsConfigDecoder.weeklyPeriodType,
-            periodEnd: end
+            periodEnd: end,
+            now: Date(timeIntervalSince1970: 1_788_000_000)
         )
         #expect(quota.resetAt == end)
     }
@@ -2019,7 +2023,8 @@ struct AIUsageBarTests {
             GrokCreditsConfigDecoder.weeklyQuota(
                 httpStatus: 200,
                 contentType: "application/grpc-web+proto",
-                body: body
+                body: body,
+                now: Date(timeIntervalSince1970: 1_788_000_000)
             )
         )
         #expect(quota.usedPercent == 63)
@@ -2255,6 +2260,135 @@ struct AIUsageBarTests {
         #expect(httpsHeader.contains("sso=dummy-sso"))
     }
 
+    @Test("Malformed 10th-byte protobuf varint rejects Weekly")
+    func grokMalformedTenthByteVarintRejectsWeekly() {
+        let malformed = Data([0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02])
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: grpcWebFrame(malformed)
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("Timestamp nanos above 999_999_999 reject Weekly")
+    func grokTimestampNanosOverflowRejectsWeekly() {
+        let timestamp = protoVarint(1, Int(Date().addingTimeInterval(86_400).timeIntervalSince1970))
+            + protoVarint(2, 1_000_000_000)
+        let period = protoVarint(1, 2) + protoBytes(3, timestamp)
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: grpcWebFrame(protoBytes(1, protoFloat(1, 63) + protoBytes(8, period)))
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("Negative-equivalent Timestamp nanos reject Weekly")
+    func grokNegativeEquivalentNanosRejectWeekly() {
+        let timestamp = protoVarint(
+            1,
+            Int(Date().addingTimeInterval(86_400).timeIntervalSince1970)
+        ) + protoUnsignedVarint(2, 4_294_967_295)
+        let period = protoVarint(1, 2) + protoBytes(3, timestamp)
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: grpcWebFrame(protoBytes(1, protoFloat(1, 63) + protoBytes(8, period)))
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("Absurd Weekly reset Timestamp is rejected")
+    func grokAbsurdResetTimestampRejectsWeekly() {
+        let timestamp = protoVarint(1, 1)
+        let period = protoVarint(1, 2) + protoBytes(3, timestamp)
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: grpcWebFrame(protoBytes(1, protoFloat(1, 63) + protoBytes(8, period))),
+            now: Date()
+        )
+        #expect(quota == nil)
+    }
+
+    @Test("Live-shaped Weekly timestamp near now still succeeds")
+    func grokLiveShapedTimestampNearNowStillSucceeds() throws {
+        let reset = Date().addingTimeInterval(2 * 24 * 60 * 60)
+        let end = protoTimestamp(seconds: Int(reset.timeIntervalSince1970))
+        let period = protoVarint(1, 2) + protoBytes(3, end)
+        let quota = try #require(
+            GrokCreditsConfigDecoder.weeklyQuota(
+                httpStatus: 200,
+                contentType: "application/grpc-web+proto",
+                body: grpcWebFrame(
+                    protoBytes(1, protoFloat(1, 63) + protoBytes(8, period))
+                ) + grpcWebTrailer("grpc-status: 0\r\n")
+            )
+        )
+        #expect(quota.usedPercent == 63)
+        #expect(quota.remainingPercent == 37)
+    }
+
+    @Test("Grok account replacement clears stale usage and re-arms refresh")
+    @MainActor
+    func grokAccountReplacementClearsStaleUsageAndRearmsRefresh() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = UsageViewModel(
+            grokService: service,
+            grokSessionRestorer: restorer
+        )
+
+        let usageA = GrokUsage(
+            sessionRemainingPercent: 11,
+            resetText: "A",
+            sessionWindowSeconds: 7200,
+            weeklyRemainingPercent: 37,
+            weeklyResetText: "A-weekly",
+            weeklyRelativeResetText: "A-rel"
+        )
+        let usageB = GrokUsage(
+            sessionRemainingPercent: 88,
+            resetText: "B",
+            sessionWindowSeconds: 7200,
+            weeklyRemainingPercent: 12,
+            weeklyResetText: "B-weekly",
+            weeklyRelativeResetText: "B-rel"
+        )
+
+        service.enqueue(.success(usageA))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        try await waitUntil { model.grok.isLoaded && model.grok.weeklyPercent == 37 }
+        #expect(model.grok.sessionPercent == 11)
+
+        let inFlight = Task { await model.refreshAll() }
+        try await waitUntil { !service.pending.isEmpty }
+        #expect(model.isLoading)
+
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-B", cookieHeader: "sso=token-B")
+        )
+        #expect(model.grok.isLoaded == false)
+        #expect(model.grok.weeklyPercent == 0)
+        #expect(model.grok.weeklyAvailable == false)
+        #expect(restorer.resetCount >= 1)
+
+        service.enqueue(.success(usageB))
+        service.enqueue(.success(usageB))
+        service.completeNext(usageA)
+        await inFlight.value
+
+        try await waitUntil {
+            !model.isLoading && model.grok.isLoaded && model.grok.weeklyPercent == 12
+        }
+        #expect(model.grok.sessionPercent == 88)
+        #expect(model.grok.weeklyPercent != 37)
+        #expect(service.cookieHeaders.contains(where: { $0.contains("token-B") }))
+    }
+
     private func protoVarint(_ field: Int, _ value: Int) -> Data {
         var data = Data()
         appendVarint(&data, UInt64(field << 3))
@@ -2304,6 +2438,26 @@ struct AIUsageBarTests {
         data.append(UInt8(value))
     }
 
+    private func protoUnsignedVarint(_ field: Int, _ value: UInt64) -> Data {
+        var data = Data()
+        appendVarint(&data, UInt64(field << 3))
+        appendVarint(&data, value)
+        return data
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        for _ in 0..<4_000 {
+            if await MainActor.run(body: condition) {
+                return
+            }
+            await Task.yield()
+        }
+        Issue.record("timed out waiting for Grok refresh lifecycle")
+        throw CancellationError()
+    }
+
     private func cookie(
         name: String,
         value: String,
@@ -2317,4 +2471,56 @@ struct AIUsageBarTests {
         ])
     }
 
+}
+
+@MainActor
+final class GrokSessionRestorerSpy: GrokSessionRestoring {
+    private(set) var resetCount = 0
+
+    func restoreIfNeeded() async -> GrokSessionRestoreOutcome {
+        .success
+    }
+
+    func restoreAfterRecoverableFailure() async -> GrokSessionRestoreOutcome {
+        .success
+    }
+
+    func reset() {
+        resetCount += 1
+    }
+}
+
+final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable {
+    struct Pending {
+        let cookieHeader: String
+        let continuation: CheckedContinuation<GrokUsage, Error>
+    }
+
+    private var queued: [Result<GrokUsage, Error>] = []
+    private(set) var pending: [Pending] = []
+    private(set) var cookieHeaders: [String] = []
+
+    func enqueue(_ result: Result<GrokUsage, Error>) {
+        queued.append(result)
+    }
+
+    func fetchUsage(
+        rateLimitsCookieHeader: String,
+        weeklyCookieHeader: String
+    ) async throws -> GrokUsage {
+        cookieHeaders.append(rateLimitsCookieHeader)
+        if !queued.isEmpty {
+            return try queued.removeFirst().get()
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            pending.append(
+                Pending(cookieHeader: rateLimitsCookieHeader, continuation: continuation)
+            )
+        }
+    }
+
+    func completeNext(_ usage: GrokUsage) {
+        let item = pending.removeFirst()
+        item.continuation.resume(returning: usage)
+    }
 }

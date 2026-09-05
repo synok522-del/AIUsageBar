@@ -33,17 +33,21 @@ final class UsageViewModel: ObservableObject {
     @Published private(set) var claudeSessionKey: String = ""
 
     @Published private(set) var chatGPTSessionToken: String = ""
+    @Published private(set) var chatGPTSessionRequiresRelogin = false
 
     @Published private(set) var grokSessionToken: String = ""
 
     private var chatGPTCookieHeader = ""
     private var grokCookieHeader = ""
+    private var chatGPTHTTPAuthGeneration = ChatGPTHTTPAuthGeneration()
     private var grokHTTPAuthGeneration = GrokHTTPAuthGeneration()
     private var pendingRefreshAll = false
 
 
     private let claudeService: ClaudeService
-    private let chatGPTService: ChatGPTService
+    private let chatGPTService: ChatGPTUsageFetching
+    private let chatGPTSessionRestorer: ChatGPTSessionRestoring
+    private let chatGPTCookieSource: ChatGPTRefreshCookieSource
     private let grokService: GrokUsageFetching
     private let grokSessionRestorer: GrokSessionRestoring
     private let grokCookieSource: GrokRefreshCookieSource
@@ -55,7 +59,9 @@ final class UsageViewModel: ObservableObject {
 
     init(
         claudeService: ClaudeService = ClaudeService(),
-        chatGPTService: ChatGPTService = ChatGPTService(),
+        chatGPTService: ChatGPTUsageFetching = ChatGPTService(),
+        chatGPTSessionRestorer: ChatGPTSessionRestoring? = nil,
+        chatGPTCookieSource: ChatGPTRefreshCookieSource? = nil,
         grokService: GrokUsageFetching = GrokService(),
         grokSessionRestorer: GrokSessionRestoring? = nil,
         grokCookieSource: GrokRefreshCookieSource? = nil,
@@ -64,6 +70,10 @@ final class UsageViewModel: ObservableObject {
 
         self.claudeService = claudeService
         self.chatGPTService = chatGPTService
+        self.chatGPTSessionRestorer =
+            chatGPTSessionRestorer ?? ChatGPTWebKitSessionRestorer.shared
+        self.chatGPTCookieSource =
+            chatGPTCookieSource ?? WebSessionManager.shared
         self.grokService = grokService
         self.grokSessionRestorer =
             grokSessionRestorer ?? GrokWebKitSessionRestorer.shared
@@ -227,21 +237,31 @@ final class UsageViewModel: ObservableObject {
     }
 
     func setChatGPTCredential(_ credential: WebCredential) {
+        let previousToken = chatGPTSessionToken
+        let previousHeader = chatGPTCookieHeader
+        let identityChanged =
+            previousToken != credential.value || previousHeader != credential.cookieHeader
+
+        if !identityChanged {
+            return
+        }
+
+        chatGPTHTTPAuthGeneration.invalidate()
+        chatGPTSessionRequiresRelogin = false
 
         chatGPTSessionToken = credential.value
         chatGPTCookieHeader = credential.cookieHeader
 
         if credential.value.isEmpty {
-
             KeychainManager.shared.delete(
                 StorageKey.chatGPTSessionToken
             )
             KeychainManager.shared.delete(
                 StorageKey.chatGPTCookieHeader
             )
-
+            chatGPTSessionRestorer.reset()
+            usageNotificationManager.resetTracking(for: .chatGPT)
         } else {
-
             KeychainManager.shared.save(
                 credential.value,
                 forKey: StorageKey.chatGPTSessionToken
@@ -250,7 +270,14 @@ final class UsageViewModel: ObservableObject {
                 credential.cookieHeader,
                 forKey: StorageKey.chatGPTCookieHeader
             )
+            chatGPTSessionRestorer.reset()
+            usageNotificationManager.resetTracking(for: .chatGPT)
+            requestRefreshAll()
         }
+    }
+
+    var chatGPTHTTPAuthGenerationValue: UInt {
+        chatGPTHTTPAuthGeneration.value
     }
 
     func setGrokSessionToken(_ value: String) {
@@ -500,17 +527,49 @@ final class UsageViewModel: ObservableObject {
             return false
         }
 
+        let fallbackHeader = chatGPTCookieHeader.isEmpty
+            ? "__Secure-next-auth.session-token=\(token)"
+            : chatGPTCookieHeader
+        let authGeneration = chatGPTHTTPAuthGeneration.value
+
+        return await fetchChatGPTUsage(
+            fallbackHeader: fallbackHeader,
+            allowRecovery: true,
+            authGeneration: authGeneration
+        )
+    }
+
+    private func fetchChatGPTUsage(
+        fallbackHeader: String,
+        allowRecovery: Bool,
+        authGeneration: UInt
+    ) async -> Bool {
+        let webKitCookies = await chatGPTCookieSource.chatGPTCookies()
+        guard ChatGPTHTTPRefreshAuthPolicy.shouldCommit(
+            captured: authGeneration,
+            current: chatGPTHTTPAuthGeneration.value
+        ) else {
+            return false
+        }
+
+        let cookieHeader = ChatGPTSessionContext.cookieHeaderForRequest(
+            webKitCookies: webKitCookies,
+            fallbackHeader: fallbackHeader
+        )
 
         do {
-
-            let usage =
-            try await chatGPTService.fetchUsage(
-                cookieHeader: chatGPTCookieHeader.isEmpty
-                    ? "__Secure-next-auth.session-token=\(token)"
-                    : chatGPTCookieHeader
+            let usage = try await chatGPTService.fetchUsage(
+                cookieHeader: cookieHeader
             )
 
+            guard ChatGPTHTTPRefreshAuthPolicy.shouldCommit(
+                captured: authGeneration,
+                current: chatGPTHTTPAuthGeneration.value
+            ) else {
+                return false
+            }
 
+            chatGPTSessionRequiresRelogin = false
             chatGPT = UsageInfo(
                 sessionPercent:
                     usage.sessionRemainingPercent,
@@ -535,12 +594,60 @@ final class UsageViewModel: ObservableObject {
             clearStatusMessage(for: "ChatGPT")
             return true
 
-
         } catch {
-            if let nextState = UsageRefreshStatePolicy.state(
-                afterFailure: chatGPT,
+            guard ChatGPTHTTPRefreshAuthPolicy.shouldCommit(
+                captured: authGeneration,
+                current: chatGPTHTTPAuthGeneration.value
+            ) else {
+                return false
+            }
+
+            if ChatGPTHTTPRefreshAuthPolicy.shouldAttemptRecovery(
+                captured: authGeneration,
+                current: chatGPTHTTPAuthGeneration.value,
+                didAlreadyRetry: !allowRecovery,
                 error: error
             ) {
+                let outcome = await chatGPTSessionRestorer.restoreAfterRecoverableFailure()
+                guard ChatGPTHTTPRefreshAuthPolicy.shouldCommit(
+                    captured: authGeneration,
+                    current: chatGPTHTTPAuthGeneration.value
+                ) else {
+                    return false
+                }
+                guard outcome == .success else {
+                    return applyChatGPTFailure(
+                        ChatGPTSessionRecoveryPolicy.presentationErrorAfterExhaustedRecovery(
+                            error
+                        ),
+                        authGeneration: authGeneration
+                    )
+                }
+                return await fetchChatGPTUsage(
+                    fallbackHeader: "",
+                    allowRecovery: false,
+                    authGeneration: authGeneration
+                )
+            }
+
+            let presentedError = allowRecovery
+                ? error
+                : ChatGPTSessionRecoveryPolicy.presentationErrorAfterExhaustedRecovery(error)
+
+            if let nextState = UsageRefreshStatePolicy.state(
+                afterFailure: chatGPT,
+                error: presentedError
+            ) {
+                guard ChatGPTHTTPRefreshAuthPolicy.shouldCommit(
+                    captured: authGeneration,
+                    current: chatGPTHTTPAuthGeneration.value
+                ) else {
+                    return false
+                }
+                if !allowRecovery,
+                   ChatGPTSessionRecoveryPolicy.isRecoverableSessionFailure(error) {
+                    chatGPTSessionRequiresRelogin = true
+                }
                 chatGPT = nextState
                 let message = nextState.errorMessage ?? "更新失敗"
                 statusMessage = "ChatGPT：\(message)"
@@ -548,6 +655,29 @@ final class UsageViewModel: ObservableObject {
 
             return false
         }
+    }
+
+    private func applyChatGPTFailure(
+        _ error: Error,
+        authGeneration: UInt
+    ) -> Bool {
+        guard ChatGPTHTTPRefreshAuthPolicy.shouldCommit(
+            captured: authGeneration,
+            current: chatGPTHTTPAuthGeneration.value
+        ) else {
+            return false
+        }
+
+        chatGPTSessionRequiresRelogin = true
+        if let nextState = UsageRefreshStatePolicy.state(
+            afterFailure: chatGPT,
+            error: error
+        ) {
+            chatGPT = nextState
+            let message = nextState.errorMessage ?? "更新失敗"
+            statusMessage = "ChatGPT：\(message)"
+        }
+        return false
     }
 
 

@@ -44,6 +44,15 @@ struct GrokSessionRestorerGate: Equatable {
         phase = .unknown
     }
 
+    /// Overnight READY can outlive a usable grok.com `sso` cookie.
+    /// Recovery must not skip WebKit restore in that state.
+    mutating func invalidateReadyIfSessionUnusable(hasUsableSSO: Bool) {
+        guard phase == .ready, !hasUsableSSO else {
+            return
+        }
+        invalidateForRecovery()
+    }
+
     mutating func reset() {
         generation += 1
         phase = .unknown
@@ -101,6 +110,21 @@ enum GrokSessionRecoveryPolicy {
         error: Error
     ) -> Bool {
         !didAlreadyRetry && isRecoverableSessionFailure(error)
+    }
+
+    /// After one restore + retry, a still-recoverable WAF/401 means the
+    /// stored credential is no longer a working browser session.
+    static func presentationErrorAfterExhaustedRecovery(_ error: Error) -> Error {
+        guard isRecoverableSessionFailure(error) else {
+            return error
+        }
+
+        if let serviceError = error as? AIUsageServiceError,
+           case .httpStatus(_, 401) = serviceError {
+            return serviceError
+        }
+
+        return AIUsageServiceError.httpStatus("Grok", 401)
     }
 }
 

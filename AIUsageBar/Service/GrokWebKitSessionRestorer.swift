@@ -36,7 +36,15 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
 
     func restoreIfNeeded() async -> GrokSessionRestoreOutcome {
         if gate.phase == .ready {
-            return .success
+            let cookies = await WebSessionManager.shared.cookies(for: .grok)
+            let hasUsableSSO = GrokSessionContext.cookieHeader(
+                from: cookies,
+                to: GrokSessionContext.rateLimitsURL
+            ) != nil
+            gate.invalidateReadyIfSessionUnusable(hasUsableSSO: hasUsableSSO)
+            if gate.phase == .ready {
+                return .success
+            }
         }
 
         return await performRestore()

@@ -27,6 +27,7 @@ struct SettingsView: View {
             providerRow(
                 title: "ChatGPT",
                 isLoggedIn: !viewModel.chatGPTSessionToken.isEmpty,
+                requiresRelogin: viewModel.chatGPTSessionRequiresRelogin,
                 loginAction: onLoginChatGPT,
                 logoutAction: {
                     viewModel.setChatGPTSessionToken("")
@@ -168,6 +169,7 @@ struct SettingsView: View {
     private func providerRow(
         title: String,
         isLoggedIn: Bool,
+        requiresRelogin: Bool = false,
         loginAction: @escaping () -> Void,
         logoutAction: @escaping () -> Void
     ) -> some View {
@@ -181,11 +183,19 @@ struct SettingsView: View {
 
             if isLoggedIn {
 
-                Label(
-                    "已登入",
-                    systemImage: "checkmark.circle.fill"
-                )
-                .foregroundStyle(.green)
+                if requiresRelogin {
+                    Label(
+                        "需重新登入",
+                        systemImage: "exclamationmark.circle.fill"
+                    )
+                    .foregroundStyle(.orange)
+                } else {
+                    Label(
+                        "已登入",
+                        systemImage: "checkmark.circle.fill"
+                    )
+                    .foregroundStyle(.green)
+                }
 
                 Button("重新登入") {
                     loginAction()

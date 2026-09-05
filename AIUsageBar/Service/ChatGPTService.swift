@@ -1,6 +1,10 @@
 import Foundation
 
-struct ChatGPTService {
+protocol ChatGPTUsageFetching {
+    func fetchUsage(cookieHeader: String) async throws -> ChatGPTUsage
+}
+
+struct ChatGPTService: ChatGPTUsageFetching {
     private let baseURL = URL(string: "https://chatgpt.com")!
 
     func fetchUsage(sessionToken: String) async throws -> ChatGPTUsage {

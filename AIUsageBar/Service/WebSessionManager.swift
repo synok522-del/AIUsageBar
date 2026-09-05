@@ -201,7 +201,12 @@ protocol GrokRefreshCookieSource: AnyObject {
 }
 
 @MainActor
-final class WebSessionManager: GrokRefreshCookieSource {
+protocol ChatGPTRefreshCookieSource: AnyObject {
+    func chatGPTCookies() async -> [HTTPCookie]
+}
+
+@MainActor
+final class WebSessionManager: GrokRefreshCookieSource, ChatGPTRefreshCookieSource {
 
     static let shared = WebSessionManager()
 
@@ -223,6 +228,10 @@ final class WebSessionManager: GrokRefreshCookieSource {
 
     func grokCookies() async -> [HTTPCookie] {
         await cookies(for: .grok)
+    }
+
+    func chatGPTCookies() async -> [HTTPCookie] {
+        await cookies(for: .chatGPT)
     }
 
     /// 清除指定 provider 的 WebView Cookie 與網站資料。

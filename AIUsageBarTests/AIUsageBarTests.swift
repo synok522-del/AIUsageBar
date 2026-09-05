@@ -1701,6 +1701,22 @@ struct AIUsageBarTests {
             ) == false
         )
         #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+        #expect(
+            GrokSessionRecoveryPolicy.presentationErrorAfterExhaustedRecovery(error)
+                .localizedDescription == "Grok 登入已失效，請重新登入"
+        )
+    }
+
+    @Test("READY without usable SSO is invalidated for overnight recovery")
+    func grokReadyWithoutUsableSSOIsInvalidatedForRecovery() {
+        var gate = GrokSessionRestorerGate()
+        let generation = gate.beginRestore()
+        gate.complete(attemptGeneration: generation, outcome: .success)
+        #expect(gate.phase == .ready)
+        gate.invalidateReadyIfSessionUnusable(hasUsableSSO: true)
+        #expect(gate.phase == .ready)
+        gate.invalidateReadyIfSessionUnusable(hasUsableSSO: false)
+        #expect(gate.phase == .unknown)
     }
 
     @Test("HTTP 401 is a recoverable Grok session failure")
@@ -2588,17 +2604,244 @@ struct AIUsageBarTests {
         #expect(service.fetchCount(containing: "token-B") == 1)
     }
 
+    @Test("17F-017 WAF restore uses fresh cookies and retries once")
+    @MainActor
+    func grokOvernightWAFRestoreRetriesWithFreshCookies() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let cookies = MutableGrokRefreshCookieSource()
+        let model = grokLifecycleModel(
+            service: service,
+            restorer: restorer,
+            cookieSource: cookies
+        )
+        let usage = grokLifecycleUsage(session: 40, weekly: 22)
+
+        restorer.onRestoreAfter = {
+            cookies.cookies = [
+                HTTPCookie(properties: [
+                    .domain: "grok.com",
+                    .path: "/",
+                    .name: "sso",
+                    .value: "fresh-sso"
+                ])!,
+                HTTPCookie(properties: [
+                    .domain: "grok.com",
+                    .path: "/",
+                    .name: "cf_clearance",
+                    .value: "fresh-cf"
+                ])!
+            ]
+        }
+        service.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        service.enqueue(.success(usage))
+        model.setGrokCredential(
+            WebCredential(
+                cookieName: "sso",
+                value: "stale-sso",
+                cookieHeader: "sso=stale-sso"
+            )
+        )
+        await waitUntilRefreshIdle(model)
+
+        #expect(restorer.restoreAfterCount == 1)
+        #expect(service.cookieHeaders.count == 2)
+        #expect(service.cookieHeaders[0].contains("stale-sso"))
+        #expect(service.cookieHeaders[1].contains("fresh-sso"))
+        #expect(service.cookieHeaders[1].contains("fresh-cf"))
+        #expect(!service.cookieHeaders[1].contains("stale-sso"))
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyPercent == 22)
+        #expect(model.grokSessionRequiresRelogin == false)
+    }
+
+    @Test("17F-017 recovery is bounded to one restore cycle")
+    @MainActor
+    func grokOvernightRecoveryIsBoundedToOneCycle() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = grokLifecycleModel(service: service, restorer: restorer)
+        service.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        service.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await waitUntilRefreshIdle(model)
+
+        #expect(restorer.restoreAfterCount == 1)
+        #expect(service.cookieHeaders.count == 2)
+        #expect(model.grok.errorMessage == "Grok 登入已失效，請重新登入")
+        #expect(model.grokSessionRequiresRelogin)
+        #expect(model.grokSessionToken == "token-A")
+    }
+
+    @Test("17F-017 restore success with retry still WAF does not loop")
+    @MainActor
+    func grokOvernightRestoreSuccessStillWAFDoesNotLoop() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = grokLifecycleModel(service: service, restorer: restorer)
+        restorer.restoreAfterOutcome = .success
+        service.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        service.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await waitUntilRefreshIdle(model)
+        #expect(restorer.restoreAfterCount == 1)
+        #expect(service.cookieHeaders.count == 2)
+        #expect(model.statusMessage.contains("登入已失效"))
+    }
+
+    @Test("17F-017 restore failure surfaces re-login and skips HTTP retry")
+    @MainActor
+    func grokOvernightRestoreFailureSkipsRetry() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = grokLifecycleModel(service: service, restorer: restorer)
+        restorer.restoreAfterOutcome = .failure
+        service.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await waitUntilRefreshIdle(model)
+        #expect(restorer.restoreAfterCount == 1)
+        #expect(service.cookieHeaders.count == 1)
+        #expect(model.grok.errorMessage == "Grok 登入已失效，請重新登入")
+        #expect(model.grokSessionRequiresRelogin)
+    }
+
+    @Test("17F-017 logout during recovery does not commit stale usage")
+    @MainActor
+    func grokOvernightLogoutDuringRecoveryDoesNotCommit() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        restorer.shouldHoldRestoreAfter = true
+        let model = grokLifecycleModel(service: service, restorer: restorer)
+        service.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await service.waitUntilFetchStartedCount(1)
+        while restorer.restoreAfterCount == 0 {
+            await Task.yield()
+        }
+
+        model.setGrokSessionToken("")
+        restorer.releaseRestoreAfter()
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.grokSessionToken.isEmpty)
+        #expect(model.grok.isLoaded == false)
+        #expect(model.grok.sessionPercent == 0)
+        #expect(service.cookieHeaders.count == 1)
+    }
+
+    @Test("17F-017 account replacement during recovery does not commit old usage")
+    @MainActor
+    func grokOvernightAccountReplacementDuringRecoveryDoesNotCommitOldUsage() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        restorer.shouldHoldRestoreAfter = true
+        let model = grokLifecycleModel(service: service, restorer: restorer)
+        let usageB = grokLifecycleUsage(session: 88, weekly: 12)
+
+        service.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await service.waitUntilFetchStartedCount(1)
+        while restorer.restoreAfterCount == 0 {
+            await Task.yield()
+        }
+
+        service.enqueue(.success(usageB))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-B", cookieHeader: "sso=token-B")
+        )
+        restorer.releaseRestoreAfter()
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.grok.sessionPercent == 88)
+        #expect(model.grok.weeklyPercent == 12)
+        #expect(service.fetchCount(containing: "token-A") == 1)
+        #expect(service.fetchCount(containing: "token-B") == 1)
+        #expect(!model.grokSessionRequiresRelogin)
+    }
+
+    @Test("17F-017 healthy Grok refresh does not force WAF restore")
+    @MainActor
+    func grokHealthyRefreshDoesNotForceWAFRestore() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = grokLifecycleModel(service: service, restorer: restorer)
+        let usage = grokLifecycleUsage(session: 40, weekly: 22)
+        service.enqueue(.success(usage))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await waitUntilRefreshIdle(model)
+        let restoreIfNeeded = restorer.restoreIfNeededCount
+        let restoreAfter = restorer.restoreAfterCount
+
+        service.enqueue(.success(usage))
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(restorer.restoreAfterCount == restoreAfter)
+        #expect(restorer.restoreIfNeededCount == restoreIfNeeded + 1)
+        #expect(model.grok.weeklyPercent == 22)
+        #expect(model.grok.weeklyAvailable)
+    }
+
+    @Test("17F-017 free short-window fallback remains a single dynamic row")
+    @MainActor
+    func grokFreeShortWindowFallbackUnchanged() async throws {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = grokLifecycleModel(service: service, restorer: restorer)
+        service.enqueue(.success(
+            GrokUsage(
+                sessionRemainingPercent: 55,
+                resetText: "2 小時後重置",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                weeklyRelativeResetText: nil
+            )
+        ))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await waitUntilRefreshIdle(model)
+        #expect(model.grok.weeklyAvailable == false)
+        #expect(model.grok.resetText == "2 小時後重置")
+        #expect(restorer.restoreAfterCount == 0)
+    }
+
     @MainActor
     private func grokLifecycleModel(
         service: ControllableGrokUsageService,
         restorer: GrokSessionRestorerSpy,
-        notifications: UsageNotificationManager? = nil
+        notifications: UsageNotificationManager? = nil,
+        cookieSource: GrokRefreshCookieSource? = nil
     ) -> UsageViewModel {
         UsageViewModel(
             grokService: service,
             grokSessionRestorer: restorer,
-            grokCookieSource: EmptyGrokRefreshCookieSource(),
+            grokCookieSource: cookieSource ?? EmptyGrokRefreshCookieSource(),
             usageNotificationManager: notifications
+        )
+    }
+
+    private func grokLifecycleUsage(session: Int, weekly: Int) -> GrokUsage {
+        GrokUsage(
+            sessionRemainingPercent: session,
+            resetText: "window",
+            sessionWindowSeconds: 7200,
+            weeklyRemainingPercent: weekly,
+            weeklyResetText: "weekly",
+            weeklyRelativeResetText: "rel"
         )
     }
 
@@ -2688,15 +2931,43 @@ final class EmptyGrokRefreshCookieSource: GrokRefreshCookieSource {
 }
 
 @MainActor
+final class MutableGrokRefreshCookieSource: GrokRefreshCookieSource {
+    var cookies: [HTTPCookie] = []
+
+    func grokCookies() async -> [HTTPCookie] {
+        cookies
+    }
+}
+
+@MainActor
 final class GrokSessionRestorerSpy: GrokSessionRestoring {
     private(set) var resetCount = 0
+    private(set) var restoreIfNeededCount = 0
+    private(set) var restoreAfterCount = 0
+    var restoreAfterOutcome: GrokSessionRestoreOutcome = .success
+    var shouldHoldRestoreAfter = false
+    var onRestoreAfter: (() -> Void)?
+    private var restoreAfterHold: CheckedContinuation<Void, Never>?
 
     func restoreIfNeeded() async -> GrokSessionRestoreOutcome {
-        .success
+        restoreIfNeededCount += 1
+        return .success
     }
 
     func restoreAfterRecoverableFailure() async -> GrokSessionRestoreOutcome {
-        .success
+        restoreAfterCount += 1
+        if shouldHoldRestoreAfter {
+            await withCheckedContinuation { continuation in
+                restoreAfterHold = continuation
+            }
+        }
+        onRestoreAfter?()
+        return restoreAfterOutcome
+    }
+
+    func releaseRestoreAfter() {
+        restoreAfterHold?.resume()
+        restoreAfterHold = nil
     }
 
     func reset() {

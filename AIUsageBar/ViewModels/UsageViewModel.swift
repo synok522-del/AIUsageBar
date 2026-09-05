@@ -35,6 +35,7 @@ final class UsageViewModel: ObservableObject {
     @Published private(set) var chatGPTSessionToken: String = ""
 
     @Published private(set) var grokSessionToken: String = ""
+    @Published private(set) var grokSessionRequiresRelogin = false
 
     private var chatGPTCookieHeader = ""
     private var grokCookieHeader = ""
@@ -279,6 +280,7 @@ final class UsageViewModel: ObservableObject {
         }
 
         grokHTTPAuthGeneration.invalidate()
+        grokSessionRequiresRelogin = false
 
         grokSessionToken = credential.value
         grokCookieHeader = credential.cookieHeader
@@ -632,6 +634,7 @@ final class UsageViewModel: ObservableObject {
                 return false
             }
 
+            grokSessionRequiresRelogin = false
             grok = UsageInfo(
                 sessionPercent:
                     usage.sessionRemainingPercent,
@@ -676,29 +679,45 @@ final class UsageViewModel: ObservableObject {
                 didAlreadyRetry: !allowRecovery,
                 error: error
             ) {
-                _ = await grokSessionRestorer.restoreAfterRecoverableFailure()
+                let outcome = await grokSessionRestorer.restoreAfterRecoverableFailure()
                 guard GrokHTTPRefreshAuthPolicy.shouldCommit(
                     captured: authGeneration,
                     current: grokHTTPAuthGeneration.value
                 ) else {
                     return false
                 }
+                guard outcome == .success else {
+                    return applyGrokFailure(
+                        GrokSessionRecoveryPolicy.presentationErrorAfterExhaustedRecovery(
+                            error
+                        ),
+                        authGeneration: authGeneration
+                    )
+                }
                 return await fetchGrokUsage(
-                    fallbackHeader: fallbackHeader,
+                    fallbackHeader: "",
                     allowRecovery: false,
                     authGeneration: authGeneration
                 )
             }
 
+            let presentedError = allowRecovery
+                ? error
+                : GrokSessionRecoveryPolicy.presentationErrorAfterExhaustedRecovery(error)
+
             if let nextState = UsageRefreshStatePolicy.state(
                 afterFailure: grok,
-                error: error
+                error: presentedError
             ) {
                 guard GrokHTTPRefreshAuthPolicy.shouldCommit(
                     captured: authGeneration,
                     current: grokHTTPAuthGeneration.value
                 ) else {
                     return false
+                }
+                if !allowRecovery,
+                   GrokSessionRecoveryPolicy.isRecoverableSessionFailure(error) {
+                    grokSessionRequiresRelogin = true
                 }
                 grok = nextState
                 let message = nextState.errorMessage ?? "更新失敗"
@@ -707,6 +726,29 @@ final class UsageViewModel: ObservableObject {
 
             return false
         }
+    }
+
+    private func applyGrokFailure(
+        _ error: Error,
+        authGeneration: UInt
+    ) -> Bool {
+        guard GrokHTTPRefreshAuthPolicy.shouldCommit(
+            captured: authGeneration,
+            current: grokHTTPAuthGeneration.value
+        ) else {
+            return false
+        }
+
+        grokSessionRequiresRelogin = true
+        if let nextState = UsageRefreshStatePolicy.state(
+            afterFailure: grok,
+            error: error
+        ) {
+            grok = nextState
+            let message = nextState.errorMessage ?? "更新失敗"
+            statusMessage = "Grok：\(message)"
+        }
+        return false
     }
 
     private func clearStatusMessage(for provider: String) {

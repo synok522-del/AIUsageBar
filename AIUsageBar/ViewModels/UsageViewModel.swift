@@ -42,20 +42,21 @@ final class UsageViewModel: ObservableObject {
     private var pendingRefreshAll = false
 
 
-    private let claudeService: ClaudeService
-    private let chatGPTService: ChatGPTService
+    private let claudeService: any ClaudeUsageFetching
+    private let chatGPTService: any ChatGPTUsageFetching
     private let grokService: GrokUsageFetching
     private let grokSessionRestorer: GrokSessionRestoring
     private let grokCookieSource: GrokRefreshCookieSource
     private let usageNotificationManager: UsageNotificationManager
+    private var v2 = V2RuntimeState()
 
 
     private var refreshTimer: Timer?
 
 
     init(
-        claudeService: ClaudeService = ClaudeService(),
-        chatGPTService: ChatGPTService = ChatGPTService(),
+        claudeService: any ClaudeUsageFetching = ClaudeService(),
+        chatGPTService: any ChatGPTUsageFetching = ChatGPTService(),
         grokService: GrokUsageFetching = GrokService(),
         grokSessionRestorer: GrokSessionRestoring? = nil,
         grokCookieSource: GrokRefreshCookieSource? = nil,
@@ -195,6 +196,13 @@ final class UsageViewModel: ObservableObject {
     // MARK: - Login / Logout
 
     func setClaudeSessionKey(_ value: String) {
+        let identityChanged = claudeSessionKey != value
+        if identityChanged {
+            v2.invalidateProvider(
+                .claude,
+                accountKey: UsageIdentity.accountKey(from: claudeSessionKey)
+            )
+        }
 
         claudeSessionKey = value
 
@@ -227,6 +235,15 @@ final class UsageViewModel: ObservableObject {
     }
 
     func setChatGPTCredential(_ credential: WebCredential) {
+        let identityChanged =
+            chatGPTSessionToken != credential.value
+            || chatGPTCookieHeader != credential.cookieHeader
+        if identityChanged {
+            v2.invalidateProvider(
+                .chatGPT,
+                accountKey: UsageIdentity.accountKey(from: chatGPTSessionToken)
+            )
+        }
 
         chatGPTSessionToken = credential.value
         chatGPTCookieHeader = credential.cookieHeader
@@ -279,6 +296,10 @@ final class UsageViewModel: ObservableObject {
         }
 
         grokHTTPAuthGeneration.invalidate()
+        v2.invalidateProvider(
+            .grok,
+            accountKey: UsageIdentity.accountKey(from: previousToken)
+        )
 
         grokSessionToken = credential.value
         grokCookieHeader = credential.cookieHeader
@@ -431,40 +452,29 @@ final class UsageViewModel: ObservableObject {
             return false
         }
 
+        let captured = v2.claudeRecovery.generation
+        v2.noteFetch(.claude)
+        let source = ClaudeProductionUsageSource(
+            service: claudeService,
+            sessionKey: key
+        )
 
         do {
+            let snapshot = try await source.fetchSnapshot()
+            guard v2.claudeRecovery.shouldCommit(captured: captured) else {
+                return false
+            }
+            guard let usage = source.lastUsage else {
+                return false
+            }
 
-            let usage =
-            try await claudeService.fetchUsage(
-                sessionKey: key
-            )
-
-
-            claude = UsageInfo(
-                sessionPercent:
-                    usage.sessionRemainingPercent,
-
-                weeklyPercent:
-                    usage.weeklyRemainingPercent,
-
-                weeklyAvailable: true,
-
-                resetText:
-                    usage.resetText,
-
-                weeklyResetText:
-                    usage.weeklyResetText,
-
-                isLoaded: true,
-
-                errorMessage: nil
-            )
-
-            clearStatusMessage(for: "Claude")
+            v2.commit(snapshot)
+            applyClaude(usage)
             return true
-
-
         } catch {
+            guard v2.claudeRecovery.shouldCommit(captured: captured) else {
+                return false
+            }
             if let nextState = UsageRefreshStatePolicy.state(
                 afterFailure: claude,
                 error: error
@@ -500,43 +510,32 @@ final class UsageViewModel: ObservableObject {
             return false
         }
 
+        let captured = v2.chatGPTRecovery.generation
+        v2.noteFetch(.chatGPT)
+        let source = ChatGPTProductionUsageSource(
+            service: chatGPTService,
+            cookieHeader: chatGPTCookieHeader.isEmpty
+                ? "__Secure-next-auth.session-token=\(token)"
+                : chatGPTCookieHeader,
+            accountCredential: token
+        )
 
         do {
+            let snapshot = try await source.fetchSnapshot()
+            guard v2.chatGPTRecovery.shouldCommit(captured: captured) else {
+                return false
+            }
+            guard let usage = source.lastUsage else {
+                return false
+            }
 
-            let usage =
-            try await chatGPTService.fetchUsage(
-                cookieHeader: chatGPTCookieHeader.isEmpty
-                    ? "__Secure-next-auth.session-token=\(token)"
-                    : chatGPTCookieHeader
-            )
-
-
-            chatGPT = UsageInfo(
-                sessionPercent:
-                    usage.sessionRemainingPercent,
-
-                weeklyPercent:
-                    usage.weeklyRemainingPercent ?? 0,
-
-                weeklyAvailable:
-                    usage.weeklyRemainingPercent != nil,
-
-                resetText:
-                    usage.resetText,
-
-                weeklyResetText:
-                    usage.weeklyResetText ?? "",
-
-                isLoaded: true,
-
-                errorMessage: nil
-            )
-
-            clearStatusMessage(for: "ChatGPT")
+            v2.commit(snapshot)
+            applyChatGPT(usage)
             return true
-
-
         } catch {
+            guard v2.chatGPTRecovery.shouldCommit(captured: captured) else {
+                return false
+            }
             if let nextState = UsageRefreshStatePolicy.state(
                 afterFailure: chatGPT,
                 error: error
@@ -590,7 +589,10 @@ final class UsageViewModel: ObservableObject {
         allowRecovery: Bool,
         authGeneration: UInt
     ) async -> Bool {
-        await grokSessionRestorer.restoreIfNeeded()
+        let recoveryLatched = v2.grokRecovery.state == .requiresUserAction
+        if !recoveryLatched {
+            await grokSessionRestorer.restoreIfNeeded()
+        }
         guard GrokHTTPRefreshAuthPolicy.shouldCommit(
             captured: authGeneration,
             current: grokHTTPAuthGeneration.value
@@ -616,15 +618,50 @@ final class UsageViewModel: ObservableObject {
             fallbackHeader: fallbackHeader,
             url: GrokSessionContext.weeklyCreditsURL
         )
+        let accountCredential = grokSessionToken
+        let expectedAccountKey = UsageIdentity.accountKey(from: accountCredential)
+        let source = GrokProductionUsageSource(
+            service: grokService,
+            rateLimitsCookieHeader: rateLimitsCookieHeader,
+            weeklyCookieHeader: weeklyCookieHeader,
+            accountCredential: accountCredential
+        )
+        v2.noteFetch(.grok)
 
         do {
+            let snapshot = try await source.fetchSnapshot()
+            guard GrokHTTPRefreshAuthPolicy.shouldCommit(
+                captured: authGeneration,
+                current: grokHTTPAuthGeneration.value
+            ) else {
+                return false
+            }
+            guard let usage = source.lastUsage else {
+                return false
+            }
 
-            let usage =
-            try await grokService.fetchUsage(
-                rateLimitsCookieHeader: rateLimitsCookieHeader,
-                weeklyCookieHeader: weeklyCookieHeader
-            )
+            if v2.grokRecovery.state == .recovering {
+                let recovered = GrokV2RecoveryGate.isRecovered(
+                    snapshot: snapshot,
+                    expectedAccountKey: expectedAccountKey,
+                    cookiePresent: true,
+                    webKitReady: true
+                )
+                if !recovered {
+                    v2.grokRecovery.markRequiresUserAction()
+                    applyGrokFailure(
+                        AIUsageServiceError.invalidPayload("Grok recovery identity"),
+                        authGeneration: authGeneration
+                    )
+                    return false
+                }
+                v2.grokRecovery.markSuccess()
+            }
 
+            v2.commit(snapshot)
+            applyGrok(usage)
+            return true
+        } catch {
             guard GrokHTTPRefreshAuthPolicy.shouldCommit(
                 captured: authGeneration,
                 current: grokHTTPAuthGeneration.value
@@ -632,41 +669,8 @@ final class UsageViewModel: ObservableObject {
                 return false
             }
 
-            grok = UsageInfo(
-                sessionPercent:
-                    usage.sessionRemainingPercent,
-
-                weeklyPercent:
-                    usage.weeklyRemainingPercent ?? 0,
-
-                weeklyAvailable:
-                    usage.weeklyRemainingPercent != nil,
-
-                resetText:
-                    usage.weeklyRemainingPercent != nil
-                    ? (usage.weeklyRelativeResetText ?? "")
-                    : usage.resetText,
-
-                weeklyResetText:
-                    usage.weeklyResetText ?? "",
-
-                sessionWindowSeconds:
-                    usage.sessionWindowSeconds,
-
-                isLoaded: true,
-
-                errorMessage: nil
-            )
-
-            clearStatusMessage(for: "Grok")
-            return true
-
-
-        } catch {
-            guard GrokHTTPRefreshAuthPolicy.shouldCommit(
-                captured: authGeneration,
-                current: grokHTTPAuthGeneration.value
-            ) else {
+            if recoveryLatched {
+                applyGrokFailure(error, authGeneration: authGeneration)
                 return false
             }
 
@@ -676,11 +680,30 @@ final class UsageViewModel: ObservableObject {
                 didAlreadyRetry: !allowRecovery,
                 error: error
             ) {
+                let scope = RecoveryScope(
+                    provider: .grok,
+                    accountKey: expectedAccountKey ?? ""
+                )
+                guard v2.grokRecovery.beginRecovery(scope: scope) else {
+                    applyGrokFailure(error, authGeneration: authGeneration)
+                    return false
+                }
+                guard v2.grokRecovery.consumeRestoreAttempt() else {
+                    v2.grokRecovery.markRequiresUserAction()
+                    applyGrokFailure(error, authGeneration: authGeneration)
+                    return false
+                }
+
                 _ = await grokSessionRestorer.restoreAfterRecoverableFailure()
                 guard GrokHTTPRefreshAuthPolicy.shouldCommit(
                     captured: authGeneration,
                     current: grokHTTPAuthGeneration.value
                 ) else {
+                    return false
+                }
+                guard v2.grokRecovery.consumeRetryFetch() else {
+                    v2.grokRecovery.markRequiresUserAction()
+                    applyGrokFailure(error, authGeneration: authGeneration)
                     return false
                 }
                 return await fetchGrokUsage(
@@ -690,23 +713,107 @@ final class UsageViewModel: ObservableObject {
                 )
             }
 
-            if let nextState = UsageRefreshStatePolicy.state(
-                afterFailure: grok,
-                error: error
-            ) {
-                guard GrokHTTPRefreshAuthPolicy.shouldCommit(
-                    captured: authGeneration,
-                    current: grokHTTPAuthGeneration.value
-                ) else {
-                    return false
-                }
-                grok = nextState
-                let message = nextState.errorMessage ?? "更新失敗"
-                statusMessage = "Grok：\(message)"
+            if v2.grokRecovery.state == .recovering {
+                v2.grokRecovery.markRequiresUserAction()
             }
 
+            applyGrokFailure(error, authGeneration: authGeneration)
             return false
         }
+    }
+
+    private func applyClaude(_ usage: ClaudeUsage) {
+        claude = UsageInfo(
+            sessionPercent: usage.sessionRemainingPercent,
+            weeklyPercent: usage.weeklyRemainingPercent,
+            weeklyAvailable: true,
+            resetText: usage.resetText,
+            weeklyResetText: usage.weeklyResetText,
+            isLoaded: true,
+            errorMessage: nil
+        )
+        clearStatusMessage(for: "Claude")
+    }
+
+    private func applyChatGPT(_ usage: ChatGPTUsage) {
+        chatGPT = UsageInfo(
+            sessionPercent: usage.sessionRemainingPercent,
+            weeklyPercent: usage.weeklyRemainingPercent ?? 0,
+            weeklyAvailable: usage.weeklyRemainingPercent != nil,
+            resetText: usage.resetText,
+            weeklyResetText: usage.weeklyResetText ?? "",
+            isLoaded: true,
+            errorMessage: nil
+        )
+        clearStatusMessage(for: "ChatGPT")
+    }
+
+    private func applyGrok(_ usage: GrokUsage) {
+        grok = UsageInfo(
+            sessionPercent: usage.sessionRemainingPercent,
+            weeklyPercent: usage.weeklyRemainingPercent ?? 0,
+            weeklyAvailable: usage.weeklyRemainingPercent != nil,
+            resetText: usage.weeklyRemainingPercent != nil
+                ? (usage.weeklyRelativeResetText ?? "")
+                : usage.resetText,
+            weeklyResetText: usage.weeklyResetText ?? "",
+            sessionWindowSeconds: usage.sessionWindowSeconds,
+            isLoaded: true,
+            errorMessage: nil
+        )
+        clearStatusMessage(for: "Grok")
+    }
+
+    private func applyGrokFailure(_ error: Error, authGeneration: UInt) {
+        guard GrokHTTPRefreshAuthPolicy.shouldCommit(
+            captured: authGeneration,
+            current: grokHTTPAuthGeneration.value
+        ) else {
+            return
+        }
+        if let nextState = UsageRefreshStatePolicy.state(
+            afterFailure: grok,
+            error: error
+        ) {
+            grok = nextState
+            let message = nextState.errorMessage ?? "更新失敗"
+            statusMessage = "Grok：\(message)"
+        }
+    }
+
+    func v2Snapshot(for provider: UsageProviderID) -> UsageSnapshot? {
+        v2.lastSnapshots[provider]
+    }
+
+    func v2PathInvocationCount() -> Int {
+        v2.pathInvocations
+    }
+
+    func v2FetchInvocationCount(for provider: UsageProviderID) -> Int {
+        v2.fetchInvocations[provider] ?? 0
+    }
+
+    func v2GrokRecoveryState() -> RecoveryState {
+        v2.grokRecovery.state
+    }
+
+    func v2GrokRestoresUsed() -> Int {
+        v2.grokRecovery.restoresUsed
+    }
+
+    func v2GrokRetriesUsed() -> Int {
+        v2.grokRecovery.retriesUsed
+    }
+
+    func v2LastNotifiedMeterId(for provider: UsageProviderID) -> String? {
+        v2.lastNotifiedMeterId[provider]
+    }
+
+    func v2PrimaryMeterValidity(for provider: UsageProviderID, now: Date) -> UsageValidity? {
+        guard let snapshot = v2.lastSnapshots[provider] else {
+            return nil
+        }
+        return snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey)
     }
 
     private func clearStatusMessage(for provider: String) {

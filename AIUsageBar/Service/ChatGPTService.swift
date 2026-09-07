@@ -1,6 +1,10 @@
 import Foundation
 
-struct ChatGPTService {
+protocol ChatGPTUsageFetching {
+    func fetchUsage(cookieHeader: String) async throws -> ChatGPTUsage
+}
+
+struct ChatGPTService: ChatGPTUsageFetching {
     private let baseURL = URL(string: "https://chatgpt.com")!
 
     func fetchUsage(sessionToken: String) async throws -> ChatGPTUsage {
@@ -32,6 +36,7 @@ struct ChatGPTService {
 
         var weeklyRemainingPercent: Int?
         var weeklyResetText: String?
+        var weeklyResetAt: Date?
 
         if let secondaryWindow = rateLimit["secondary_window"] as? [String: Any],
            let weeklyUsedPercent = try? ServiceSupport.requiredPercent(
@@ -40,6 +45,7 @@ struct ChatGPTService {
                field: "rate_limit.secondary_window.used_percent"
            ) {
             weeklyRemainingPercent = max(0, 100 - weeklyUsedPercent)
+            weeklyResetAt = ServiceSupport.resetDate(secondaryWindow["reset_at"])
 
             let formattedReset = ServiceSupport.absoluteResetText(
                 secondaryWindow["reset_at"]
@@ -54,7 +60,9 @@ struct ChatGPTService {
             sessionRemainingPercent: max(0, 100 - usedPercent),
             resetText: ServiceSupport.resetText(primaryWindow["reset_at"]),
             weeklyRemainingPercent: weeklyRemainingPercent,
-            weeklyResetText: weeklyResetText
+            weeklyResetText: weeklyResetText,
+            sessionResetAt: ServiceSupport.resetDate(primaryWindow["reset_at"]),
+            weeklyResetAt: weeklyResetAt
         )
     }
 

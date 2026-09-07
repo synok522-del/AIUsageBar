@@ -1,6 +1,10 @@
 import Foundation
 
-struct ClaudeService {
+protocol ClaudeUsageFetching {
+    func fetchUsage(sessionKey: String) async throws -> ClaudeUsage
+}
+
+struct ClaudeService: ClaudeUsageFetching {
     private let baseURL = URL(string: "https://claude.ai")!
 
     func fetchUsage(sessionKey: String) async throws -> ClaudeUsage {
@@ -30,7 +34,9 @@ struct ClaudeService {
             sessionRemainingPercent: max(0, 100 - sessionUsed),
             weeklyRemainingPercent: max(0, 100 - weeklyUsed),
             resetText: sessionReset,
-            weeklyResetText: weeklyAbsoluteReset
+            weeklyResetText: weeklyAbsoluteReset,
+            sessionResetAt: ServiceSupport.resetDate(usage["five_hour"]?["resets_at"]),
+            weeklyResetAt: ServiceSupport.resetDate(usage["seven_day"]?["resets_at"])
         )
     }
 

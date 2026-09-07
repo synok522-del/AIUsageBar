@@ -201,7 +201,9 @@ struct V2UsageLayerTests {
             RecoverySuccessPolicy.isSuccess(
                 fetchSucceeded: true,
                 parsedValid: true,
-                identityAvailable: true,
+                expectedAccountKey: "acct",
+                snapshotAccountKey: "acct",
+                accountKeyUnavailable: false,
                 cookiePresent: false,
                 webKitReady: false
             )
@@ -210,11 +212,121 @@ struct V2UsageLayerTests {
             RecoverySuccessPolicy.isSuccess(
                 fetchSucceeded: false,
                 parsedValid: true,
-                identityAvailable: true,
+                expectedAccountKey: "acct",
+                snapshotAccountKey: "acct",
+                accountKeyUnavailable: false,
                 cookiePresent: true,
                 webKitReady: true
             ) == false
         )
+        #expect(
+            RecoverySuccessPolicy.isSuccess(
+                fetchSucceeded: true,
+                parsedValid: true,
+                expectedAccountKey: "acct",
+                snapshotAccountKey: "other",
+                accountKeyUnavailable: false
+            ) == false
+        )
+    }
+
+    @Test("Identity-unavailable recovery can succeed without fingerprinting empty credentials")
+    func identityUnavailableRecoveryCanSucceed() {
+        #expect(UsageIdentity.accountKey(from: "") == nil)
+        #expect(UsageIdentity.accountKey(from: "   ") == nil)
+        #expect(
+            RecoverySuccessPolicy.isSuccess(
+                fetchSucceeded: true,
+                parsedValid: true,
+                expectedAccountKey: nil,
+                snapshotAccountKey: nil,
+                accountKeyUnavailable: true,
+                cookiePresent: false,
+                webKitReady: false
+            )
+        )
+        #expect(
+            RecoverySuccessPolicy.isSuccess(
+                fetchSucceeded: true,
+                parsedValid: true,
+                expectedAccountKey: nil,
+                snapshotAccountKey: nil,
+                accountKeyUnavailable: false
+            ) == false
+        )
+        #expect(
+            RecoverySuccessPolicy.isSuccess(
+                fetchSucceeded: false,
+                parsedValid: false,
+                expectedAccountKey: nil,
+                snapshotAccountKey: nil,
+                accountKeyUnavailable: true,
+                cookiePresent: true,
+                webKitReady: true
+            ) == false
+        )
+    }
+
+    @Test("resetAt crossing expires a snapshot without fabricating timestamps")
+    func resetAtCrossingExpiresSnapshot() {
+        let resetAt = Date(timeIntervalSince1970: 5_000)
+        let snapshot = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 40,
+                resetText: "soon",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: resetAt
+            ),
+            token: "tok",
+            asOf: Date(timeIntervalSince1970: 4_900)
+        )
+        #expect(snapshot.displayedPrimaryMeter?.resetAt == resetAt)
+        #expect(
+            snapshot.validity(
+                now: Date(timeIntervalSince1970: 4_999),
+                expectedAccountKey: snapshot.accountKey
+            ) == .fresh
+        )
+        #expect(
+            snapshot.validity(
+                now: resetAt,
+                expectedAccountKey: snapshot.accountKey
+            ) == .expired
+        )
+
+        let missing = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 40,
+                resetText: "unknown",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: nil
+            ),
+            token: "tok",
+            asOf: Date(timeIntervalSince1970: 4_900)
+        )
+        #expect(missing.displayedPrimaryMeter?.resetAt == nil)
+        #expect(
+            missing.validity(
+                now: Date(timeIntervalSince1970: 4_950),
+                expectedAccountKey: missing.accountKey
+            ) == .fresh
+        )
+    }
+
+    @Test("Recovery coordinator enforces one restore and one retry per cycle")
+    func recoveryCoordinatorEnforcesRestoreAndRetryBounds() {
+        var coordinator = RecoveryCoordinator()
+        let scope = RecoveryScope(provider: .grok, accountKey: "a")
+        #expect(coordinator.beginRecovery(scope: scope))
+        #expect(coordinator.consumeRestoreAttempt())
+        #expect(coordinator.consumeRestoreAttempt() == false)
+        #expect(coordinator.consumeRetryFetch())
+        #expect(coordinator.consumeRetryFetch() == false)
+        coordinator.markRequiresUserAction()
+        #expect(coordinator.beginRecovery(scope: scope) == false)
+        #expect(coordinator.consumeRestoreAttempt() == false)
     }
 
     @Test("Stale in-flight completion cannot commit after logout generation bump")
@@ -238,6 +350,25 @@ struct V2UsageLayerTests {
         )
         #expect(chat.meters.first { $0.isDisplayedPrimary }?.remainingPercent == 55)
         #expect(chat.meters.contains(where: { $0.window == .weekly && $0.remainingPercent == 80 }))
+        #expect(chat.displayedPrimaryMeter?.resetAt == nil)
+
+        let reset = Date(timeIntervalSince1970: 1_700_000_000)
+        let chatReset = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 55,
+                resetText: "5h",
+                weeklyRemainingPercent: 80,
+                weeklyResetText: "w",
+                sessionResetAt: reset,
+                weeklyResetAt: reset.addingTimeInterval(3600)
+            ),
+            token: "tok"
+        )
+        #expect(chatReset.meters.first { $0.meterId == "chatgpt.primary_window" }?.resetAt == reset)
+        #expect(
+            chatReset.meters.first { $0.meterId == "chatgpt.secondary_window" }?.resetAt
+                == reset.addingTimeInterval(3600)
+        )
 
         let claude = V1UsageAdapters.claudeSnapshot(
             usage: ClaudeUsage(
@@ -251,6 +382,25 @@ struct V2UsageLayerTests {
         )
         #expect(claude.meters.first { $0.meterId == "claude.five_hour" }?.window == .rolling5Hour)
 
+        let claudeReset = Date(timeIntervalSince1970: 1_800_000_000)
+        let claudeWithReset = V1UsageAdapters.claudeSnapshot(
+            usage: ClaudeUsage(
+                sessionRemainingPercent: 10,
+                weeklyRemainingPercent: 20,
+                resetText: "a",
+                weeklyResetText: "b",
+                sessionResetAt: claudeReset,
+                weeklyResetAt: claudeReset.addingTimeInterval(86400)
+            ),
+            sessionKey: "sk",
+            organizationID: "org-1"
+        )
+        #expect(claudeWithReset.meters.first { $0.meterId == "claude.five_hour" }?.resetAt == claudeReset)
+        #expect(
+            claudeWithReset.meters.first { $0.meterId == "claude.seven_day" }?.resetAt
+                == claudeReset.addingTimeInterval(86400)
+        )
+
         let grokWeekly = V1UsageAdapters.grokSnapshot(
             usage: GrokUsage(
                 sessionRemainingPercent: 40,
@@ -263,6 +413,24 @@ struct V2UsageLayerTests {
             sso: "sso"
         )
         #expect(grokWeekly.meters.first { $0.isDisplayedPrimary }?.meterId == "grok.weekly")
+
+        let grokSessionReset = Date(timeIntervalSince1970: 1_760_000_000)
+        let grokWeeklyReset = Date(timeIntervalSince1970: 1_760_086_400)
+        let grokWithReset = V1UsageAdapters.grokSnapshot(
+            usage: GrokUsage(
+                sessionRemainingPercent: 40,
+                resetText: "s",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: 12,
+                weeklyResetText: "w",
+                weeklyRelativeResetText: "r",
+                sessionResetAt: grokSessionReset,
+                weeklyResetAt: grokWeeklyReset
+            ),
+            sso: "sso"
+        )
+        #expect(grokWithReset.meters.first { $0.meterId == "grok.short" }?.resetAt == grokSessionReset)
+        #expect(grokWithReset.meters.first { $0.meterId == "grok.weekly" }?.resetAt == grokWeeklyReset)
 
         let grokFree = V1UsageAdapters.grokSnapshot(
             usage: GrokUsage(

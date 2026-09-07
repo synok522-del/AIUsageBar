@@ -777,6 +777,8 @@ struct AIUsageBarTests {
         #expect(parsed.weeklyRemainingPercent == 0)
         #expect(parsed.resetText.hasPrefix("重置於 "))
         #expect(!parsed.weeklyResetText.hasPrefix("重置於 "))
+        #expect(parsed.sessionResetAt != nil)
+        #expect(parsed.weeklyResetAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
     @Test("Claude reset fields remain separate when session reset is missing")
@@ -800,6 +802,8 @@ struct AIUsageBarTests {
         #expect(parsed.sessionRemainingPercent == 90)
         #expect(parsed.weeklyRemainingPercent == 80)
         #expect(parsed.resetText.isEmpty)
+        #expect(parsed.sessionResetAt == nil)
+        #expect(parsed.weeklyResetAt == Date(timeIntervalSince1970: 1_700_000_000))
         #expect(!parsed.weeklyResetText.isEmpty)
         #expect(combined == "重置於 \(parsed.weeklyResetText)")
         #expect(!combined.contains("｜"))
@@ -839,6 +843,7 @@ struct AIUsageBarTests {
 
         #expect(parsed.sessionRemainingPercent == 0)
         #expect(parsed.resetText.hasPrefix("重置於 "))
+        #expect(parsed.sessionResetAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
     @Test("ChatGPT usage parsing handles missing payload values")
@@ -1297,6 +1302,7 @@ struct AIUsageBarTests {
         #expect(parsed.remainingPercent == 100)
         #expect(parsed.windowSeconds == 7200)
         #expect(parsed.resetText.isEmpty)
+        #expect(parsed.resetAt == nil)
         #expect(GrokService.sessionRowLabel(windowSeconds: parsed.windowSeconds) == "2 小時")
         #expect(GrokService.sessionRowLabel(windowSeconds: 0) == "短窗")
     }
@@ -1381,6 +1387,7 @@ struct AIUsageBarTests {
         #expect(parsed.windowSeconds == 7200)
         #expect(parsed.resetText.hasPrefix("重置於 "))
         #expect(!parsed.resetText.isEmpty)
+        #expect(parsed.resetAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
     @Test("Grok missing or zero denominator does not invent a percent")
@@ -2690,13 +2697,17 @@ final class EmptyGrokRefreshCookieSource: GrokRefreshCookieSource {
 @MainActor
 final class GrokSessionRestorerSpy: GrokSessionRestoring {
     private(set) var resetCount = 0
+    private(set) var restoreIfNeededCount = 0
+    private(set) var restoreAfterCount = 0
 
     func restoreIfNeeded() async -> GrokSessionRestoreOutcome {
-        .success
+        restoreIfNeededCount += 1
+        return .success
     }
 
     func restoreAfterRecoverableFailure() async -> GrokSessionRestoreOutcome {
-        .success
+        restoreAfterCount += 1
+        return .success
     }
 
     func reset() {

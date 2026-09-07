@@ -49,6 +49,8 @@ struct UsageMeter: Equatable, Sendable {
     var usedPercent: Int?
     var resetAt: Date?
     var isDisplayedPrimary: Bool
+    var resetText: String? = nil
+    var weeklyRelativeResetText: String? = nil
 }
 
 struct UsageSnapshot: Equatable, Sendable {
@@ -69,6 +71,25 @@ struct UsageSnapshot: Equatable, Sendable {
                 window: $0.window
             )
         }
+    }
+
+    var displayedPrimaryMeter: UsageMeter? {
+        meters.first(where: \.isDisplayedPrimary) ?? meters.first
+    }
+
+    func validity(now: Date, expectedAccountKey: String?) -> UsageValidity {
+        let identityMatches: Bool
+        if let expectedAccountKey {
+            identityMatches = accountKey == expectedAccountKey
+        } else {
+            identityMatches = accountKeyUnavailable
+        }
+        return UsageValidityPolicy.validity(
+            asOf: asOf,
+            now: now,
+            expiresAt: displayedPrimaryMeter?.resetAt,
+            identityMatches: identityMatches
+        )
     }
 }
 
@@ -108,7 +129,7 @@ enum UsageValidityPolicy {
     }
 }
 
-protocol UsageSource: Sendable {
+protocol UsageSource {
     var provider: UsageProviderID { get }
     var sourceType: UsageSourceType { get }
     func fetchSnapshot() async throws -> UsageSnapshot
@@ -128,5 +149,13 @@ enum UsageIdentity {
             hash = ((hash << 5) &+ hash) &+ UInt64(byte)
         }
         return String(hash, radix: 16)
+    }
+
+    static func accountKey(from credential: String) -> String? {
+        let trimmed = credential.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        return fingerprint(trimmed)
     }
 }

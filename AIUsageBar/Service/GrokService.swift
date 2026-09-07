@@ -49,14 +49,17 @@ struct GrokService: GrokUsageFetching {
                 ServiceSupport.resetText(
                     NSNumber(value: $0.resetAt.timeIntervalSince1970)
                 )
-            }
+            },
+            sessionResetAt: session.resetAt,
+            weeklyResetAt: weekly?.resetAt
         )
     }
 
     static func parseRateLimits(_ usage: [String: Any]) throws -> (
         remainingPercent: Int,
         resetText: String,
-        windowSeconds: Int
+        windowSeconds: Int,
+        resetAt: Date?
     ) {
         guard let remaining = ServiceSupport.parsedNumber(usage["remainingQueries"]) else {
             throw AIUsageServiceError.invalidPayload("Grok remainingQueries")
@@ -76,8 +79,11 @@ struct GrokService: GrokUsageFetching {
         let resetText = ServiceSupport.resetText(
             usage["resetAt"] ?? usage["reset_at"]
         )
+        let resetAt = ServiceSupport.resetDate(
+            usage["resetAt"] ?? usage["reset_at"]
+        )
 
-        return (remainingPercent, resetText, max(0, windowSeconds))
+        return (remainingPercent, resetText, max(0, windowSeconds), resetAt)
     }
 
     static func sessionRowLabel(windowSeconds: Int) -> String {

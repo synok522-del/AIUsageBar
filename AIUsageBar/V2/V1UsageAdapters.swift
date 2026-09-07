@@ -12,8 +12,9 @@ enum V1UsageAdapters {
                 window: .rolling5Hour,
                 remainingPercent: usage.sessionRemainingPercent,
                 usedPercent: max(0, 100 - usage.sessionRemainingPercent),
-                resetAt: nil,
-                isDisplayedPrimary: true
+                resetAt: usage.sessionResetAt,
+                isDisplayedPrimary: true,
+                resetText: usage.resetText
             )
         ]
         if let weekly = usage.weeklyRemainingPercent {
@@ -23,15 +24,17 @@ enum V1UsageAdapters {
                     window: .weekly,
                     remainingPercent: weekly,
                     usedPercent: max(0, 100 - weekly),
-                    resetAt: nil,
-                    isDisplayedPrimary: false
+                    resetAt: usage.weeklyResetAt,
+                    isDisplayedPrimary: false,
+                    resetText: usage.weeklyResetText
                 )
             )
         }
+        let accountKey = UsageIdentity.accountKey(from: token)
         return UsageSnapshot(
             provider: .chatGPT,
-            accountKey: UsageIdentity.fingerprint(token),
-            accountKeyUnavailable: token.isEmpty,
+            accountKey: accountKey,
+            accountKeyUnavailable: accountKey == nil,
             sourceType: .appWebKit,
             asOf: asOf,
             meters: meters,
@@ -45,7 +48,8 @@ enum V1UsageAdapters {
         organizationID: String?,
         asOf: Date = Date()
     ) -> UsageSnapshot {
-        let accountKey = organizationID.map(UsageIdentity.fingerprint)
+        let accountKey = UsageIdentity.accountKey(from: sessionKey)
+            ?? organizationID.flatMap(UsageIdentity.accountKey(from:))
         return UsageSnapshot(
             provider: .claude,
             accountKey: accountKey,
@@ -58,16 +62,18 @@ enum V1UsageAdapters {
                     window: .rolling5Hour,
                     remainingPercent: usage.sessionRemainingPercent,
                     usedPercent: max(0, 100 - usage.sessionRemainingPercent),
-                    resetAt: nil,
-                    isDisplayedPrimary: true
+                    resetAt: usage.sessionResetAt,
+                    isDisplayedPrimary: true,
+                    resetText: usage.resetText
                 ),
                 UsageMeter(
                     meterId: "claude.seven_day",
                     window: .rolling7Day,
                     remainingPercent: usage.weeklyRemainingPercent,
                     usedPercent: max(0, 100 - usage.weeklyRemainingPercent),
-                    resetAt: nil,
-                    isDisplayedPrimary: false
+                    resetAt: usage.weeklyResetAt,
+                    isDisplayedPrimary: false,
+                    resetText: usage.weeklyResetText
                 )
             ],
             health: sessionKey.isEmpty ? .unauthorized : .available
@@ -85,8 +91,9 @@ enum V1UsageAdapters {
                 window: .rollingCustom,
                 remainingPercent: usage.sessionRemainingPercent,
                 usedPercent: max(0, 100 - usage.sessionRemainingPercent),
-                resetAt: nil,
-                isDisplayedPrimary: usage.weeklyRemainingPercent == nil
+                resetAt: usage.sessionResetAt,
+                isDisplayedPrimary: usage.weeklyRemainingPercent == nil,
+                resetText: usage.resetText
             )
         ]
         if let weekly = usage.weeklyRemainingPercent {
@@ -96,15 +103,18 @@ enum V1UsageAdapters {
                     window: .weekly,
                     remainingPercent: weekly,
                     usedPercent: max(0, 100 - weekly),
-                    resetAt: nil,
-                    isDisplayedPrimary: true
+                    resetAt: usage.weeklyResetAt,
+                    isDisplayedPrimary: true,
+                    resetText: usage.weeklyResetText,
+                    weeklyRelativeResetText: usage.weeklyRelativeResetText
                 )
             )
         }
+        let accountKey = UsageIdentity.accountKey(from: sso)
         return UsageSnapshot(
             provider: .grok,
-            accountKey: UsageIdentity.fingerprint(sso),
-            accountKeyUnavailable: sso.isEmpty,
+            accountKey: accountKey,
+            accountKeyUnavailable: accountKey == nil,
             sourceType: .appWebKit,
             asOf: asOf,
             meters: meters,

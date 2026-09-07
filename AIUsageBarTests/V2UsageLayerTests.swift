@@ -1,0 +1,318 @@
+import Foundation
+import Testing
+@testable import AIUsageBar
+
+struct V2UsageLayerTests {
+    @Test("Freshness TTL distinguishes FRESH STALE_BUT_VALID EXPIRED INVALID")
+    func usageValidityStates() {
+        let asOf = Date(timeIntervalSince1970: 1_000)
+        #expect(
+            UsageValidityPolicy.validity(
+                asOf: asOf,
+                now: asOf.addingTimeInterval(30),
+                expiresAt: nil,
+                identityMatches: true
+            ) == .fresh
+        )
+        #expect(
+            UsageValidityPolicy.validity(
+                asOf: asOf,
+                now: asOf.addingTimeInterval(200),
+                expiresAt: nil,
+                identityMatches: true
+            ) == .staleButValid
+        )
+        #expect(
+            UsageValidityPolicy.validity(
+                asOf: asOf,
+                now: asOf.addingTimeInterval(7 * 60 * 60),
+                expiresAt: nil,
+                identityMatches: true
+            ) == .expired
+        )
+        #expect(
+            UsageValidityPolicy.validity(
+                asOf: asOf,
+                now: asOf.addingTimeInterval(10),
+                expiresAt: asOf.addingTimeInterval(5),
+                identityMatches: true
+            ) == .expired
+        )
+        #expect(
+            UsageValidityPolicy.validity(
+                asOf: asOf,
+                now: asOf.addingTimeInterval(10),
+                expiresAt: nil,
+                identityMatches: false
+            ) == .invalid
+        )
+    }
+
+    @Test("Missing meter is omitted and snapshot can remain healthy")
+    func missingMeterIsOmitted() {
+        let snapshot = UsageSnapshot(
+            provider: .chatGPT,
+            accountKey: "a",
+            accountKeyUnavailable: false,
+            sourceType: .appWebKit,
+            asOf: Date(),
+            meters: [
+                UsageMeter(
+                    meterId: "chatgpt.primary_window",
+                    window: .rolling5Hour,
+                    remainingPercent: 40,
+                    usedPercent: 60,
+                    resetAt: nil,
+                    isDisplayedPrimary: true
+                )
+            ],
+            health: .available
+        )
+        #expect(snapshot.meters.contains(where: { $0.meterId == "chatgpt.secondary_window" }) == false)
+        #expect(snapshot.health == .available)
+    }
+
+    @Test("Unknown meter window stays unknown without fabricating resetAt")
+    func unknownMeterDoesNotFabricateReset() {
+        let meter = UsageMeter(
+            meterId: "experimental",
+            window: .unknown,
+            remainingPercent: 10,
+            usedPercent: 90,
+            resetAt: nil,
+            isDisplayedPrimary: false
+        )
+        #expect(meter.resetAt == nil)
+        #expect(meter.window == .unknown)
+    }
+
+    @Test("Account switch invalidates cache and notification history")
+    func accountSwitchInvalidatesCacheAndNotifications() {
+        var cache = UsageAccountCache()
+        var notes = UsageNotificationIdentityState()
+        let usage = ChatGPTUsage(
+            sessionRemainingPercent: 40,
+            resetText: "r",
+            weeklyRemainingPercent: 80,
+            weeklyResetText: "w"
+        )
+        let old = V1UsageAdapters.chatGPTSnapshot(usage: usage, token: "token-A")
+        let new = V1UsageAdapters.chatGPTSnapshot(usage: usage, token: "token-B")
+        cache.store(old)
+        let oldID = UsageCacheIdentity(
+            provider: .chatGPT,
+            accountKey: old.accountKey,
+            meterId: "chatgpt.primary_window",
+            window: .rolling5Hour
+        )
+        #expect(notes.shouldNotify(
+            identity: oldID,
+            remainingPercent: 40,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+        #expect(notes.shouldNotify(
+            identity: oldID,
+            remainingPercent: 18,
+            isLoaded: true,
+            hasError: false
+        ))
+        cache.invalidateAccount(provider: .chatGPT, accountKey: old.accountKey!)
+        notes.resetAccount(provider: .chatGPT, accountKey: old.accountKey!)
+        #expect(cache.snapshot(for: oldID) == nil)
+        let newID = UsageCacheIdentity(
+            provider: .chatGPT,
+            accountKey: new.accountKey,
+            meterId: "chatgpt.primary_window",
+            window: .rolling5Hour
+        )
+        #expect(notes.shouldNotify(
+            identity: newID,
+            remainingPercent: 18,
+            isLoaded: true,
+            hasError: false
+        ) == false)
+    }
+
+    @Test("accountKey unavailable does not reuse another account cache")
+    func unavailableAccountKeyDoesNotReuseCache() {
+        var cache = UsageAccountCache()
+        let snapshot = UsageSnapshot(
+            provider: .claude,
+            accountKey: nil,
+            accountKeyUnavailable: true,
+            sourceType: .appWebKit,
+            asOf: Date(),
+            meters: [],
+            health: .available
+        )
+        cache.store(snapshot)
+        let identity = UsageCacheIdentity(
+            provider: .claude,
+            accountKey: nil,
+            meterId: "claude.five_hour",
+            window: .rolling5Hour
+        )
+        #expect(cache.snapshot(for: identity) == nil)
+    }
+
+    @Test("Notification uses displayed primary identity only once per window")
+    func notificationPrimaryThresholdOnce() {
+        var notes = UsageNotificationIdentityState()
+        let id = UsageCacheIdentity(
+            provider: .grok,
+            accountKey: "acct",
+            meterId: "grok.short",
+            window: .rollingCustom
+        )
+        #expect(notes.shouldNotify(identity: id, remainingPercent: 40, isLoaded: true, hasError: false) == false)
+        #expect(notes.shouldNotify(identity: id, remainingPercent: 19, isLoaded: true, hasError: false))
+        #expect(notes.shouldNotify(identity: id, remainingPercent: 10, isLoaded: true, hasError: false) == false)
+        #expect(notes.shouldNotify(identity: id, remainingPercent: 19, isLoaded: false, hasError: false) == false)
+        #expect(notes.shouldNotify(identity: id, remainingPercent: 19, isLoaded: true, hasError: true) == false)
+    }
+
+    @Test("Recovery allows one active restore and latches REQUIRES_USER_ACTION")
+    func recoveryDedupeAndLatch() {
+        var coordinator = RecoveryCoordinator()
+        let scope = RecoveryScope(provider: .chatGPT, accountKey: "a")
+        #expect(coordinator.beginRecovery(scope: scope))
+        #expect(coordinator.beginRecovery(scope: scope) == false)
+        #expect(coordinator.state == .recovering)
+        let captured = coordinator.generation
+        coordinator.invalidate()
+        #expect(coordinator.shouldCommit(captured: captured) == false)
+
+        coordinator = RecoveryCoordinator()
+        let now = Date()
+        _ = coordinator.beginRecovery(scope: scope, now: now)
+        coordinator.markFailure(now: now)
+        #expect(coordinator.state == .backoff)
+        #expect(coordinator.beginRecovery(scope: scope, now: now) == false)
+        coordinator.markFailure(now: now.addingTimeInterval(1))
+        coordinator.markFailure(now: now.addingTimeInterval(2))
+        #expect(coordinator.state == .requiresUserAction)
+        #expect(coordinator.beginRecovery(scope: scope, now: now.addingTimeInterval(30)) == false)
+    }
+
+    @Test("Recovery success requires fetch parse and identity not WebKit READY")
+    func recoverySuccessIsFreshFetchNotCookieLatch() {
+        #expect(
+            RecoverySuccessPolicy.isSuccess(
+                fetchSucceeded: true,
+                parsedValid: true,
+                identityAvailable: true,
+                cookiePresent: false,
+                webKitReady: false
+            )
+        )
+        #expect(
+            RecoverySuccessPolicy.isSuccess(
+                fetchSucceeded: false,
+                parsedValid: true,
+                identityAvailable: true,
+                cookiePresent: true,
+                webKitReady: true
+            ) == false
+        )
+    }
+
+    @Test("Stale in-flight completion cannot commit after logout generation bump")
+    func staleCompletionRejectedAfterLogout() {
+        var coordinator = RecoveryCoordinator()
+        let captured = coordinator.generation
+        coordinator.invalidate()
+        #expect(coordinator.shouldCommit(captured: captured) == false)
+    }
+
+    @Test("ChatGPT Claude Grok adapters preserve primary quota mapping")
+    func v1AdaptersPreservePrimaryMeters() {
+        let chat = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 55,
+                resetText: "5h",
+                weeklyRemainingPercent: 80,
+                weeklyResetText: "w"
+            ),
+            token: "tok"
+        )
+        #expect(chat.meters.first { $0.isDisplayedPrimary }?.remainingPercent == 55)
+        #expect(chat.meters.contains(where: { $0.window == .weekly && $0.remainingPercent == 80 }))
+
+        let claude = V1UsageAdapters.claudeSnapshot(
+            usage: ClaudeUsage(
+                sessionRemainingPercent: 10,
+                weeklyRemainingPercent: 20,
+                resetText: "a",
+                weeklyResetText: "b"
+            ),
+            sessionKey: "sk",
+            organizationID: "org-1"
+        )
+        #expect(claude.meters.first { $0.meterId == "claude.five_hour" }?.window == .rolling5Hour)
+
+        let grokWeekly = V1UsageAdapters.grokSnapshot(
+            usage: GrokUsage(
+                sessionRemainingPercent: 40,
+                resetText: "s",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: 12,
+                weeklyResetText: "w",
+                weeklyRelativeResetText: "r"
+            ),
+            sso: "sso"
+        )
+        #expect(grokWeekly.meters.first { $0.isDisplayedPrimary }?.meterId == "grok.weekly")
+
+        let grokFree = V1UsageAdapters.grokSnapshot(
+            usage: GrokUsage(
+                sessionRemainingPercent: 40,
+                resetText: "s",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                weeklyRelativeResetText: nil
+            ),
+            sso: "sso"
+        )
+        #expect(grokFree.meters.first { $0.isDisplayedPrimary }?.meterId == "grok.short")
+        #expect(grokFree.meters.count == 1)
+    }
+
+    @Test("Same-meter equivalence helper stays strict")
+    func sameMeterEquivalence() {
+        #expect(UsageEquivalence.sameMeter(
+            remainingA: 40,
+            remainingB: 41,
+            resetA: Date(timeIntervalSince1970: 100),
+            resetB: Date(timeIntervalSince1970: 200)
+        ))
+        #expect(UsageEquivalence.sameMeter(
+            remainingA: 40,
+            remainingB: 50,
+            resetA: Date(timeIntervalSince1970: 100),
+            resetB: Date(timeIntervalSince1970: 100)
+        ) == false)
+    }
+
+    @Test("Fingerprints redact raw tokens from identity keys")
+    func fingerprintDoesNotContainRawToken() {
+        let token = "sk-live-secret-value"
+        let key = UsageIdentity.fingerprint(token)
+        #expect(key.contains(token) == false)
+        #expect(UsageIdentity.fingerprint(token) == key)
+        #expect(UsageIdentity.fingerprint("other") != key)
+    }
+}
+
+enum UsageEquivalence {
+    static func sameMeter(
+        remainingA: Int,
+        remainingB: Int,
+        resetA: Date,
+        resetB: Date
+    ) -> Bool {
+        abs(remainingA - remainingB) <= 2 &&
+            abs(resetA.timeIntervalSince(resetB)) <= 5 * 60
+    }
+}

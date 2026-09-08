@@ -80,11 +80,28 @@ enum V1UsageAdapters {
         )
     }
 
+    static func droppingElapsedGrokWeekly(_ usage: GrokUsage, now: Date = Date()) -> GrokUsage {
+        guard let weeklyResetAt = usage.weeklyResetAt, weeklyResetAt <= now else {
+            return usage
+        }
+        return GrokUsage(
+            sessionRemainingPercent: usage.sessionRemainingPercent,
+            resetText: usage.resetText,
+            sessionWindowSeconds: usage.sessionWindowSeconds,
+            weeklyRemainingPercent: nil,
+            weeklyResetText: nil,
+            weeklyRelativeResetText: nil,
+            sessionResetAt: usage.sessionResetAt,
+            weeklyResetAt: nil
+        )
+    }
+
     static func grokSnapshot(
         usage: GrokUsage,
         sso: String,
         asOf: Date = Date()
     ) -> UsageSnapshot {
+        let usage = droppingElapsedGrokWeekly(usage, now: asOf)
         var meters: [UsageMeter] = [
             UsageMeter(
                 meterId: "grok.short",

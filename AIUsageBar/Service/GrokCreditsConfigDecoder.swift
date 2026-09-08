@@ -97,7 +97,7 @@ enum GrokCreditsConfigDecoder {
         guard periodType == weeklyPeriodType else {
             throw DecodeError.invalid
         }
-        guard let periodEnd, isPlausibleWeeklyReset(periodEnd, now: now) else {
+        guard let periodEnd, isCurrentWeeklyReset(periodEnd, now: now) else {
             throw DecodeError.invalid
         }
 
@@ -226,16 +226,17 @@ enum GrokCreditsConfigDecoder {
         )
     }
 
-    private static func isPlausibleWeeklyReset(_ date: Date, now: Date) -> Bool {
+    private static func isCurrentWeeklyReset(_ date: Date, now: Date) -> Bool {
         let delta = date.timeIntervalSince(now)
         guard delta.isFinite else {
             return false
         }
-        // Weekly reset must be a real wall-clock time near "now". This is not a
-        // 2026-specific cutoff: it rejects protobuf Timestamps that are finite
+        // Weekly is displayed as the Grok primary meter. A period that has
+        // already ended must be omitted so the short-window quota can commit.
+        // The horizon still rejects protobuf Timestamps that are finite
         // Doubles but unusable as a quota reset (year 0 / far-future overflow).
         let horizon: TimeInterval = 10 * 365.25 * 24 * 60 * 60
-        return abs(delta) <= horizon
+        return delta > 0 && delta <= horizon
     }
 
     private static func grpcStatus(from trailer: String?) -> String? {

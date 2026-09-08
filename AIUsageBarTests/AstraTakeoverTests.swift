@@ -48,6 +48,28 @@ struct AstraTakeoverTests {
         #expect(source.cookieHeaders.count == 2)
     }
 
+    @Test func elapsedResetAtAfterLoadUpdatesRemainingWithoutFormatError() async throws {
+        let source = ControllableChatGPTUsageService()
+        let reset = Date().addingTimeInterval(60)
+        source.enqueue(.success(ChatGPTUsage(sessionRemainingPercent: 40, resetText: "old",
+            weeklyRemainingPercent: nil, weeklyResetText: nil, sessionResetAt: reset)))
+        let vm = model(chatGPT: source)
+        vm.setChatGPTSessionToken("synthetic-A")
+        await vm.refreshAll()
+        #expect(vm.chatGPT.sessionPercent == 40)
+
+        source.enqueue(.success(ChatGPTUsage(sessionRemainingPercent: 100, resetText: "rolled",
+            weeklyRemainingPercent: nil, weeklyResetText: nil, sessionResetAt: Date().addingTimeInterval(-1))))
+        vm.expireInvalidUsage(now: reset)
+        vm.expireInvalidUsage(now: reset)
+        while source.cookieHeaders.count < 2 { await Task.yield() }
+        while vm.isLoading { await Task.yield() }
+        #expect(vm.chatGPT.isLoaded)
+        #expect(vm.chatGPT.sessionPercent == 100)
+        #expect(vm.chatGPT.errorMessage == nil)
+        #expect(!vm.statusMessage.contains("格式錯誤"))
+    }
+
     @Test func chatGPTAccountSwitchRejectsSuspendedCompletion() async {
         let service = SuspendedChatGPTSource()
         let vm = model(chatGPT: service)

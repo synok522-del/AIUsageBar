@@ -1815,6 +1815,36 @@ struct AIUsageBarTests {
         #expect(quota.resetAt == end)
     }
 
+    @Test("Elapsed Weekly period end is rejected so short-window remains usable")
+    func grokElapsedWeeklyPeriodEndIsRejected() {
+        let now = Date(timeIntervalSince1970: 1_788_000_000)
+        #expect(throws: Error.self) {
+            _ = try GrokCreditsConfigDecoder.validatedWeekly(
+                usedRaw: 63,
+                periodType: 2,
+                periodEnd: now.addingTimeInterval(-1),
+                now: now
+            )
+        }
+        #expect(throws: Error.self) {
+            _ = try GrokCreditsConfigDecoder.validatedWeekly(
+                usedRaw: 63,
+                periodType: 2,
+                periodEnd: now,
+                now: now
+            )
+        }
+        let end = protoTimestamp(seconds: Int(now.timeIntervalSince1970) - 1)
+        let period = protoVarint(1, 2) + protoBytes(3, end)
+        let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            httpStatus: 200,
+            contentType: "application/grpc-web+proto",
+            body: grpcWebFrame(protoBytes(1, protoFloat(1, 63) + protoBytes(8, period))),
+            now: now
+        )
+        #expect(quota == nil)
+    }
+
     @Test("T4 non-WEEKLY period is rejected")
     func grokNonWeeklyPeriodIsRejected() {
         #expect(throws: Error.self) {

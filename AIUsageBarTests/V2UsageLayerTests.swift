@@ -499,7 +499,8 @@ struct V2UsageLayerTests {
                 sessionResetAt: grokSessionReset,
                 weeklyResetAt: grokWeeklyReset
             ),
-            sso: "sso"
+            sso: "sso",
+            asOf: Date(timeIntervalSince1970: 1_750_000_000)
         )
         #expect(grokWithReset.meters.first { $0.meterId == "grok.short" }?.resetAt == grokSessionReset)
         #expect(grokWithReset.meters.first { $0.meterId == "grok.weekly" }?.resetAt == grokWeeklyReset)
@@ -558,6 +559,123 @@ struct V2UsageLayerTests {
         #expect(key.contains(token) == false)
         #expect(UsageIdentity.fingerprint(token) == key)
         #expect(UsageIdentity.fingerprint("other") != key)
+    }
+
+    @Test("Elapsed Grok weekly is omitted so short-window stays the displayed primary")
+    func elapsedGrokWeeklyIsOmittedFromSnapshot() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let snapshot = V1UsageAdapters.grokSnapshot(
+            usage: GrokUsage(
+                sessionRemainingPercent: 40,
+                resetText: "short",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: 12,
+                weeklyResetText: "weekly",
+                weeklyRelativeResetText: "r",
+                sessionResetAt: now.addingTimeInterval(1_800),
+                weeklyResetAt: now.addingTimeInterval(-1)
+            ),
+            sso: "sso",
+            asOf: now
+        )
+        #expect(snapshot.displayedPrimaryMeter?.meterId == "grok.short")
+        #expect(snapshot.meters.contains(where: { $0.meterId == "grok.weekly" }) == false)
+        #expect(
+            snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh
+        )
+    }
+
+    @Test("Identity-unavailable snapshots cannot enter lastSnapshots")
+    func identityUnavailableSnapshotDoesNotEnterLastSnapshots() {
+        var state = V2RuntimeState()
+        let snapshot = V1UsageAdapters.grokSnapshot(
+            usage: GrokUsage(
+                sessionRemainingPercent: 40,
+                resetText: "s",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                weeklyRelativeResetText: nil,
+                sessionResetAt: Date().addingTimeInterval(60)
+            ),
+            sso: "   "
+        )
+        #expect(snapshot.accountKeyUnavailable)
+        #expect(state.commit(snapshot) == false)
+        #expect(state.lastSnapshots[.grok] == nil)
+    }
+
+    @Test("Expired primary can replace a loaded snapshot but cannot publish first load")
+    func expiredPrimaryCommitPolicyKeepsFirstLoadBlank() {
+        var state = V2RuntimeState()
+        let resetAt = Date(timeIntervalSince1970: 5_000)
+        let loaded = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 40,
+                resetText: "old",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: resetAt
+            ),
+            token: "tok",
+            asOf: Date(timeIntervalSince1970: 4_900)
+        )
+        #expect(state.commit(loaded, now: Date(timeIntervalSince1970: 4_950)))
+        #expect(state.lastSnapshots[.chatGPT]?.displayedPrimaryMeter?.remainingPercent == 40)
+
+        let rolled = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 100,
+                resetText: "rolled",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: resetAt
+            ),
+            token: "tok",
+            asOf: resetAt
+        )
+        #expect(state.commit(rolled, now: resetAt))
+        #expect(state.lastSnapshots[.chatGPT]?.displayedPrimaryMeter?.remainingPercent == 100)
+
+        var firstLoad = V2RuntimeState()
+        #expect(firstLoad.commit(rolled, now: resetAt) == false)
+        #expect(firstLoad.lastSnapshots[.chatGPT] == nil)
+    }
+
+    @Test("Recovery gate treats elapsed primary as parsed, not identity failure")
+    func recoveryGateAcceptsElapsedPrimaryWithoutIdentityFailure() {
+        let now = Date()
+        let snapshot = V1UsageAdapters.grokSnapshot(
+            usage: GrokUsage(
+                sessionRemainingPercent: 40,
+                resetText: "s",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                weeklyRelativeResetText: nil,
+                sessionResetAt: now.addingTimeInterval(-1)
+            ),
+            sso: "sso",
+            asOf: now
+        )
+        #expect(
+            GrokV2RecoveryGate.isRecovered(
+                snapshot: snapshot,
+                expectedAccountKey: snapshot.accountKey,
+                cookiePresent: true,
+                webKitReady: true,
+                now: now
+            )
+        )
+        #expect(
+            GrokV2RecoveryGate.isRecovered(
+                snapshot: snapshot,
+                expectedAccountKey: UsageIdentity.accountKey(from: "other"),
+                cookiePresent: true,
+                webKitReady: true,
+                now: now
+            ) == false
+        )
     }
 }
 

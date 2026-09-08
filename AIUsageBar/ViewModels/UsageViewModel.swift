@@ -830,9 +830,11 @@ final class UsageViewModel: ObservableObject {
             return false
         }
 
-        resetRefreshRequests = Set(resetRefreshRequests.filter {
-            $0.provider != snapshot.provider || $0.accountKey != snapshot.accountKey
-        })
+        if snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh {
+            resetRefreshRequests = Set(resetRefreshRequests.filter {
+                $0.provider != snapshot.provider || $0.accountKey != snapshot.accountKey
+            })
+        }
         scheduleNextResetRefresh(now: now)
         return true
     }

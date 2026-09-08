@@ -356,6 +356,184 @@ struct V2ProductionIntegrationTests {
         #expect(!model.statusMessage.contains("登入已失效"))
     }
 
+    @Test("Elapsed resetAt after a loaded card applies new remaining without payload error")
+    @MainActor
+    func elapsedResetAtAfterLoadAppliesNewRemainingWithoutPayloadError() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let reset = Date().addingTimeInterval(60)
+        chatGPT.enqueue(.success(
+            ChatGPTUsage(
+                sessionRemainingPercent: 40,
+                resetText: "old",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: reset
+            )
+        ))
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy()
+        )
+        model.setChatGPTSessionToken("chatgpt-token")
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        chatGPT.enqueue(.success(
+            ChatGPTUsage(
+                sessionRemainingPercent: 100,
+                resetText: "rolled",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: Date().addingTimeInterval(-1)
+            )
+        ))
+        model.expireInvalidUsage(now: reset)
+        model.expireInvalidUsage(now: reset)
+        while chatGPT.cookieHeaders.count < 2 { await Task.yield() }
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.chatGPT.isLoaded)
+        #expect(model.chatGPT.sessionPercent == 100)
+        #expect(model.chatGPT.errorMessage == nil)
+        #expect(!model.statusMessage.contains("格式錯誤"))
+        #expect(model.v2Snapshot(for: .chatGPT)?.displayedPrimaryMeter?.remainingPercent == 100)
+    }
+
+    @Test("Expired Grok weekly on first load commits the short window")
+    @MainActor
+    func expiredGrokWeeklyOnFirstLoadCommitsShortWindow() async {
+        let grok = ControllableGrokUsageService()
+        let now = Date()
+        grok.enqueue(.success(
+            GrokUsage(
+                sessionRemainingPercent: 55,
+                resetText: "short",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: 12,
+                weeklyResetText: "weekly",
+                weeklyRelativeResetText: "r",
+                sessionResetAt: now.addingTimeInterval(1_800),
+                weeklyResetAt: now.addingTimeInterval(-1)
+            )
+        ))
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: grok,
+            restorer: GrokSessionRestorerSpy()
+        )
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await grok.waitUntilFetchStartedCount(1)
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyAvailable == false)
+        #expect(model.grok.sessionPercent == 55)
+        #expect(model.v2Snapshot(for: .grok)?.displayedPrimaryMeter?.meterId == "grok.short")
+        #expect(model.grok.errorMessage == nil)
+        #expect(!model.statusMessage.contains("格式錯誤"))
+        #expect(model.v2GrokRecoveryState() != .requiresUserAction)
+    }
+
+    @Test("Loaded Grok drops elapsed weekly instead of keeping obsolete remaining")
+    @MainActor
+    func loadedGrokDropsElapsedWeeklyInsteadOfKeepingObsoleteRemaining() async {
+        let grok = ControllableGrokUsageService()
+        let weeklyEnd = Date().addingTimeInterval(3_600)
+        let shortEnd = Date().addingTimeInterval(1_800)
+        grok.enqueue(.success(
+            GrokUsage(
+                sessionRemainingPercent: 40,
+                resetText: "short",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: 12,
+                weeklyResetText: "weekly",
+                weeklyRelativeResetText: "r",
+                sessionResetAt: shortEnd,
+                weeklyResetAt: weeklyEnd
+            )
+        ))
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: grok,
+            restorer: GrokSessionRestorerSpy()
+        )
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await grok.waitUntilFetchStartedCount(1)
+        await waitUntilRefreshIdle(model)
+        #expect(model.grok.weeklyAvailable)
+        #expect(model.grok.weeklyPercent == 12)
+        #expect(model.v2Snapshot(for: .grok)?.displayedPrimaryMeter?.meterId == "grok.weekly")
+
+        grok.enqueue(.success(
+            GrokUsage(
+                sessionRemainingPercent: 55,
+                resetText: "short",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: 12,
+                weeklyResetText: "weekly",
+                weeklyRelativeResetText: "r",
+                sessionResetAt: shortEnd,
+                weeklyResetAt: Date().addingTimeInterval(-1)
+            )
+        ))
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyAvailable == false)
+        #expect(model.grok.sessionPercent == 55)
+        #expect(model.v2Snapshot(for: .grok)?.displayedPrimaryMeter?.meterId == "grok.short")
+        #expect(model.grok.errorMessage == nil)
+        #expect(!model.statusMessage.contains("格式錯誤"))
+    }
+
+    @Test("Post-recovery elapsed Grok weekly does not latch login")
+    @MainActor
+    func postRecoveryElapsedGrokWeeklyDoesNotLatchLogin() async {
+        let grok = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let now = Date()
+        grok.enqueue(.failure(AIUsageServiceError.httpStatus("Grok", 401)))
+        grok.enqueue(.success(
+            GrokUsage(
+                sessionRemainingPercent: 70,
+                resetText: "short",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: 12,
+                weeklyResetText: "weekly",
+                weeklyRelativeResetText: "r",
+                sessionResetAt: now.addingTimeInterval(1_800),
+                weeklyResetAt: now.addingTimeInterval(-1)
+            )
+        ))
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: grok,
+            restorer: restorer
+        )
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await grok.waitUntilFetchStartedCount(2)
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyAvailable == false)
+        #expect(model.grok.sessionPercent == 70)
+        #expect(model.v2GrokRecoveryState() == .healthy)
+        #expect(restorer.restoreAfterCount == 1)
+        #expect(!model.statusMessage.contains("格式錯誤"))
+    }
+
     @Test("Identity-unavailable recovery can succeed safely without cache reuse")
     @MainActor
     func identityUnavailableRecoverySucceedsWithoutCacheReuse() async throws {
@@ -371,6 +549,9 @@ struct V2ProductionIntegrationTests {
         #expect(snapshot.accountKey == nil)
         #expect(snapshot.accountKeyUnavailable)
         #expect(UsageIdentity.accountKey(from: "") == nil)
+        var state = V2RuntimeState()
+        #expect(state.commit(snapshot) == false)
+        #expect(state.lastSnapshots[.grok] == nil)
         #expect(
             GrokV2RecoveryGate.isRecovered(
                 snapshot: snapshot,

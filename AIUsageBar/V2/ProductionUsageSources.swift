@@ -80,12 +80,16 @@ final class GrokProductionUsageSource: UsageSource {
             GrokService.ssoToken(from: rateLimitsCookieHeader) == accountCredential &&
             GrokService.ssoToken(from: weeklyCookieHeader) == accountCredential
         ) else { throw AIUsageServiceError.httpStatus("Grok", 401) }
-        let usage = try await service.fetchUsage(
-            rateLimitsCookieHeader: rateLimitsCookieHeader,
-            weeklyCookieHeader: weeklyCookieHeader
+        let now = Date()
+        let usage = V1UsageAdapters.droppingElapsedGrokWeekly(
+            try await service.fetchUsage(
+                rateLimitsCookieHeader: rateLimitsCookieHeader,
+                weeklyCookieHeader: weeklyCookieHeader
+            ),
+            now: now
         )
         lastUsage = usage
-        return V1UsageAdapters.grokSnapshot(usage: usage, sso: accountCredential)
+        return V1UsageAdapters.grokSnapshot(usage: usage, sso: accountCredential, asOf: now)
     }
 }
 
@@ -94,7 +98,8 @@ enum GrokV2RecoveryGate {
         snapshot: UsageSnapshot?,
         expectedAccountKey: String?,
         cookiePresent: Bool,
-        webKitReady: Bool
+        webKitReady: Bool,
+        now: Date = Date()
     ) -> Bool {
         guard let snapshot else {
             return RecoverySuccessPolicy.isSuccess(
@@ -108,7 +113,10 @@ enum GrokV2RecoveryGate {
             )
         }
 
-        let parsedValid = snapshot.validity(now: Date(), expectedAccountKey: expectedAccountKey) == .fresh
+        // An elapsed primary reset is not an identity failure. Recovery may
+        // succeed on .expired so a still-valid short window can replace an
+        // elapsed Grok weekly overlay; commit still refuses first-load expiry.
+        let parsedValid = snapshot.validity(now: now, expectedAccountKey: expectedAccountKey) != .invalid
         return RecoverySuccessPolicy.isSuccess(
             fetchSucceeded: true,
             parsedValid: parsedValid,
@@ -137,10 +145,32 @@ struct V2RuntimeState {
 
     @discardableResult
     mutating func commit(_ snapshot: UsageSnapshot, now: Date = Date()) -> Bool {
-        guard snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh else { return false }
-        lastSnapshots[snapshot.provider] = snapshot
-        cache.store(snapshot)
-        return true
+        guard !snapshot.accountKeyUnavailable, snapshot.accountKey != nil else {
+            return false
+        }
+        if let existing = lastSnapshots[snapshot.provider],
+           existing.accountKey != snapshot.accountKey {
+            return false
+        }
+
+        switch snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) {
+        case .fresh:
+            lastSnapshots[snapshot.provider] = snapshot
+            cache.store(snapshot)
+            return true
+        case .expired:
+            // A loaded card may apply a rolled remaining% even when the
+            // provider still echoes the elapsed resetAt. First load stays
+            // unpublished so an expired response cannot reach empty UI.
+            guard lastSnapshots[snapshot.provider] != nil else {
+                return false
+            }
+            lastSnapshots[snapshot.provider] = snapshot
+            cache.store(snapshot)
+            return true
+        case .staleButValid, .invalid:
+            return false
+        }
     }
 
     mutating func invalidateProvider(_ provider: UsageProviderID, accountKey: String?) {

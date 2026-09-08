@@ -535,6 +535,22 @@ struct V2UsageLayerTests {
         ) == false)
     }
 
+    @Test("ChatGPT credential prefers the login assembler cookie base")
+    func chatGPTCredentialPrefersLoginAssemblerBase() {
+        #expect(
+            UsageIdentity.chatGPTCredential(
+                in: "__Secure-next-auth.session-token=preferred; next-auth.session-token=other"
+            ) == "preferred"
+        )
+        #expect(
+            UsageIdentity.chatGPTCredential(
+                in: "__Host-next-auth.session-token=host; next-auth.session-token=other"
+            ) == "host"
+        )
+        #expect(UsageIdentity.chatGPTCredential(in: "next-auth.session-token.1=B") == nil)
+        #expect(UsageIdentity.accountKey(from: "") == nil)
+    }
+
     @Test("Fingerprints redact raw tokens from identity keys")
     func fingerprintDoesNotContainRawToken() {
         let token = "sk-live-secret-value"

@@ -78,4 +78,27 @@ struct UsageNotificationIdentityState {
             !(key.provider == provider && key.accountKey == accountKey)
         })
     }
+
+    mutating func resetProvider(_ provider: UsageProviderID) {
+        lastValidPercent = lastValidPercent.filter { key, _ in
+            key.provider != provider
+        }
+        notified = Set(notified.filter { key in
+            key.provider != provider
+        })
+    }
+
+    func hasNotified(provider: UsageProviderID) -> Bool {
+        notified.contains { $0.provider == provider }
+    }
+
+    func lastPercent(provider: UsageProviderID) -> Int? {
+        let matches = lastValidPercent.filter { $0.key.provider == provider }
+        if let sample = matches.first(where: { $0.key.accountKey == UsageNotificationIdentityState.sampleAccountKey }) {
+            return sample.value
+        }
+        return matches.values.first
+    }
+
+    static let sampleAccountKey = "__aiusgbar-sample__"
 }

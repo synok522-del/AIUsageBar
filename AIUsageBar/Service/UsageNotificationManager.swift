@@ -137,7 +137,7 @@ struct UsageNotificationState {
 final class UsageNotificationManager {
     private let center: UNUserNotificationCenter
     private let defaults: UserDefaults
-    private var state = UsageNotificationState()
+    private var identityState = UsageNotificationIdentityState()
     private struct ScopeIdentity: Equatable {
         let account: String?
         let meter: String
@@ -155,6 +155,39 @@ final class UsageNotificationManager {
     func lastNotifiedMeterID(for provider: UsageProviderID) -> String? {
         guard let provider = UsageNotificationProvider(rawValue: provider.rawValue) else { return nil }
         return lastMeters[provider]
+    }
+
+    private func usageProviderID(_ provider: UsageNotificationProvider) -> UsageProviderID {
+        switch provider {
+        case .chatGPT:
+            return .chatGPT
+        case .claude:
+            return .claude
+        case .grok:
+            return .grok
+        }
+    }
+
+    private func sampleIdentity(for provider: UsageNotificationProvider) -> UsageCacheIdentity {
+        UsageCacheIdentity(
+            provider: usageProviderID(provider),
+            accountKey: UsageNotificationIdentityState.sampleAccountKey,
+            meterId: provider.rawValue,
+            window: .unknown
+        )
+    }
+
+    private func displayedPrimaryIdentity(from snapshot: UsageSnapshot) -> UsageCacheIdentity? {
+        guard let meter = snapshot.displayedPrimaryMeter, snapshot.accountKey != nil else {
+            return nil
+        }
+        return UsageCacheIdentity(
+            provider: snapshot.provider,
+            accountKey: snapshot.accountKey,
+            meterId: meter.meterId,
+            window: meter.window,
+            durationSeconds: meter.windowDurationSeconds
+        )
     }
 
     private func prepare(_ provider: UsageNotificationProvider, snapshot: UsageSnapshot?, now: Date) -> Bool {
@@ -194,18 +227,18 @@ final class UsageNotificationManager {
     }
 
     func resetTracking(for provider: UsageNotificationProvider) {
-        state.resetTracking(for: provider)
+        identityState.resetProvider(usageProviderID(provider))
         scopes[provider] = nil
         lastMeters[provider] = nil
         generations[provider, default: 0] += 1
     }
 
     func lastRecordedPercent(for provider: UsageNotificationProvider) -> Int? {
-        state.lastRecordedPercent(for: provider)
+        identityState.lastPercent(provider: usageProviderID(provider))
     }
 
     func hasNotified(_ provider: UsageNotificationProvider) -> Bool {
-        state.hasNotified(provider)
+        identityState.hasNotified(provider: usageProviderID(provider))
     }
 
     @discardableResult
@@ -215,8 +248,8 @@ final class UsageNotificationManager {
         isLoaded: Bool,
         hasError: Bool
     ) -> Bool {
-        state.shouldNotify(
-            for: provider,
+        identityState.shouldNotify(
+            identity: sampleIdentity(for: provider),
             remainingPercent: remainingPercent,
             isLoaded: isLoaded,
             hasError: hasError
@@ -231,49 +264,44 @@ final class UsageNotificationManager {
     ) {
         let notificationsEnabled = notificationsAreEnabled
         let now = Date()
-        let claudeValid = snapshots.map { prepare(.claude, snapshot: $0[.claude], now: now) } ?? true
-        let chatGPTValid = snapshots.map { prepare(.chatGPT, snapshot: $0[.chatGPT], now: now) } ?? true
-        let grokValid = snapshots.map { prepare(.grok, snapshot: $0[.grok], now: now) } ?? true
-
-        let shouldNotifyClaude = state.shouldNotifyIfEnabled(
-            for: .claude,
-            remainingPercent: claude.sessionPercent,
-            isLoaded: claude.isLoaded && claudeValid,
-            hasError: claude.errorMessage != nil,
-            notificationsEnabled: notificationsEnabled
-        )
-
-        let shouldNotifyChatGPT = state.shouldNotifyIfEnabled(
-            for: .chatGPT,
-            remainingPercent: chatGPT.sessionPercent,
-            isLoaded: chatGPT.isLoaded && chatGPTValid,
-            hasError: chatGPT.errorMessage != nil,
-            notificationsEnabled: notificationsEnabled
-        )
-
-        let shouldNotifyGrok = state.shouldNotifyIfEnabled(
-            for: .grok,
-            remainingPercent: grok.primaryRemainingPercent,
-            isLoaded: grok.isLoaded && grokValid,
-            hasError: grok.errorMessage != nil,
-            notificationsEnabled: notificationsEnabled
-        )
-
         var payloads: [UsageNotificationPayload] = []
 
-        if shouldNotifyClaude {
-            payloads.append(makePayload(for: .claude, info: claude))
+        func consider(
+            _ provider: UsageNotificationProvider,
+            info: UsageInfo,
+            snapshot: UsageSnapshot?
+        ) {
+            let snapshotValid = snapshots.map { _ in prepare(provider, snapshot: snapshot, now: now) } ?? true
+            guard notificationsEnabled, snapshotValid else { return }
+
+            let remaining: Int?
+            let identity: UsageCacheIdentity
+            if let snapshot, let displayed = displayedPrimaryIdentity(from: snapshot) {
+                remaining = snapshot.displayedPrimaryMeter?.remainingPercent
+                identity = displayed
+            } else if snapshots == nil {
+                remaining = provider == .grok ? info.primaryRemainingPercent : info.sessionPercent
+                identity = sampleIdentity(for: provider)
+            } else {
+                return
+            }
+
+            guard identityState.shouldNotify(
+                identity: identity,
+                remainingPercent: remaining,
+                isLoaded: info.isLoaded,
+                hasError: info.errorMessage != nil
+            ) else {
+                return
+            }
+
+            lastMeters[provider] = identity.meterId
+            payloads.append(makePayload(for: provider, info: info))
         }
 
-        if shouldNotifyChatGPT {
-            payloads.append(makePayload(for: .chatGPT, info: chatGPT))
-        }
-
-        if shouldNotifyGrok {
-            payloads.append(makePayload(for: .grok, info: grok))
-        }
-
-        for payload in payloads { lastMeters[payload.provider] = scopes[payload.provider]?.identity.meter }
+        consider(.claude, info: claude, snapshot: snapshots?[.claude])
+        consider(.chatGPT, info: chatGPT, snapshot: snapshots?[.chatGPT])
+        consider(.grok, info: grok, snapshot: snapshots?[.grok])
         requestAuthorizationIfNeeded(for: payloads)
     }
 

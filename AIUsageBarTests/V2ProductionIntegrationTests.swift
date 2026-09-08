@@ -435,6 +435,33 @@ struct V2ProductionIntegrationTests {
         #expect(model.grok.primaryRemainingPercent == 18)
     }
 
+    @Test("Preferred ChatGPT cookie still fetches when a second session cookie name is present")
+    @MainActor
+    func preferredChatGPTCookieStillFetchesWithSecondName() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        chatGPT.enqueue(.success(sampleChatGPT(session: 44, weekly: nil)))
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy()
+        )
+        model.setChatGPTCredential(
+            WebCredential(
+                cookieName: "__Secure-next-auth.session-token",
+                value: "chatgpt-token",
+                cookieHeader: "__Secure-next-auth.session-token=chatgpt-token; next-auth.session-token=other-token"
+            )
+        )
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.chatGPT.isLoaded)
+        #expect(model.chatGPT.sessionPercent == 44)
+        #expect(model.v2Snapshot(for: .chatGPT)?.displayedPrimaryMeter?.remainingPercent == 44)
+        #expect(chatGPT.cookieHeaders.count == 1)
+    }
+
     @MainActor
     private func makeModel(
         chatGPT: any ChatGPTUsageFetching,

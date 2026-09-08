@@ -635,7 +635,9 @@ final class UsageViewModel: ObservableObject {
             fallbackHeader: fallbackHeader,
             url: GrokSessionContext.weeklyCreditsURL
         )
-        let accountCredential = grokSessionToken
+        let accountCredential = grokSessionToken.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
         let expectedAccountKey = UsageIdentity.accountKey(from: accountCredential)
         let webKitCredentialsMatch =
             GrokService.ssoToken(from: webKitRateLimitsCookieHeader) == accountCredential &&
@@ -709,9 +711,13 @@ final class UsageViewModel: ObservableObject {
                 didAlreadyRetry: !allowRecovery,
                 error: error
             ) {
+                guard let expectedAccountKey else {
+                    applyGrokFailure(error, authGeneration: authGeneration)
+                    return false
+                }
                 let scope = RecoveryScope(
                     provider: .grok,
-                    accountKey: expectedAccountKey ?? ""
+                    accountKey: expectedAccountKey
                 )
                 guard v2.grokRecovery.beginRecovery(scope: scope) else {
                     applyGrokFailure(error, authGeneration: authGeneration)

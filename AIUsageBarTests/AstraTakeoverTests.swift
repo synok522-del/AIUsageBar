@@ -130,6 +130,62 @@ struct AstraTakeoverTests {
         defaults.removeObject(forKey: UsageNotificationSettings.isEnabledKey)
     }
 
+    @Test func chatGPTSecondaryMeterDoesNotTriggerNotification() {
+        let defaults = UserDefaults(suiteName: "AstraNotificationChatGPT-\(UUID().uuidString)")!
+        defaults.set(true, forKey: UsageNotificationSettings.isEnabledKey)
+        let manager = UsageNotificationManager(defaults: defaults)
+        let reset = Date().addingTimeInterval(100)
+        func sample(session: Int, weekly: Int) {
+            let usage = ChatGPTUsage(
+                sessionRemainingPercent: session,
+                resetText: "",
+                weeklyRemainingPercent: weekly,
+                weeklyResetText: nil,
+                sessionResetAt: reset
+            )
+            let snapshot = V1UsageAdapters.chatGPTSnapshot(usage: usage, token: "A")
+            manager.evaluate(
+                claude: UsageInfo(),
+                chatGPT: UsageInfo(
+                    sessionPercent: session,
+                    weeklyPercent: weekly,
+                    weeklyAvailable: true,
+                    isLoaded: true
+                ),
+                grok: UsageInfo(),
+                snapshots: [.chatGPT: snapshot]
+            )
+        }
+        sample(session: 50, weekly: 10)
+        #expect(!manager.hasNotified(.chatGPT))
+        sample(session: 18, weekly: 10)
+        #expect(manager.hasNotified(.chatGPT))
+        #expect(manager.lastNotifiedMeterID(for: .chatGPT) == "chatgpt.primary_window")
+        defaults.removeObject(forKey: UsageNotificationSettings.isEnabledKey)
+    }
+
+    @Test func cacheLookupRejectsExpiredSecondaryWhilePrimaryRemains() {
+        var cache = UsageAccountCache()
+        let now = Date()
+        let snapshot = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 80,
+                resetText: "",
+                weeklyRemainingPercent: 10,
+                weeklyResetText: nil,
+                sessionResetAt: now.addingTimeInterval(100),
+                weeklyResetAt: now
+            ),
+            token: "synthetic-A",
+            asOf: now
+        )
+        cache.store(snapshot)
+        let weekly = snapshot.cacheIdentities.first { $0.meterId == "chatgpt.secondary_window" }!
+        let primary = snapshot.cacheIdentities.first { $0.meterId == "chatgpt.primary_window" }!
+        #expect(cache.snapshot(for: weekly, now: now) == nil)
+        #expect(cache.snapshot(for: primary, now: now) != nil)
+    }
+
     @Test func parserResetsSurviveAdaptersAndUnknownStaysUnknown() throws {
         let timestamp = Date().addingTimeInterval(600).timeIntervalSince1970
         let gpt = try ChatGPTService.parseUsage(["rate_limit": ["primary_window": ["used_percent": 25, "reset_at": timestamp]]])
@@ -147,6 +203,11 @@ struct AstraTakeoverTests {
     @Test func requestCredentialBindingSupportsChunksAndRejectsMismatch() async {
         #expect(UsageIdentity.chatGPTCredential(in: "__Secure-next-auth.session-token.1=B; __Secure-next-auth.session-token.0=A") == "AB")
         #expect(UsageIdentity.chatGPTCredential(in: "next-auth.session-token.1=B") == nil)
+        #expect(
+            UsageIdentity.chatGPTCredential(
+                in: "__Secure-next-auth.session-token=preferred; next-auth.session-token=other"
+            ) == "preferred"
+        )
         let service = ControllableChatGPTUsageService()
         let source = ChatGPTProductionUsageSource(service: service,
             cookieHeader: "next-auth.session-token=B", accountCredential: "A")

@@ -194,14 +194,15 @@ enum UsageSourceError: Error, Equatable {
 }
 
 enum UsageIdentity {
-    /// Validate the actual request credential, including NextAuth chunked cookies.
+    /// Reconstruct the session token using the same base-name priority as login
+    /// cookie assembly. Multiple NextAuth cookie names in one header must not
+    /// reject a valid preferred token.
     static func chatGPTCredential(in header: String) -> String? {
         let fields = header.split(separator: ";").compactMap { part -> (String, String)? in
             let pair = part.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             guard pair.count == 2 else { return nil }
             return (String(pair[0]), String(pair[1]))
         }
-        var values: [String] = []
         for base in ["__Secure-next-auth.session-token", "__Host-next-auth.session-token", "next-auth.session-token"] {
             let exact = fields.filter { $0.0 == base }
             let chunks = fields.compactMap { name, value -> (Int, String)? in
@@ -209,14 +210,18 @@ enum UsageIdentity {
                 return (index, value)
             }.sorted { $0.0 < $1.0 }
             guard exact.count <= 1, exact.isEmpty || chunks.isEmpty else { return nil }
-            if let value = exact.first?.1 { values.append(value) }
+            if let value = exact.first?.1, !value.isEmpty {
+                return value
+            }
             if !chunks.isEmpty {
                 guard chunks.map({ $0.0 }) == Array(0..<chunks.count) else { return nil }
-                values.append(chunks.map({ $0.1 }).joined())
+                let value = chunks.map({ $0.1 }).joined()
+                if !value.isEmpty {
+                    return value
+                }
             }
         }
-        guard values.count == 1, let value = values.first, !value.isEmpty else { return nil }
-        return value
+        return nil
     }
     static func fingerprint(_ value: String) -> String {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()

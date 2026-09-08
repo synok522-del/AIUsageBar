@@ -3,6 +3,8 @@ import Foundation
 enum GrokLabFilesystemAccess: Equatable {
     case forbidden
 }
+
+enum GrokLabEntitlement: String, Equatable, Sendable {
     case superGrok = "super_grok"
     case free = "free"
     case unknown = "unknown"

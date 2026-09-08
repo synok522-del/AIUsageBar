@@ -601,7 +601,8 @@ struct V2UsageLayerTests {
             sso: "   "
         )
         #expect(snapshot.accountKeyUnavailable)
-        #expect(state.commit(snapshot) == false)
+        let unavailableRejected = state.commit(snapshot)
+        #expect(unavailableRejected == false)
         #expect(state.lastSnapshots[.grok] == nil)
     }
 
@@ -620,7 +621,8 @@ struct V2UsageLayerTests {
             token: "tok",
             asOf: Date(timeIntervalSince1970: 4_900)
         )
-        #expect(state.commit(loaded, now: Date(timeIntervalSince1970: 4_950)))
+        let loadedAccepted = state.commit(loaded, now: Date(timeIntervalSince1970: 4_950))
+        #expect(loadedAccepted)
         #expect(state.lastSnapshots[.chatGPT]?.displayedPrimaryMeter?.remainingPercent == 40)
 
         let rolled = V1UsageAdapters.chatGPTSnapshot(
@@ -634,11 +636,13 @@ struct V2UsageLayerTests {
             token: "tok",
             asOf: resetAt
         )
-        #expect(state.commit(rolled, now: resetAt))
+        let rolledAccepted = state.commit(rolled, now: resetAt)
+        #expect(rolledAccepted)
         #expect(state.lastSnapshots[.chatGPT]?.displayedPrimaryMeter?.remainingPercent == 100)
 
         var firstLoad = V2RuntimeState()
-        #expect(firstLoad.commit(rolled, now: resetAt) == false)
+        let firstLoadRejected = firstLoad.commit(rolled, now: resetAt)
+        #expect(firstLoadRejected == false)
         #expect(firstLoad.lastSnapshots[.chatGPT] == nil)
     }
 

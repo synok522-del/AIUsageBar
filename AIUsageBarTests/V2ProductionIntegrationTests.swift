@@ -550,7 +550,8 @@ struct V2ProductionIntegrationTests {
         #expect(snapshot.accountKeyUnavailable)
         #expect(UsageIdentity.accountKey(from: "") == nil)
         var state = V2RuntimeState()
-        #expect(state.commit(snapshot) == false)
+        let unavailableRejected = state.commit(snapshot)
+        #expect(unavailableRejected == false)
         #expect(state.lastSnapshots[.grok] == nil)
         #expect(
             GrokV2RecoveryGate.isRecovered(

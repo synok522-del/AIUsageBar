@@ -17,3 +17,12 @@ enum V2ChatGPTProductionSource {
 
     static var introducesHiddenWKWebViewRestorer: Bool { false }
 }
+
+enum V2ClaudeProductionSource {
+    static let webHost = "claude.ai"
+    static var oauthCredentialReuseEnabled: Bool { false }
+
+    static func selectedSource(bridge: ClaudeStatuslineBridgeConfig) -> ClaudeLabSource {
+        ClaudeLabSourceSelector.source(for: bridge)
+    }
+}

@@ -2605,7 +2605,8 @@ struct AIUsageBarTests {
             grokService: service,
             grokSessionRestorer: restorer,
             grokCookieSource: EmptyGrokRefreshCookieSource(),
-            usageNotificationManager: notifications
+            usageNotificationManager: notifications,
+            credentialStore: KeychainManager(inMemory: true)
         )
     }
 

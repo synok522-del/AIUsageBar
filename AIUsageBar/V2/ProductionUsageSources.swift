@@ -19,6 +19,9 @@ final class ChatGPTProductionUsageSource: UsageSource {
     }
 
     func fetchSnapshot() async throws -> UsageSnapshot {
+        guard accountCredential.isEmpty || UsageIdentity.chatGPTCredential(in: cookieHeader) == accountCredential else {
+            throw AIUsageServiceError.httpStatus("ChatGPT", 401)
+        }
         let usage = try await service.fetchUsage(cookieHeader: cookieHeader)
         lastUsage = usage
         return V1UsageAdapters.chatGPTSnapshot(
@@ -73,6 +76,10 @@ final class GrokProductionUsageSource: UsageSource {
     }
 
     func fetchSnapshot() async throws -> UsageSnapshot {
+        guard accountCredential.isEmpty || (
+            GrokService.ssoToken(from: rateLimitsCookieHeader) == accountCredential &&
+            GrokService.ssoToken(from: weeklyCookieHeader) == accountCredential
+        ) else { throw AIUsageServiceError.httpStatus("Grok", 401) }
         let usage = try await service.fetchUsage(
             rateLimitsCookieHeader: rateLimitsCookieHeader,
             weeklyCookieHeader: weeklyCookieHeader
@@ -101,7 +108,7 @@ enum GrokV2RecoveryGate {
             )
         }
 
-        let parsedValid = !snapshot.meters.isEmpty
+        let parsedValid = snapshot.validity(now: Date(), expectedAccountKey: expectedAccountKey) == .fresh
         return RecoverySuccessPolicy.isSuccess(
             fetchSucceeded: true,
             parsedValid: parsedValid,
@@ -116,41 +123,24 @@ enum GrokV2RecoveryGate {
 
 struct V2RuntimeState {
     var cache = UsageAccountCache()
-    var notifications = UsageNotificationIdentityState()
     var grokRecovery = RecoveryCoordinator()
     var chatGPTRecovery = RecoveryCoordinator()
     var claudeRecovery = RecoveryCoordinator()
     var lastSnapshots: [UsageProviderID: UsageSnapshot] = [:]
     var pathInvocations = 0
     var fetchInvocations: [UsageProviderID: Int] = [:]
-    var lastNotifiedMeterId: [UsageProviderID: String] = [:]
 
     mutating func noteFetch(_ provider: UsageProviderID) {
         pathInvocations += 1
         fetchInvocations[provider, default: 0] += 1
     }
 
-    mutating func commit(_ snapshot: UsageSnapshot, now: Date = Date()) {
+    @discardableResult
+    mutating func commit(_ snapshot: UsageSnapshot, now: Date = Date()) -> Bool {
+        guard snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh else { return false }
         lastSnapshots[snapshot.provider] = snapshot
         cache.store(snapshot)
-        if let primary = snapshot.displayedPrimaryMeter,
-           let accountKey = snapshot.accountKey {
-            let identity = UsageCacheIdentity(
-                provider: snapshot.provider,
-                accountKey: accountKey,
-                meterId: primary.meterId,
-                window: primary.window
-            )
-            if notifications.shouldNotify(
-                identity: identity,
-                remainingPercent: primary.remainingPercent,
-                isLoaded: true,
-                hasError: false
-            ) {
-                lastNotifiedMeterId[snapshot.provider] = primary.meterId
-            }
-        }
-        _ = now
+        return true
     }
 
     mutating func invalidateProvider(_ provider: UsageProviderID, accountKey: String?) {
@@ -166,9 +156,7 @@ struct V2RuntimeState {
         }
         if let accountKey {
             cache.invalidateAccount(provider: provider, accountKey: accountKey)
-            notifications.resetAccount(provider: provider, accountKey: accountKey)
         }
         lastSnapshots[provider] = nil
-        lastNotifiedMeterId[provider] = nil
     }
 }

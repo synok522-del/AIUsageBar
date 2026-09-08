@@ -1,7 +1,7 @@
 import Foundation
 
 protocol ClaudeUsageFetching {
-    func fetchUsage(sessionKey: String) async throws -> ClaudeUsage
+    @MainActor func fetchUsage(sessionKey: String) async throws -> ClaudeUsage
 }
 
 struct ClaudeService: ClaudeUsageFetching {

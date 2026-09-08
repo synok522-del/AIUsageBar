@@ -4,19 +4,20 @@ struct UsageAccountCache {
     private var snapshots: [UsageCacheIdentity: UsageSnapshot] = [:]
 
     mutating func store(_ snapshot: UsageSnapshot) {
-        guard !snapshot.accountKeyUnavailable else {
+        guard !snapshot.accountKeyUnavailable, let accountKey = snapshot.accountKey else {
             return
         }
+        invalidateAccount(provider: snapshot.provider, accountKey: accountKey)
         for identity in snapshot.cacheIdentities {
             snapshots[identity] = snapshot
         }
     }
 
-    func snapshot(for identity: UsageCacheIdentity) -> UsageSnapshot? {
-        guard identity.accountKey != nil else {
-            return nil
-        }
-        return snapshots[identity]
+    func snapshot(for identity: UsageCacheIdentity, now: Date = Date()) -> UsageSnapshot? {
+        guard identity.accountKey != nil, let snapshot = snapshots[identity] else { return nil }
+        let validity = snapshot.validity(now: now, expectedAccountKey: identity.accountKey)
+        guard validity == .fresh || validity == .staleButValid else { return nil }
+        return snapshot
     }
 
     mutating func invalidateAccount(provider: UsageProviderID, accountKey: String) {

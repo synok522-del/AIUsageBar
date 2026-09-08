@@ -52,6 +52,8 @@ final class UsageViewModel: ObservableObject {
 
 
     private var refreshTimer: Timer?
+    private var validityTimer: Timer?
+    private let credentialStore: KeychainManager
 
 
     init(
@@ -60,9 +62,11 @@ final class UsageViewModel: ObservableObject {
         grokService: GrokUsageFetching = GrokService(),
         grokSessionRestorer: GrokSessionRestoring? = nil,
         grokCookieSource: GrokRefreshCookieSource? = nil,
-        usageNotificationManager: UsageNotificationManager? = nil
+        usageNotificationManager: UsageNotificationManager? = nil,
+        credentialStore: KeychainManager? = nil
     ) {
 
+        self.credentialStore = credentialStore ?? KeychainManager(inMemory: KeychainManager.isTestProcess)
         self.claudeService = claudeService
         self.chatGPTService = chatGPTService
         self.grokService = grokService
@@ -73,21 +77,21 @@ final class UsageViewModel: ObservableObject {
         self.usageNotificationManager =
             usageNotificationManager ?? UsageNotificationManager()
 
-        migrateToKeychain()
+        if !KeychainManager.isTestProcess { migrateToKeychain() }
 
         self.claudeSessionKey =
-            KeychainManager.shared.read(
+            self.credentialStore.read(
                 StorageKey.claudeSessionKey
             ) ?? ""
 
         let savedChatGPTToken =
-            KeychainManager.shared.read(
+            self.credentialStore.read(
                 StorageKey.chatGPTSessionToken
             ) ?? ""
 
         self.chatGPTSessionToken = savedChatGPTToken
         self.chatGPTCookieHeader =
-            KeychainManager.shared.read(
+            self.credentialStore.read(
                 StorageKey.chatGPTCookieHeader
             ) ?? {
                 guard !savedChatGPTToken.isEmpty else {
@@ -98,13 +102,13 @@ final class UsageViewModel: ObservableObject {
             }()
 
         let savedGrokToken =
-            KeychainManager.shared.read(
+            self.credentialStore.read(
                 StorageKey.grokSessionToken
             ) ?? ""
 
         self.grokSessionToken = savedGrokToken
         self.grokCookieHeader =
-            KeychainManager.shared.read(
+            self.credentialStore.read(
                 StorageKey.grokCookieHeader
             ) ?? {
                 guard !savedGrokToken.isEmpty else {
@@ -114,12 +118,13 @@ final class UsageViewModel: ObservableObject {
                 return "sso=\(savedGrokToken)"
             }()
 
-        startAutoRefresh()
+        if !KeychainManager.isTestProcess { startAutoRefresh() }
     }
 
 
     deinit {
         refreshTimer?.invalidate()
+        validityTimer?.invalidate()
     }
 
 
@@ -133,7 +138,7 @@ final class UsageViewModel: ObservableObject {
 
         // Claude
 
-        if KeychainManager.shared.read(
+        if self.credentialStore.read(
             StorageKey.claudeSessionKey
         ) == nil {
 
@@ -141,7 +146,7 @@ final class UsageViewModel: ObservableObject {
                 forKey: StorageKey.claudeSessionKey
             ) {
 
-                KeychainManager.shared.save(
+                self.credentialStore.save(
                     oldValue,
                     forKey: StorageKey.claudeSessionKey
                 )
@@ -155,7 +160,7 @@ final class UsageViewModel: ObservableObject {
 
         // ChatGPT 新 key
 
-        if KeychainManager.shared.read(
+        if self.credentialStore.read(
             StorageKey.chatGPTSessionToken
         ) == nil {
 
@@ -174,7 +179,7 @@ final class UsageViewModel: ObservableObject {
 
             if let token = newValue ?? oldValue {
 
-                KeychainManager.shared.save(
+                self.credentialStore.save(
                     token,
                     forKey: StorageKey.chatGPTSessionToken
                 )
@@ -198,6 +203,8 @@ final class UsageViewModel: ObservableObject {
     func setClaudeSessionKey(_ value: String) {
         let identityChanged = claudeSessionKey != value
         if identityChanged {
+            claude = UsageInfo()
+            usageNotificationManager.resetTracking(for: .claude)
             v2.invalidateProvider(
                 .claude,
                 accountKey: UsageIdentity.accountKey(from: claudeSessionKey)
@@ -208,13 +215,13 @@ final class UsageViewModel: ObservableObject {
 
         if value.isEmpty {
 
-            KeychainManager.shared.delete(
+            self.credentialStore.delete(
                 StorageKey.claudeSessionKey
             )
 
         } else {
 
-            KeychainManager.shared.save(
+            self.credentialStore.save(
                 value,
                 forKey: StorageKey.claudeSessionKey
             )
@@ -239,6 +246,8 @@ final class UsageViewModel: ObservableObject {
             chatGPTSessionToken != credential.value
             || chatGPTCookieHeader != credential.cookieHeader
         if identityChanged {
+            chatGPT = UsageInfo()
+            usageNotificationManager.resetTracking(for: .chatGPT)
             v2.invalidateProvider(
                 .chatGPT,
                 accountKey: UsageIdentity.accountKey(from: chatGPTSessionToken)
@@ -250,20 +259,20 @@ final class UsageViewModel: ObservableObject {
 
         if credential.value.isEmpty {
 
-            KeychainManager.shared.delete(
+            self.credentialStore.delete(
                 StorageKey.chatGPTSessionToken
             )
-            KeychainManager.shared.delete(
+            self.credentialStore.delete(
                 StorageKey.chatGPTCookieHeader
             )
 
         } else {
 
-            KeychainManager.shared.save(
+            self.credentialStore.save(
                 credential.value,
                 forKey: StorageKey.chatGPTSessionToken
             )
-            KeychainManager.shared.save(
+            self.credentialStore.save(
                 credential.cookieHeader,
                 forKey: StorageKey.chatGPTCookieHeader
             )
@@ -307,20 +316,20 @@ final class UsageViewModel: ObservableObject {
         if credential.value.isEmpty {
             grok = UsageInfo()
 
-            KeychainManager.shared.delete(
+            self.credentialStore.delete(
                 StorageKey.grokSessionToken
             )
-            KeychainManager.shared.delete(
+            self.credentialStore.delete(
                 StorageKey.grokCookieHeader
             )
             grokSessionRestorer.reset()
             usageNotificationManager.resetTracking(for: .grok)
         } else {
-            KeychainManager.shared.save(
+            self.credentialStore.save(
                 credential.value,
                 forKey: StorageKey.grokSessionToken
             )
-            KeychainManager.shared.save(
+            self.credentialStore.save(
                 credential.cookieHeader,
                 forKey: StorageKey.grokCookieHeader
             )
@@ -367,6 +376,7 @@ final class UsageViewModel: ObservableObject {
     }
 
     private func performRefreshCycle() async {
+        expireInvalidUsage()
 
 
         async let claudeRefresh: Bool =
@@ -390,7 +400,8 @@ final class UsageViewModel: ObservableObject {
         usageNotificationManager.evaluate(
             claude: claude,
             chatGPT: chatGPT,
-            grok: grok
+            grok: grok,
+            snapshots: v2.lastSnapshots
         )
 
 
@@ -412,6 +423,10 @@ final class UsageViewModel: ObservableObject {
         refreshTimer?.invalidate()
 
 
+        validityTimer?.invalidate()
+        validityTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.expireInvalidUsage() }
+        }
         refreshTimer = Timer.scheduledTimer(
             withTimeInterval: 600,
             repeats: true
@@ -468,7 +483,8 @@ final class UsageViewModel: ObservableObject {
                 return false
             }
 
-            v2.commit(snapshot)
+            try Task.checkCancellation()
+            guard v2.commit(snapshot) else { throw AIUsageServiceError.invalidPayload("Claude") }
             applyClaude(usage)
             return true
         } catch {
@@ -529,7 +545,8 @@ final class UsageViewModel: ObservableObject {
                 return false
             }
 
-            v2.commit(snapshot)
+            try Task.checkCancellation()
+            guard v2.commit(snapshot) else { throw AIUsageServiceError.invalidPayload("ChatGPT") }
             applyChatGPT(usage)
             return true
         } catch {
@@ -590,9 +607,6 @@ final class UsageViewModel: ObservableObject {
         authGeneration: UInt
     ) async -> Bool {
         let recoveryLatched = v2.grokRecovery.state == .requiresUserAction
-        if !recoveryLatched {
-            await grokSessionRestorer.restoreIfNeeded()
-        }
         guard GrokHTTPRefreshAuthPolicy.shouldCommit(
             captured: authGeneration,
             current: grokHTTPAuthGeneration.value
@@ -620,6 +634,12 @@ final class UsageViewModel: ObservableObject {
         )
         let accountCredential = grokSessionToken
         let expectedAccountKey = UsageIdentity.accountKey(from: accountCredential)
+        guard GrokService.ssoToken(from: rateLimitsCookieHeader) == accountCredential,
+              GrokService.ssoToken(from: weeklyCookieHeader) == accountCredential else {
+            v2.grokRecovery.markRequiresUserAction()
+            grok = UsageInfo(errorMessage: "Grok 登入已失效，請重新登入")
+            return false
+        }
         let source = GrokProductionUsageSource(
             service: grokService,
             rateLimitsCookieHeader: rateLimitsCookieHeader,
@@ -640,6 +660,7 @@ final class UsageViewModel: ObservableObject {
                 return false
             }
 
+            try Task.checkCancellation()
             if v2.grokRecovery.state == .recovering {
                 let recovered = GrokV2RecoveryGate.isRecovered(
                     snapshot: snapshot,
@@ -658,7 +679,8 @@ final class UsageViewModel: ObservableObject {
                 v2.grokRecovery.markSuccess()
             }
 
-            v2.commit(snapshot)
+            try Task.checkCancellation()
+            guard v2.commit(snapshot) else { throw AIUsageServiceError.invalidPayload("Grok") }
             applyGrok(usage)
             return true
         } catch {
@@ -674,6 +696,7 @@ final class UsageViewModel: ObservableObject {
                 return false
             }
 
+            if Task.isCancelled { return false }
             if GrokHTTPRefreshAuthPolicy.shouldAttemptRecovery(
                 captured: authGeneration,
                 current: grokHTTPAuthGeneration.value,
@@ -806,7 +829,7 @@ final class UsageViewModel: ObservableObject {
     }
 
     func v2LastNotifiedMeterId(for provider: UsageProviderID) -> String? {
-        v2.lastNotifiedMeterId[provider]
+        usageNotificationManager.lastNotifiedMeterID(for: provider)
     }
 
     func v2PrimaryMeterValidity(for provider: UsageProviderID, now: Date) -> UsageValidity? {
@@ -814,6 +837,20 @@ final class UsageViewModel: ObservableObject {
             return nil
         }
         return snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey)
+    }
+
+    func expireInvalidUsage(now: Date = Date()) {
+        for (provider, snapshot) in v2.lastSnapshots {
+            let validity = snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey)
+            guard validity == .expired || validity == .invalid else { continue }
+            let info = UsageInfo(errorMessage: "更新失敗")
+            switch provider {
+            case .chatGPT: if chatGPT.isLoaded { chatGPT = info }
+            case .claude: if claude.isLoaded { claude = info }
+            case .grok: if grok.isLoaded { grok = info }
+            default: break
+            }
+        }
     }
 
     private func clearStatusMessage(for provider: String) {

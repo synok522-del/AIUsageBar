@@ -17,8 +17,8 @@ protocol GrokSessionRestoring: AnyObject {
 @MainActor
 final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessionRestoring {
     static let shared = GrokWebKitSessionRestorer()
-    static let restoreURL = URL(string: "https://grok.com/")!
-    static let userAgent =
+    nonisolated static let restoreURL = URL(string: "https://grok.com/")!
+    nonisolated static let userAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
     private var gate = GrokSessionRestorerGate()
@@ -56,12 +56,13 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
     }
 
     private func performRestore() async -> GrokSessionRestoreOutcome {
+        guard pending == nil else { return .cancelled }
         let attempt = gate.beginRestore()
         let outcome: GrokSessionRestoreOutcome = await withCheckedContinuation { continuation in
             pending = (attempt, continuation)
             startNavigation()
             timeoutTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                do { try await Task.sleep(nanoseconds: 20_000_000_000) } catch { return }
                 self?.finish(.timeout, generation: attempt)
             }
         }
@@ -100,6 +101,7 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard webView === self.webView else { return }
         let generation = pending?.generation
         Task { @MainActor [weak self] in
             guard let self, let generation else {
@@ -123,6 +125,7 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
         didFail navigation: WKNavigation!,
         withError error: Error
     ) {
+        guard webView === self.webView else { return }
         finish(.failure, generation: pending?.generation)
     }
 
@@ -131,6 +134,7 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
+        guard webView === self.webView else { return }
         finish(.failure, generation: pending?.generation)
     }
 
@@ -138,15 +142,14 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
         _ outcome: GrokSessionRestoreOutcome,
         generation: UInt?
     ) {
-        timeoutTask?.cancel()
-        timeoutTask = nil
-
         guard let pending,
               let generation,
               pending.generation == generation else {
             return
         }
 
+        timeoutTask?.cancel()
+        timeoutTask = nil
         self.pending = nil
         pending.continuation.resume(returning: outcome)
     }

@@ -38,7 +38,7 @@ enum V1UsageAdapters {
             sourceType: .appWebKit,
             asOf: asOf,
             meters: meters,
-            health: token.isEmpty ? .unauthorized : .available
+            health: .available
         )
     }
 
@@ -76,7 +76,7 @@ enum V1UsageAdapters {
                     resetText: usage.weeklyResetText
                 )
             ],
-            health: sessionKey.isEmpty ? .unauthorized : .available
+            health: .available
         )
     }
 
@@ -93,7 +93,8 @@ enum V1UsageAdapters {
                 usedPercent: max(0, 100 - usage.sessionRemainingPercent),
                 resetAt: usage.sessionResetAt,
                 isDisplayedPrimary: usage.weeklyRemainingPercent == nil,
-                resetText: usage.resetText
+                resetText: usage.resetText,
+                windowDurationSeconds: usage.sessionWindowSeconds > 0 ? usage.sessionWindowSeconds : nil
             )
         ]
         if let weekly = usage.weeklyRemainingPercent {
@@ -118,7 +119,7 @@ enum V1UsageAdapters {
             sourceType: .appWebKit,
             asOf: asOf,
             meters: meters,
-            health: sso.isEmpty ? .unauthorized : .available
+            health: .available
         )
     }
 }

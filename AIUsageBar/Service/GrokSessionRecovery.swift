@@ -106,13 +106,14 @@ enum GrokSessionRecoveryPolicy {
 
 enum GrokRedirectPolicy {
     static func requestAfterRedirect(_ request: URLRequest) -> URLRequest? {
-        guard let host = request.url?.host, !host.isEmpty else {
+        guard request.url?.scheme == "https", let host = request.url?.host, !host.isEmpty else {
             return nil
         }
 
         guard WebSessionProvider.matchesGrokProductHost(host) else {
             var stripped = request
             stripped.setValue(nil, forHTTPHeaderField: "Cookie")
+            stripped.setValue(nil, forHTTPHeaderField: "Authorization")
             return stripped
         }
 

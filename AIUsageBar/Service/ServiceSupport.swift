@@ -6,13 +6,21 @@
 //
 
 import Foundation
+import CoreFoundation
 
 enum ServiceSupport {
+    static let quotaSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration, delegate: QuotaRedirectDelegate(), delegateQueue: nil)
+    }()
 
     static func data(
         for request: URLRequest,
         serviceName: String,
-        session: URLSession = .shared
+        session: URLSession = quotaSession
     ) async throws -> Data {
 
         var request = request
@@ -176,6 +184,7 @@ enum ServiceSupport {
 
         if let number = value as? NSNumber {
             let rawTimestamp = number.doubleValue
+            guard CFGetTypeID(number) != CFBooleanGetTypeID(), rawTimestamp.isFinite, rawTimestamp > 0 else { return nil }
             let timestamp =
                 rawTimestamp > 100_000_000_000
                 ? rawTimestamp / 1000
@@ -186,6 +195,7 @@ enum ServiceSupport {
 
         if let string = value as? String {
             if let timestamp = Double(string) {
+                guard timestamp.isFinite, timestamp > 0 else { return nil }
                 let normalized =
                     timestamp > 100_000_000_000
                     ? timestamp / 1000
@@ -319,5 +329,20 @@ enum AIUsageServiceError: LocalizedError {
         case .wafBlocked(let service):
             return "\(service) 被網站防護擋下，請稍後再試"
         }
+    }
+}
+
+/// Quota credentials never follow a cross-origin redirect or HTTPS downgrade.
+final class QuotaRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static func permits(original: URL?, destination: URL?) -> Bool {
+        guard let original, let destination else { return false }
+        return original.scheme == "https" && destination.scheme == "https"
+            && original.host == destination.host && original.port == destination.port
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(Self.permits(original: response.url, destination: request.url) ? request : nil)
     }
 }

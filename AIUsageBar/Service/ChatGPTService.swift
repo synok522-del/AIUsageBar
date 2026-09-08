@@ -1,7 +1,7 @@
 import Foundation
 
 protocol ChatGPTUsageFetching {
-    func fetchUsage(cookieHeader: String) async throws -> ChatGPTUsage
+    @MainActor func fetchUsage(cookieHeader: String) async throws -> ChatGPTUsage
 }
 
 struct ChatGPTService: ChatGPTUsageFetching {

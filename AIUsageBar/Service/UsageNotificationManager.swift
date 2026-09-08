@@ -35,6 +35,8 @@ private struct UsageNotificationPayload: Sendable {
     let provider: UsageNotificationProvider
     let remainingPercent: Int
     let resetText: String
+    let generation: UInt
+    let createdAt: Date
 }
 
 struct UsageNotificationState {
@@ -118,6 +120,32 @@ final class UsageNotificationManager {
     private let center: UNUserNotificationCenter
     private let defaults: UserDefaults
     private var state = UsageNotificationState()
+    private struct Scope: Equatable {
+        let account: String?
+        let meter: String
+        let window: UsageWindow
+        let resetAt: Date?
+        let durationSeconds: Int?
+    }
+    private var scopes: [UsageNotificationProvider: Scope] = [:]
+    private var generations: [UsageNotificationProvider: UInt] = [:]
+    private var lastMeters: [UsageNotificationProvider: String] = [:]
+
+    func lastNotifiedMeterID(for provider: UsageProviderID) -> String? {
+        guard let provider = UsageNotificationProvider(rawValue: provider.rawValue) else { return nil }
+        return lastMeters[provider]
+    }
+
+    private func prepare(_ provider: UsageNotificationProvider, snapshot: UsageSnapshot?, now: Date) -> Bool {
+        guard let snapshot, let meter = snapshot.displayedPrimaryMeter,
+              snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh else { return false }
+        let scope = Scope(account: snapshot.accountKey, meter: meter.meterId, window: meter.window, resetAt: meter.resetAt, durationSeconds: meter.windowDurationSeconds)
+        if scopes[provider] != scope {
+            resetTracking(for: provider)
+            scopes[provider] = scope
+        }
+        return true
+    }
     private var authorizationWasRequested: Bool
 
     init(
@@ -133,6 +161,9 @@ final class UsageNotificationManager {
 
     func resetTracking(for provider: UsageNotificationProvider) {
         state.resetTracking(for: provider)
+        scopes[provider] = nil
+        lastMeters[provider] = nil
+        generations[provider, default: 0] += 1
     }
 
     func lastRecordedPercent(for provider: UsageNotificationProvider) -> Int? {
@@ -161,14 +192,19 @@ final class UsageNotificationManager {
     func evaluate(
         claude: UsageInfo,
         chatGPT: UsageInfo,
-        grok: UsageInfo
+        grok: UsageInfo,
+        snapshots: [UsageProviderID: UsageSnapshot]? = nil
     ) {
         let notificationsEnabled = notificationsAreEnabled
+        let now = Date()
+        let claudeValid = snapshots.map { prepare(.claude, snapshot: $0[.claude], now: now) } ?? true
+        let chatGPTValid = snapshots.map { prepare(.chatGPT, snapshot: $0[.chatGPT], now: now) } ?? true
+        let grokValid = snapshots.map { prepare(.grok, snapshot: $0[.grok], now: now) } ?? true
 
         let shouldNotifyClaude = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: claude.sessionPercent,
-            isLoaded: claude.isLoaded,
+            isLoaded: claude.isLoaded && claudeValid,
             hasError: claude.errorMessage != nil,
             notificationsEnabled: notificationsEnabled
         )
@@ -176,7 +212,7 @@ final class UsageNotificationManager {
         let shouldNotifyChatGPT = state.shouldNotifyIfEnabled(
             for: .chatGPT,
             remainingPercent: chatGPT.sessionPercent,
-            isLoaded: chatGPT.isLoaded,
+            isLoaded: chatGPT.isLoaded && chatGPTValid,
             hasError: chatGPT.errorMessage != nil,
             notificationsEnabled: notificationsEnabled
         )
@@ -184,7 +220,7 @@ final class UsageNotificationManager {
         let shouldNotifyGrok = state.shouldNotifyIfEnabled(
             for: .grok,
             remainingPercent: grok.primaryRemainingPercent,
-            isLoaded: grok.isLoaded,
+            isLoaded: grok.isLoaded && grokValid,
             hasError: grok.errorMessage != nil,
             notificationsEnabled: notificationsEnabled
         )
@@ -203,6 +239,7 @@ final class UsageNotificationManager {
             payloads.append(makePayload(for: .grok, info: grok))
         }
 
+        for payload in payloads { lastMeters[payload.provider] = scopes[payload.provider]?.meter }
         requestAuthorizationIfNeeded(for: payloads)
     }
 
@@ -225,13 +262,17 @@ final class UsageNotificationManager {
             return UsageNotificationPayload(
                 provider: provider,
                 remainingPercent: info.primaryRemainingPercent,
-                resetText: info.primaryResetText
+                resetText: info.primaryResetText,
+                generation: generations[provider, default: 0],
+                createdAt: Date()
             )
         case .chatGPT, .claude:
             return UsageNotificationPayload(
                 provider: provider,
                 remainingPercent: info.sessionPercent,
-                resetText: info.resetText
+                resetText: info.resetText,
+                generation: generations[provider, default: 0],
+                createdAt: Date()
             )
         }
     }
@@ -261,7 +302,7 @@ final class UsageNotificationManager {
     private func requestAuthorizationIfNeeded(
         for payloads: [UsageNotificationPayload]
     ) {
-        guard !payloads.isEmpty else {
+        guard !KeychainManager.isTestProcess, !payloads.isEmpty else {
             return
         }
 
@@ -298,6 +339,9 @@ final class UsageNotificationManager {
 
     private func deliver(_ payloads: [UsageNotificationPayload]) {
         for payload in payloads {
+            guard Date().timeIntervalSince(payload.createdAt) <= UsageValidityPolicy.freshnessTTL,
+                  payload.generation == generations[payload.provider, default: 0],
+                  scopes[payload.provider]?.resetAt.map({ Date() < $0 }) ?? true else { continue }
             let request = makeRequest(for: payload)
             let provider = payload.provider.rawValue
 

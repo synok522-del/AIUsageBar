@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 enum UsageProviderID: String, Hashable, Sendable {
     case chatGPT
@@ -51,6 +52,21 @@ struct UsageMeter: Equatable, Sendable {
     var isDisplayedPrimary: Bool
     var resetText: String? = nil
     var weeklyRelativeResetText: String? = nil
+    var absoluteUsed: Double? = nil
+    var absoluteRemaining: Double? = nil
+    var absoluteLimit: Double? = nil
+    var overage: Double? = nil
+    var entitlement: String? = nil
+    var windowDurationSeconds: Int? = nil
+
+    func validity(observedAt: Date, now: Date, identityMatches: Bool) -> UsageValidity {
+        guard !meterId.isEmpty,
+              remainingPercent != nil || usedPercent != nil || absoluteUsed != nil || absoluteRemaining != nil,
+              [absoluteUsed, absoluteRemaining, absoluteLimit, overage].compactMap({ $0 }).allSatisfy({ $0.isFinite && $0 >= 0 }),
+              remainingPercent.map({ (0...100).contains($0) }) ?? true,
+              usedPercent.map({ (0...100).contains($0) }) ?? true else { return .invalid }
+        return UsageValidityPolicy.validity(asOf: observedAt, now: now, expiresAt: resetAt, identityMatches: identityMatches)
+    }
 }
 
 struct UsageSnapshot: Equatable, Sendable {
@@ -68,7 +84,8 @@ struct UsageSnapshot: Equatable, Sendable {
                 provider: provider,
                 accountKey: accountKey,
                 meterId: $0.meterId,
-                window: $0.window
+                window: $0.window,
+                durationSeconds: $0.windowDurationSeconds
             )
         }
     }
@@ -84,12 +101,13 @@ struct UsageSnapshot: Equatable, Sendable {
         } else {
             identityMatches = accountKeyUnavailable
         }
-        return UsageValidityPolicy.validity(
-            asOf: asOf,
-            now: now,
-            expiresAt: displayedPrimaryMeter?.resetAt,
-            identityMatches: identityMatches
-        )
+        guard health == .available, !meters.isEmpty,
+              accountKeyUnavailable == (accountKey == nil),
+              Set(meters.map { $0.meterId }).count == meters.count else { return .invalid }
+        let states = meters.map { $0.validity(observedAt: asOf, now: now, identityMatches: identityMatches) }
+        if states.contains(.invalid) { return .invalid }
+        if states.contains(.expired) { return .expired }
+        return states.contains(.staleButValid) ? .staleButValid : .fresh
     }
 }
 
@@ -98,11 +116,11 @@ struct UsageCacheIdentity: Hashable, Sendable {
     var accountKey: String?
     var meterId: String
     var window: UsageWindow
+    var durationSeconds: Int? = nil
 }
 
 enum UsageValidityPolicy {
     static let freshnessTTL: TimeInterval = 120
-    static let expiredTTL: TimeInterval = 6 * 60 * 60
 
     static func validity(
         asOf: Date,
@@ -119,16 +137,15 @@ enum UsageValidityPolicy {
         }
 
         let age = now.timeIntervalSince(asOf)
+        guard age >= -5 else { return .invalid }
         if age <= freshnessTTL {
             return .fresh
-        }
-        if age > expiredTTL {
-            return .expired
         }
         return .staleButValid
     }
 }
 
+@MainActor
 protocol UsageSource {
     var provider: UsageProviderID { get }
     var sourceType: UsageSourceType { get }
@@ -143,12 +160,32 @@ enum UsageSourceError: Error, Equatable {
 }
 
 enum UsageIdentity {
-    static func fingerprint(_ value: String) -> String {
-        var hash: UInt64 = 5381
-        for byte in value.utf8 {
-            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
+    /// Validate the actual request credential, including NextAuth chunked cookies.
+    static func chatGPTCredential(in header: String) -> String? {
+        let fields = header.split(separator: ";").compactMap { part -> (String, String)? in
+            let pair = part.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2 else { return nil }
+            return (String(pair[0]), String(pair[1]))
         }
-        return String(hash, radix: 16)
+        var values: [String] = []
+        for base in ["__Secure-next-auth.session-token", "__Host-next-auth.session-token", "next-auth.session-token"] {
+            let exact = fields.filter { $0.0 == base }
+            let chunks = fields.compactMap { name, value -> (Int, String)? in
+                guard name.hasPrefix(base + "."), let index = Int(name.dropFirst(base.count + 1)) else { return nil }
+                return (index, value)
+            }.sorted { $0.0 < $1.0 }
+            guard exact.count <= 1, exact.isEmpty || chunks.isEmpty else { return nil }
+            if let value = exact.first?.1 { values.append(value) }
+            if !chunks.isEmpty {
+                guard chunks.map({ $0.0 }) == Array(0..<chunks.count) else { return nil }
+                values.append(chunks.map({ $0.1 }).joined())
+            }
+        }
+        guard values.count == 1, let value = values.first, !value.isEmpty else { return nil }
+        return value
+    }
+    static func fingerprint(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     static func accountKey(from credential: String) -> String? {

@@ -1,7 +1,7 @@
 import Foundation
 
 protocol GrokUsageFetching {
-    func fetchUsage(
+    @MainActor func fetchUsage(
         rateLimitsCookieHeader: String,
         weeklyCookieHeader: String
     ) async throws -> GrokUsage
@@ -72,9 +72,11 @@ struct GrokService: GrokUsageFetching {
         }
 
         let remainingPercent = ServiceSupport.percent((remaining / totalQueries) * 100)
-        let windowSeconds = Int(
-            ServiceSupport.parsedNumber(usage["windowSizeSeconds"])?.rounded() ?? 0
-        )
+        let rawWindow = ServiceSupport.parsedNumber(usage["windowSizeSeconds"])?.rounded() ?? 0
+        guard rawWindow >= 0, rawWindow < Double(Int.max) else {
+            throw AIUsageServiceError.invalidPayload("Grok windowSizeSeconds")
+        }
+        let windowSeconds = Int(rawWindow)
 
         let resetText = ServiceSupport.resetText(
             usage["resetAt"] ?? usage["reset_at"]

@@ -28,7 +28,7 @@ struct V2UsageLayerTests {
                 now: asOf.addingTimeInterval(7 * 60 * 60),
                 expiresAt: nil,
                 identityMatches: true
-            ) == .expired
+            ) == .staleButValid
         )
         #expect(
             UsageValidityPolicy.validity(
@@ -105,18 +105,20 @@ struct V2UsageLayerTests {
             meterId: "chatgpt.primary_window",
             window: .rolling5Hour
         )
-        #expect(notes.shouldNotify(
+        let decision1 = (notes.shouldNotify(
             identity: oldID,
             remainingPercent: 40,
             isLoaded: true,
             hasError: false
         ) == false)
-        #expect(notes.shouldNotify(
+        #expect(decision1)
+        let decision2 = (notes.shouldNotify(
             identity: oldID,
             remainingPercent: 18,
             isLoaded: true,
             hasError: false
         ))
+        #expect(decision2)
         cache.invalidateAccount(provider: .chatGPT, accountKey: old.accountKey!)
         notes.resetAccount(provider: .chatGPT, accountKey: old.accountKey!)
         #expect(cache.snapshot(for: oldID) == nil)
@@ -126,12 +128,13 @@ struct V2UsageLayerTests {
             meterId: "chatgpt.primary_window",
             window: .rolling5Hour
         )
-        #expect(notes.shouldNotify(
+        let decision3 = (notes.shouldNotify(
             identity: newID,
             remainingPercent: 18,
             isLoaded: true,
             hasError: false
         ) == false)
+        #expect(decision3)
     }
 
     @Test("accountKey unavailable does not reuse another account cache")
@@ -165,19 +168,26 @@ struct V2UsageLayerTests {
             meterId: "grok.short",
             window: .rollingCustom
         )
-        #expect(notes.shouldNotify(identity: id, remainingPercent: 40, isLoaded: true, hasError: false) == false)
-        #expect(notes.shouldNotify(identity: id, remainingPercent: 19, isLoaded: true, hasError: false))
-        #expect(notes.shouldNotify(identity: id, remainingPercent: 10, isLoaded: true, hasError: false) == false)
-        #expect(notes.shouldNotify(identity: id, remainingPercent: 19, isLoaded: false, hasError: false) == false)
-        #expect(notes.shouldNotify(identity: id, remainingPercent: 19, isLoaded: true, hasError: true) == false)
+        let decision4 = (notes.shouldNotify(identity: id, remainingPercent: 40, isLoaded: true, hasError: false) == false)
+        #expect(decision4)
+        let decision5 = (notes.shouldNotify(identity: id, remainingPercent: 19, isLoaded: true, hasError: false))
+        #expect(decision5)
+        let decision6 = (notes.shouldNotify(identity: id, remainingPercent: 10, isLoaded: true, hasError: false) == false)
+        #expect(decision6)
+        let decision7 = (notes.shouldNotify(identity: id, remainingPercent: 19, isLoaded: false, hasError: false) == false)
+        #expect(decision7)
+        let decision8 = (notes.shouldNotify(identity: id, remainingPercent: 19, isLoaded: true, hasError: true) == false)
+        #expect(decision8)
     }
 
     @Test("Recovery allows one active restore and latches REQUIRES_USER_ACTION")
     func recoveryDedupeAndLatch() {
         var coordinator = RecoveryCoordinator()
         let scope = RecoveryScope(provider: .chatGPT, accountKey: "a")
-        #expect(coordinator.beginRecovery(scope: scope))
-        #expect(coordinator.beginRecovery(scope: scope) == false)
+        let decision9 = (coordinator.beginRecovery(scope: scope))
+        #expect(decision9)
+        let decision10 = (coordinator.beginRecovery(scope: scope) == false)
+        #expect(decision10)
         #expect(coordinator.state == .recovering)
         let captured = coordinator.generation
         coordinator.invalidate()
@@ -188,11 +198,13 @@ struct V2UsageLayerTests {
         _ = coordinator.beginRecovery(scope: scope, now: now)
         coordinator.markFailure(now: now)
         #expect(coordinator.state == .backoff)
-        #expect(coordinator.beginRecovery(scope: scope, now: now) == false)
+        let decision11 = (coordinator.beginRecovery(scope: scope, now: now) == false)
+        #expect(decision11)
         coordinator.markFailure(now: now.addingTimeInterval(1))
         coordinator.markFailure(now: now.addingTimeInterval(2))
         #expect(coordinator.state == .requiresUserAction)
-        #expect(coordinator.beginRecovery(scope: scope, now: now.addingTimeInterval(30)) == false)
+        let decision12 = (coordinator.beginRecovery(scope: scope, now: now.addingTimeInterval(30)) == false)
+        #expect(decision12)
     }
 
     @Test("Recovery success requires fetch parse and identity not WebKit READY")
@@ -319,14 +331,21 @@ struct V2UsageLayerTests {
     func recoveryCoordinatorEnforcesRestoreAndRetryBounds() {
         var coordinator = RecoveryCoordinator()
         let scope = RecoveryScope(provider: .grok, accountKey: "a")
-        #expect(coordinator.beginRecovery(scope: scope))
-        #expect(coordinator.consumeRestoreAttempt())
-        #expect(coordinator.consumeRestoreAttempt() == false)
-        #expect(coordinator.consumeRetryFetch())
-        #expect(coordinator.consumeRetryFetch() == false)
+        let decision13 = (coordinator.beginRecovery(scope: scope))
+        #expect(decision13)
+        let decision14 = (coordinator.consumeRestoreAttempt())
+        #expect(decision14)
+        let decision15 = (coordinator.consumeRestoreAttempt() == false)
+        #expect(decision15)
+        let decision16 = (coordinator.consumeRetryFetch())
+        #expect(decision16)
+        let decision17 = (coordinator.consumeRetryFetch() == false)
+        #expect(decision17)
         coordinator.markRequiresUserAction()
-        #expect(coordinator.beginRecovery(scope: scope) == false)
-        #expect(coordinator.consumeRestoreAttempt() == false)
+        let decision18 = (coordinator.beginRecovery(scope: scope) == false)
+        #expect(decision18)
+        let decision19 = (coordinator.consumeRestoreAttempt() == false)
+        #expect(decision19)
     }
 
     @Test("Stale in-flight completion cannot commit after logout generation bump")

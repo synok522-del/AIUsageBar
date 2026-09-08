@@ -327,7 +327,8 @@ struct V2ProductionIntegrationTests {
             chatGPTService: chatGPT,
             grokService: grok,
             grokSessionRestorer: restorer,
-            grokCookieSource: EmptyGrokRefreshCookieSource()
+            grokCookieSource: EmptyGrokRefreshCookieSource(),
+            credentialStore: KeychainManager(inMemory: true)
         )
     }
 

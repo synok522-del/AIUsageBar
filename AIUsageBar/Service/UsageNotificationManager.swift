@@ -37,6 +37,24 @@ private struct UsageNotificationPayload: Sendable {
     let resetText: String
     let generation: UInt
     let createdAt: Date
+    let resetAt: Date?
+}
+
+enum UsageNotificationWindowPolicy {
+    static func isGenuineNewWindow(
+        previousResetAt: Date?,
+        currentResetAt: Date?,
+        now: Date
+    ) -> Bool {
+        // A new future reset after the prior boundary is reliable evidence of
+        // a new logical window. Future-to-future changes are treated as
+        // harmless provider recomputation so resetAt jitter cannot re-arm a
+        // notification that already fired.
+        guard let previousResetAt, let currentResetAt else {
+            return false
+        }
+        return previousResetAt <= now && currentResetAt > now
+    }
 }
 
 struct UsageNotificationState {
@@ -120,12 +138,15 @@ final class UsageNotificationManager {
     private let center: UNUserNotificationCenter
     private let defaults: UserDefaults
     private var state = UsageNotificationState()
-    private struct Scope: Equatable {
+    private struct ScopeIdentity: Equatable {
         let account: String?
         let meter: String
         let window: UsageWindow
-        let resetAt: Date?
         let durationSeconds: Int?
+    }
+    private struct Scope {
+        let identity: ScopeIdentity
+        var resetAt: Date?
     }
     private var scopes: [UsageNotificationProvider: Scope] = [:]
     private var generations: [UsageNotificationProvider: UInt] = [:]
@@ -139,13 +160,26 @@ final class UsageNotificationManager {
     private func prepare(_ provider: UsageNotificationProvider, snapshot: UsageSnapshot?, now: Date) -> Bool {
         guard let snapshot, let meter = snapshot.displayedPrimaryMeter,
               snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh else { return false }
-        let scope = Scope(account: snapshot.accountKey, meter: meter.meterId, window: meter.window, resetAt: meter.resetAt, durationSeconds: meter.windowDurationSeconds)
-        if scopes[provider] != scope {
+        let identity = ScopeIdentity(
+            account: snapshot.accountKey,
+            meter: meter.meterId,
+            window: meter.window,
+            durationSeconds: meter.windowDurationSeconds
+        )
+        let resetCrossed = scopes[provider].map {
+            UsageNotificationWindowPolicy.isGenuineNewWindow(
+                previousResetAt: $0.resetAt,
+                currentResetAt: meter.resetAt,
+                now: now
+            )
+        } ?? false
+        if scopes[provider]?.identity != identity || resetCrossed {
             resetTracking(for: provider)
-            scopes[provider] = scope
         }
+        scopes[provider] = Scope(identity: identity, resetAt: meter.resetAt)
         return true
     }
+
     private var authorizationWasRequested: Bool
 
     init(
@@ -239,7 +273,7 @@ final class UsageNotificationManager {
             payloads.append(makePayload(for: .grok, info: grok))
         }
 
-        for payload in payloads { lastMeters[payload.provider] = scopes[payload.provider]?.meter }
+        for payload in payloads { lastMeters[payload.provider] = scopes[payload.provider]?.identity.meter }
         requestAuthorizationIfNeeded(for: payloads)
     }
 
@@ -264,7 +298,8 @@ final class UsageNotificationManager {
                 remainingPercent: info.primaryRemainingPercent,
                 resetText: info.primaryResetText,
                 generation: generations[provider, default: 0],
-                createdAt: Date()
+                createdAt: Date(),
+                resetAt: scopes[provider]?.resetAt
             )
         case .chatGPT, .claude:
             return UsageNotificationPayload(
@@ -272,7 +307,8 @@ final class UsageNotificationManager {
                 remainingPercent: info.sessionPercent,
                 resetText: info.resetText,
                 generation: generations[provider, default: 0],
-                createdAt: Date()
+                createdAt: Date(),
+                resetAt: scopes[provider]?.resetAt
             )
         }
     }
@@ -341,6 +377,7 @@ final class UsageNotificationManager {
         for payload in payloads {
             guard Date().timeIntervalSince(payload.createdAt) <= UsageValidityPolicy.freshnessTTL,
                   payload.generation == generations[payload.provider, default: 0],
+                  payload.resetAt.map({ Date() < $0 }) ?? true,
                   scopes[payload.provider]?.resetAt.map({ Date() < $0 }) ?? true else { continue }
             let request = makeRequest(for: payload)
             let provider = payload.provider.rawValue

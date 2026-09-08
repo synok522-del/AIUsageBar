@@ -23,7 +23,7 @@ struct AstraTakeoverTests {
         #expect(!vm.chatGPT.isLoaded)
     }
 
-    @Test func resetBoundaryInvalidatesVisibleUsageWithoutNetwork() async throws {
+    @Test func resetBoundaryKeepsVisibleUsageAndRequestsRefresh() async throws {
         let source = ControllableChatGPTUsageService()
         let reset = Date().addingTimeInterval(60)
         source.enqueue(.success(ChatGPTUsage(sessionRemainingPercent: 70, resetText: "future",
@@ -34,9 +34,18 @@ struct AstraTakeoverTests {
         #expect(vm.chatGPT.isLoaded)
         vm.expireInvalidUsage(now: reset.addingTimeInterval(-1))
         #expect(vm.chatGPT.isLoaded)
+
+        let refreshedReset = reset.addingTimeInterval(3_600)
+        source.enqueue(.success(ChatGPTUsage(sessionRemainingPercent: 65, resetText: "refreshed",
+            weeklyRemainingPercent: nil, weeklyResetText: nil, sessionResetAt: refreshedReset)))
         vm.expireInvalidUsage(now: reset)
-        #expect(!vm.chatGPT.isLoaded)
-        #expect(source.cookieHeaders.count == 1)
+        vm.expireInvalidUsage(now: reset)
+        while source.cookieHeaders.count < 2 { await Task.yield() }
+        while vm.isLoading { await Task.yield() }
+        #expect(vm.chatGPT.isLoaded)
+        #expect(vm.chatGPT.sessionPercent == 65)
+        #expect(vm.v2Snapshot(for: .chatGPT)?.displayedPrimaryMeter?.resetAt == refreshedReset)
+        #expect(source.cookieHeaders.count == 2)
     }
 
     @Test func chatGPTAccountSwitchRejectsSuspendedCompletion() async {
@@ -52,16 +61,25 @@ struct AstraTakeoverTests {
         #expect(!vm.chatGPT.isLoaded)
     }
 
-    @Test func cookieAccountDriftCannotBeRelabeled() async {
+    @Test func cookieAccountDriftDoesNotRelabelSuccessfulUsage() async {
         let service = ControllableGrokUsageService()
         let vm = model(grok: service, cookies: ForeignGrokCookies())
+        service.enqueue(.success(GrokUsage(
+            sessionRemainingPercent: 40,
+            resetText: "ok",
+            sessionWindowSeconds: 7_200,
+            weeklyRemainingPercent: nil,
+            weeklyResetText: nil,
+            weeklyRelativeResetText: nil
+        )))
         vm.setGrokSessionToken("synthetic-A")
         // setGrokCredential enqueues the production refresh.
         for _ in 0..<100 { await Task.yield() }
         while vm.isLoading { await Task.yield() }
-        #expect(service.cookieHeaders.isEmpty)
-        #expect(vm.v2Snapshot(for: .grok) == nil)
-        #expect(vm.v2GrokRecoveryState() == .requiresUserAction)
+        #expect(service.cookieHeaders == ["sso=synthetic-A"])
+        #expect(vm.v2Snapshot(for: .grok)?.accountKey == UsageIdentity.accountKey(from: "synthetic-A"))
+        #expect(vm.grok.isLoaded)
+        #expect(vm.v2GrokRecoveryState() == .healthy)
     }
 
     @Test func disappearedMetersAreEvicted() throws {
@@ -76,12 +94,14 @@ struct AstraTakeoverTests {
         #expect(cache.snapshot(for: weekly) == nil)
     }
 
-    @Test func secondaryResetCannotRemainValidBehindPrimary() {
+    @Test func secondaryResetDoesNotExpireValidPrimary() {
         let now = Date()
         let snapshot = V1UsageAdapters.chatGPTSnapshot(usage: ChatGPTUsage(sessionRemainingPercent: 80,
             resetText: "", weeklyRemainingPercent: 60, weeklyResetText: nil,
             sessionResetAt: now.addingTimeInterval(100), weeklyResetAt: now), token: "synthetic-A")
-        #expect(snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .expired)
+        #expect(snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh)
+        #expect(snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey,
+            meterId: "chatgpt.secondary_window", window: .weekly) == .expired)
     }
 
     @Test func actualNotificationManagerScopesPrimaryAndReset() {
@@ -103,8 +123,8 @@ struct AstraTakeoverTests {
         sample(20, reset)
         #expect(manager.hasNotified(.grok))
         #expect(manager.lastNotifiedMeterID(for: .grok) == "grok.weekly")
-        sample(10, reset.addingTimeInterval(100))
-        #expect(!manager.hasNotified(.grok))
+        sample(10, reset.addingTimeInterval(60))
+        #expect(manager.hasNotified(.grok))
         sample(10, reset, "B")
         #expect(!manager.hasNotified(.grok))
         defaults.removeObject(forKey: UsageNotificationSettings.isEnabledKey)
@@ -160,6 +180,23 @@ struct AstraTakeoverTests {
         #expect(restorer.restoreAfterCount == 2)
         #expect(restorer.restoreIfNeededCount == 0)
         #expect(vm.v2GrokRecoveryState() == .healthy)
+    }
+
+    @Test func transientFailureAfterRestoreUsesBackoffNotLogin() async {
+        let service = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let vm = UsageViewModel(claudeService: ImmediateClaudeUsageService(), chatGPTService: ImmediateChatGPTUsageService(),
+            grokService: service, grokSessionRestorer: restorer, grokCookieSource: EmptyGrokRefreshCookieSource(),
+            credentialStore: KeychainManager(inMemory: true))
+        service.enqueue(.failure(AIUsageServiceError.httpStatus("Grok", 401)))
+        service.enqueue(.failure(URLError(.timedOut)))
+        vm.setGrokSessionToken("A")
+        await service.waitUntilFetchStartedCount(2)
+        while vm.isLoading { await Task.yield() }
+        #expect(restorer.restoreAfterCount == 1)
+        #expect(vm.v2GrokRetriesUsed() == 1)
+        #expect(vm.v2GrokRecoveryState() == .backoff)
+        #expect(vm.v2GrokRecoveryState() != .requiresUserAction)
     }
 
     @Test func claudeAccountSwitchRejectsSuspendedCompletion() async {

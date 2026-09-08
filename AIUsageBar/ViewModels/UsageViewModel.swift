@@ -52,7 +52,8 @@ final class UsageViewModel: ObservableObject {
 
 
     private var refreshTimer: Timer?
-    private var validityTimer: Timer?
+    private var resetRefreshTimer: Timer?
+    private var resetRefreshRequests: Set<UsageCacheIdentity> = []
     private let credentialStore: KeychainManager
 
 
@@ -124,7 +125,7 @@ final class UsageViewModel: ObservableObject {
 
     deinit {
         refreshTimer?.invalidate()
-        validityTimer?.invalidate()
+        resetRefreshTimer?.invalidate()
     }
 
 
@@ -209,6 +210,8 @@ final class UsageViewModel: ObservableObject {
                 .claude,
                 accountKey: UsageIdentity.accountKey(from: claudeSessionKey)
             )
+            resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != .claude })
+            scheduleNextResetRefresh()
         }
 
         claudeSessionKey = value
@@ -252,6 +255,8 @@ final class UsageViewModel: ObservableObject {
                 .chatGPT,
                 accountKey: UsageIdentity.accountKey(from: chatGPTSessionToken)
             )
+            resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != .chatGPT })
+            scheduleNextResetRefresh()
         }
 
         chatGPTSessionToken = credential.value
@@ -309,6 +314,8 @@ final class UsageViewModel: ObservableObject {
             .grok,
             accountKey: UsageIdentity.accountKey(from: previousToken)
         )
+        resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != .grok })
+        scheduleNextResetRefresh()
 
         grokSessionToken = credential.value
         grokCookieHeader = credential.cookieHeader
@@ -376,9 +383,6 @@ final class UsageViewModel: ObservableObject {
     }
 
     private func performRefreshCycle() async {
-        expireInvalidUsage()
-
-
         async let claudeRefresh: Bool =
             refreshClaude()
 
@@ -423,10 +427,8 @@ final class UsageViewModel: ObservableObject {
         refreshTimer?.invalidate()
 
 
-        validityTimer?.invalidate()
-        validityTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.expireInvalidUsage() }
-        }
+        resetRefreshTimer?.invalidate()
+        resetRefreshTimer = nil
         refreshTimer = Timer.scheduledTimer(
             withTimeInterval: 600,
             repeats: true
@@ -443,6 +445,7 @@ final class UsageViewModel: ObservableObject {
             }
 
         }
+        scheduleNextResetRefresh()
     }
 
 
@@ -484,7 +487,7 @@ final class UsageViewModel: ObservableObject {
             }
 
             try Task.checkCancellation()
-            guard v2.commit(snapshot) else { throw AIUsageServiceError.invalidPayload("Claude") }
+            guard commitV2Snapshot(snapshot) else { throw AIUsageServiceError.invalidPayload("Claude") }
             applyClaude(usage)
             return true
         } catch {
@@ -546,7 +549,7 @@ final class UsageViewModel: ObservableObject {
             }
 
             try Task.checkCancellation()
-            guard v2.commit(snapshot) else { throw AIUsageServiceError.invalidPayload("ChatGPT") }
+            guard commitV2Snapshot(snapshot) else { throw AIUsageServiceError.invalidPayload("ChatGPT") }
             applyChatGPT(usage)
             return true
         } catch {
@@ -622,24 +625,27 @@ final class UsageViewModel: ObservableObject {
             return false
         }
 
-        let rateLimitsCookieHeader = GrokSessionContext.cookieHeaderForRequest(
+        let webKitRateLimitsCookieHeader = GrokSessionContext.cookieHeaderForRequest(
             webKitCookies: webKitCookies,
             fallbackHeader: fallbackHeader,
             url: GrokSessionContext.rateLimitsURL
         )
-        let weeklyCookieHeader = GrokSessionContext.cookieHeaderForRequest(
+        let webKitWeeklyCookieHeader = GrokSessionContext.cookieHeaderForRequest(
             webKitCookies: webKitCookies,
             fallbackHeader: fallbackHeader,
             url: GrokSessionContext.weeklyCreditsURL
         )
         let accountCredential = grokSessionToken
         let expectedAccountKey = UsageIdentity.accountKey(from: accountCredential)
-        guard GrokService.ssoToken(from: rateLimitsCookieHeader) == accountCredential,
-              GrokService.ssoToken(from: weeklyCookieHeader) == accountCredential else {
-            v2.grokRecovery.markRequiresUserAction()
-            grok = UsageInfo(errorMessage: "Grok 登入已失效，請重新登入")
-            return false
-        }
+        let webKitCredentialsMatch =
+            GrokService.ssoToken(from: webKitRateLimitsCookieHeader) == accountCredential &&
+            GrokService.ssoToken(from: webKitWeeklyCookieHeader) == accountCredential
+        let rateLimitsCookieHeader = webKitCredentialsMatch
+            ? webKitRateLimitsCookieHeader
+            : fallbackHeader
+        let weeklyCookieHeader = webKitCredentialsMatch
+            ? webKitWeeklyCookieHeader
+            : fallbackHeader
         let source = GrokProductionUsageSource(
             service: grokService,
             rateLimitsCookieHeader: rateLimitsCookieHeader,
@@ -680,7 +686,7 @@ final class UsageViewModel: ObservableObject {
             }
 
             try Task.checkCancellation()
-            guard v2.commit(snapshot) else { throw AIUsageServiceError.invalidPayload("Grok") }
+            guard commitV2Snapshot(snapshot) else { throw AIUsageServiceError.invalidPayload("Grok") }
             applyGrok(usage)
             return true
         } catch {
@@ -737,7 +743,15 @@ final class UsageViewModel: ObservableObject {
             }
 
             if v2.grokRecovery.state == .recovering {
-                v2.grokRecovery.markRequiresUserAction()
+                if GrokSessionRecoveryPolicy.isAuthenticationFailure(error) {
+                    v2.grokRecovery.markRequiresUserAction()
+                } else {
+                    v2.grokRecovery.markFailure()
+                }
+            } else if v2.grokRecovery.state != .requiresUserAction {
+                // Keep transport and malformed-response failures recoverable;
+                // only an explicit authentication response may demand login.
+                v2.grokRecovery.markFailure()
             }
 
             applyGrokFailure(error, authGeneration: authGeneration)
@@ -804,6 +818,57 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    private func commitV2Snapshot(_ snapshot: UsageSnapshot, now: Date = Date()) -> Bool {
+        guard v2.commit(snapshot, now: now) else {
+            return false
+        }
+
+        resetRefreshRequests = Set(resetRefreshRequests.filter {
+            $0.provider != snapshot.provider || $0.accountKey != snapshot.accountKey
+        })
+        scheduleNextResetRefresh(now: now)
+        return true
+    }
+
+    private func resetRefreshIdentity(for snapshot: UsageSnapshot) -> UsageCacheIdentity? {
+        guard let meter = snapshot.displayedPrimaryMeter else {
+            return nil
+        }
+
+        return UsageCacheIdentity(
+            provider: snapshot.provider,
+            accountKey: snapshot.accountKey,
+            meterId: meter.meterId,
+            window: meter.window,
+            durationSeconds: meter.windowDurationSeconds
+        )
+    }
+
+    private func scheduleNextResetRefresh(now: Date = Date()) {
+        resetRefreshTimer?.invalidate()
+        resetRefreshTimer = nil
+
+        guard let nextReset = v2.lastSnapshots.values
+            .compactMap({ $0.displayedPrimaryMeter?.resetAt })
+            .filter({ $0 > now })
+            .min() else {
+            return
+        }
+
+        let interval = max(0.1, nextReset.timeIntervalSince(now))
+        resetRefreshTimer = Timer.scheduledTimer(
+            withTimeInterval: interval,
+            repeats: false
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.resetRefreshTimer = nil
+                self.expireInvalidUsage()
+            }
+        }
+    }
+
     func v2Snapshot(for provider: UsageProviderID) -> UsageSnapshot? {
         v2.lastSnapshots[provider]
     }
@@ -840,16 +905,21 @@ final class UsageViewModel: ObservableObject {
     }
 
     func expireInvalidUsage(now: Date = Date()) {
-        for (provider, snapshot) in v2.lastSnapshots {
-            let validity = snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey)
-            guard validity == .expired || validity == .invalid else { continue }
-            let info = UsageInfo(errorMessage: "更新失敗")
-            switch provider {
-            case .chatGPT: if chatGPT.isLoaded { chatGPT = info }
-            case .claude: if claude.isLoaded { claude = info }
-            case .grok: if grok.isLoaded { grok = info }
-            default: break
+        var shouldRefresh = false
+        for snapshot in v2.lastSnapshots.values {
+            guard snapshot.validity(
+                now: now,
+                expectedAccountKey: snapshot.accountKey
+            ) == .expired,
+            let identity = resetRefreshIdentity(for: snapshot),
+            resetRefreshRequests.insert(identity).inserted else {
+                continue
             }
+            shouldRefresh = true
+        }
+
+        if shouldRefresh {
+            requestRefreshAll()
         }
     }
 

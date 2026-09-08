@@ -236,6 +236,126 @@ struct V2ProductionIntegrationTests {
         #expect(chatGPT.cookieHeaders.count == 1)
     }
 
+    @Test("A secondary reset does not blank a valid primary on the production path")
+    @MainActor
+    func secondaryResetDoesNotBlankPrimaryProductionCard() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let primaryReset = Date().addingTimeInterval(3_600)
+        let secondaryReset = Date().addingTimeInterval(-1)
+        chatGPT.enqueue(.success(
+            ChatGPTUsage(
+                sessionRemainingPercent: 55,
+                resetText: "5h",
+                weeklyRemainingPercent: 80,
+                weeklyResetText: "old",
+                sessionResetAt: primaryReset,
+                weeklyResetAt: secondaryReset
+            )
+        ))
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy()
+        )
+        model.setChatGPTSessionToken("chatgpt-token")
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.chatGPT.isLoaded)
+        #expect(model.chatGPT.sessionPercent == 55)
+        #expect(model.v2Snapshot(for: .chatGPT)?.validity(
+            now: Date(),
+            expectedAccountKey: UsageIdentity.accountKey(from: "chatgpt-token")
+        ) == .fresh)
+        #expect(model.v2Snapshot(for: .chatGPT)?.validity(
+            now: Date(),
+            expectedAccountKey: UsageIdentity.accountKey(from: "chatgpt-token"),
+            meterId: "chatgpt.secondary_window",
+            window: .weekly
+        ) == .expired)
+    }
+
+    @Test("A reset boundary requests one coalesced refresh and commits fresh data")
+    @MainActor
+    func resetBoundaryRequestsOneCoalescedRefresh() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let oldReset = Date().addingTimeInterval(60)
+        let newReset = Date().addingTimeInterval(3_600)
+        chatGPT.enqueue(.success(
+            ChatGPTUsage(
+                sessionRemainingPercent: 40,
+                resetText: "old",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: oldReset
+            )
+        ))
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy()
+        )
+        model.setChatGPTSessionToken("chatgpt-token")
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        chatGPT.enqueue(.success(
+            ChatGPTUsage(
+                sessionRemainingPercent: 65,
+                resetText: "new",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: newReset
+            )
+        ))
+        model.expireInvalidUsage(now: oldReset)
+        model.expireInvalidUsage(now: oldReset)
+        while chatGPT.cookieHeaders.count < 2 { await Task.yield() }
+        await waitUntilRefreshIdle(model)
+
+        #expect(chatGPT.cookieHeaders.count == 2)
+        #expect(model.chatGPT.isLoaded)
+        #expect(model.chatGPT.sessionPercent == 65)
+        #expect(model.v2Snapshot(for: .chatGPT)?.displayedPrimaryMeter?.resetAt == newReset)
+    }
+
+    @Test("A failed reset refresh preserves last known data without auth latching")
+    @MainActor
+    func failedResetRefreshPreservesDataWithoutAuthLatch() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let reset = Date().addingTimeInterval(60)
+        chatGPT.enqueue(.success(
+            ChatGPTUsage(
+                sessionRemainingPercent: 40,
+                resetText: "old",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: reset
+            )
+        ))
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy()
+        )
+        model.setChatGPTSessionToken("chatgpt-token")
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        chatGPT.enqueue(.failure(URLError(.timedOut)))
+        model.expireInvalidUsage(now: reset)
+        while chatGPT.cookieHeaders.count < 2 { await Task.yield() }
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.chatGPT.isLoaded)
+        #expect(model.chatGPT.sessionPercent == 40)
+        #expect(model.chatGPT.errorMessage != nil)
+        #expect(!model.statusMessage.contains("登入已失效"))
+    }
+
     @Test("Identity-unavailable recovery can succeed safely without cache reuse")
     @MainActor
     func identityUnavailableRecoverySucceedsWithoutCacheReuse() async throws {

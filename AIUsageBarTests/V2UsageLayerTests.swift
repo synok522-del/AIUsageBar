@@ -180,6 +180,32 @@ struct V2UsageLayerTests {
         #expect(decision8)
     }
 
+    @Test("Notification reset jitter is not a new window, but a post-reset future is")
+    func notificationResetJitterAndBoundaryPolicy() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        #expect(
+            UsageNotificationWindowPolicy.isGenuineNewWindow(
+                previousResetAt: now.addingTimeInterval(60),
+                currentResetAt: now.addingTimeInterval(120),
+                now: now
+            ) == false
+        )
+        #expect(
+            UsageNotificationWindowPolicy.isGenuineNewWindow(
+                previousResetAt: now.addingTimeInterval(-1),
+                currentResetAt: now.addingTimeInterval(60),
+                now: now
+            )
+        )
+        #expect(
+            UsageNotificationWindowPolicy.isGenuineNewWindow(
+                previousResetAt: nil,
+                currentResetAt: now.addingTimeInterval(60),
+                now: now
+            ) == false
+        )
+    }
+
     @Test("Recovery allows one active restore and latches REQUIRES_USER_ACTION")
     func recoveryDedupeAndLatch() {
         var coordinator = RecoveryCoordinator()
@@ -279,8 +305,8 @@ struct V2UsageLayerTests {
         )
     }
 
-    @Test("resetAt crossing expires a snapshot without fabricating timestamps")
-    func resetAtCrossingExpiresSnapshot() {
+    @Test("resetAt crossing expires only the primary meter")
+    func resetAtCrossingExpiresOnlyPrimaryMeter() {
         let resetAt = Date(timeIntervalSince1970: 5_000)
         let snapshot = V1UsageAdapters.chatGPTSnapshot(
             usage: ChatGPTUsage(
@@ -304,6 +330,33 @@ struct V2UsageLayerTests {
             snapshot.validity(
                 now: resetAt,
                 expectedAccountKey: snapshot.accountKey
+            ) == .expired
+        )
+
+        let secondaryExpired = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 40,
+                resetText: "soon",
+                weeklyRemainingPercent: 80,
+                weeklyResetText: "old",
+                sessionResetAt: resetAt.addingTimeInterval(600),
+                weeklyResetAt: resetAt
+            ),
+            token: "tok",
+            asOf: Date(timeIntervalSince1970: 4_900)
+        )
+        #expect(
+            secondaryExpired.validity(
+                now: resetAt,
+                expectedAccountKey: secondaryExpired.accountKey
+            ) == .fresh
+        )
+        #expect(
+            secondaryExpired.validity(
+                now: resetAt,
+                expectedAccountKey: secondaryExpired.accountKey,
+                meterId: "chatgpt.secondary_window",
+                window: .weekly
             ) == .expired
         )
 

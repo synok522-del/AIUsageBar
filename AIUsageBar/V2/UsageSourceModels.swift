@@ -94,7 +94,13 @@ struct UsageSnapshot: Equatable, Sendable {
         meters.first(where: \.isDisplayedPrimary) ?? meters.first
     }
 
-    func validity(now: Date, expectedAccountKey: String?) -> UsageValidity {
+    func validity(
+        now: Date,
+        expectedAccountKey: String?,
+        meterId: String? = nil,
+        window: UsageWindow? = nil,
+        durationSeconds: Int? = nil
+    ) -> UsageValidity {
         let identityMatches: Bool
         if let expectedAccountKey {
             identityMatches = accountKey == expectedAccountKey
@@ -106,8 +112,36 @@ struct UsageSnapshot: Equatable, Sendable {
               Set(meters.map { $0.meterId }).count == meters.count else { return .invalid }
         let states = meters.map { $0.validity(observedAt: asOf, now: now, identityMatches: identityMatches) }
         if states.contains(.invalid) { return .invalid }
-        if states.contains(.expired) { return .expired }
-        return states.contains(.staleButValid) ? .staleButValid : .fresh
+
+        if let meterId {
+            guard let meterIndex = meters.firstIndex(where: {
+                $0.meterId == meterId &&
+                (window == nil || $0.window == window) &&
+                (durationSeconds == nil || $0.windowDurationSeconds == durationSeconds)
+            }) else {
+                return .invalid
+            }
+            return states[meterIndex]
+        }
+
+        // A provider card is driven by its displayed primary meter. A
+        // secondary quota can cross its own reset boundary independently; it
+        // remains expired for meter-specific consumers, but must not blank a
+        // still-usable primary card.
+        guard let primaryIndex = meters.firstIndex(where: { $0.isDisplayedPrimary })
+                ?? meters.indices.first else {
+            return .invalid
+        }
+        switch states[primaryIndex] {
+        case .invalid:
+            return .invalid
+        case .expired:
+            return .expired
+        case .staleButValid:
+            return .staleButValid
+        case .fresh:
+            return .fresh
+        }
     }
 }
 

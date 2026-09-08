@@ -15,7 +15,13 @@ struct UsageAccountCache {
 
     func snapshot(for identity: UsageCacheIdentity, now: Date = Date()) -> UsageSnapshot? {
         guard identity.accountKey != nil, let snapshot = snapshots[identity] else { return nil }
-        let validity = snapshot.validity(now: now, expectedAccountKey: identity.accountKey)
+        let validity = snapshot.validity(
+            now: now,
+            expectedAccountKey: identity.accountKey,
+            meterId: identity.meterId,
+            window: identity.window,
+            durationSeconds: identity.durationSeconds
+        )
         guard validity == .fresh || validity == .staleButValid else { return nil }
         return snapshot
     }

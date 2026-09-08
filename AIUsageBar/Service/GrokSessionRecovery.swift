@@ -81,6 +81,18 @@ enum GrokHTTPRefreshAuthPolicy {
 }
 
 enum GrokSessionRecoveryPolicy {
+    static func isAuthenticationFailure(_ error: Error) -> Bool {
+        guard let serviceError = error as? AIUsageServiceError else {
+            return false
+        }
+
+        guard case .httpStatus(_, let statusCode) = serviceError else {
+            return false
+        }
+
+        return statusCode == 401 || statusCode == 403
+    }
+
     static func isRecoverableSessionFailure(_ error: Error) -> Bool {
         guard let serviceError = error as? AIUsageServiceError else {
             return false
@@ -90,7 +102,7 @@ enum GrokSessionRecoveryPolicy {
         case .wafBlocked:
             return true
         case .httpStatus(_, let statusCode):
-            return statusCode == 401
+            return statusCode == 401 || statusCode == 403
         case .invalidPayload, .invalidResponse, .missingValue:
             return false
         }

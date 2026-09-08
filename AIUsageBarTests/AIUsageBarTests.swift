@@ -1566,7 +1566,7 @@ struct AIUsageBarTests {
         #expect(!header.contains("dummy-account"))
     }
 
-    @Test("Grok session context falls back when WebKit cookies lack sso")
+    @Test("T-6GK-R8 Keychain sso is credential; still needs usage parse")
     func grokSessionContextFallsBackWithoutWebKitSSO() throws {
         let clearance = try #require(cookie(
             name: "cf_clearance",
@@ -1580,9 +1580,22 @@ struct AIUsageBarTests {
 
         #expect(header == "sso=dummy-sso; sso-rw=dummy-sso-rw")
         #expect(GrokSessionContext.cookieHeader(from: [clearance], to: GrokSessionContext.rateLimitsURL) == nil)
+        #expect(GrokV2RecoveryInterpretation.keychainSSOIsCredentialOnly(header))
+        #expect(
+            GrokV2RecoveryInterpretation.cardPhase(
+                restorerPhase: .ready,
+                usageParseSucceeded: false
+            ) != .healthy
+        )
+        #expect(
+            GrokV2RecoveryInterpretation.uiCopy(
+                restorerPhase: .ready,
+                usageParseSucceeded: false
+            ) != "已登入"
+        )
     }
 
-    @Test("Grok session context prefers current WebKit cookies when sso exists")
+    @Test("T-6GK-R2 cookie-exists is credential probe only")
     func grokSessionContextPrefersWebKitWhenSSOExists() throws {
         let sso = try #require(cookie(name: "sso", value: "dummy-sso", domain: "grok.com"))
         let clearance = try #require(cookie(
@@ -1598,6 +1611,13 @@ struct AIUsageBarTests {
         #expect(header.contains("sso=dummy-sso"))
         #expect(header.contains("cf_clearance=dummy-cf"))
         #expect(!header.contains("dummy-fallback"))
+        #expect(GrokV2RecoveryInterpretation.cookieExistsIsCredentialProbeOnly(true))
+        #expect(
+            GrokV2RecoveryInterpretation.cardPhase(
+                restorerPhase: .ready,
+                usageParseSucceeded: false
+            ) != .healthy
+        )
     }
 
     @Test("Grok session context cookie-name helper does not include values")
@@ -1651,31 +1671,67 @@ struct AIUsageBarTests {
         #expect(WebLoginProvider.grok.loginURL == GrokWebKitSessionRestorer.restoreURL)
     }
 
-    @Test("Successful restoration with usable sso becomes READY")
+    @Test("T-6GK-R1 READY/HEALTHY only after usage parse succeeds")
     func grokRestorerSuccessBecomesReady() {
         var gate = GrokSessionRestorerGate()
         let generation = gate.beginRestore()
         gate.complete(attemptGeneration: generation, outcome: .success)
         #expect(gate.phase == .ready)
+        #expect(
+            GrokV2RecoveryInterpretation.cardPhase(
+                restorerPhase: gate.phase,
+                usageParseSucceeded: false
+            ) != .healthy
+        )
+        #expect(
+            GrokV2RecoveryInterpretation.cardPhase(
+                restorerPhase: gate.phase,
+                usageParseSucceeded: true
+            ) == .healthy
+        )
+        #expect(
+            GrokV2RecoveryInterpretation.uiCopy(
+                restorerPhase: gate.phase,
+                usageParseSucceeded: false
+            ) != "已登入"
+        )
     }
 
-    @Test("Failed restoration does not become READY")
+    @Test("T-6GK-R7 no-cookie cannot probe; still not HEALTHY")
     func grokRestorerFailureDoesNotBecomeReady() {
         var gate = GrokSessionRestorerGate()
         let generation = gate.beginRestore()
         gate.complete(attemptGeneration: generation, outcome: .failure)
         #expect(gate.phase == .unknown)
+        #expect(
+            GrokV2RecoveryInterpretation.cardPhase(
+                restorerPhase: gate.phase,
+                usageParseSucceeded: false
+            ) != .healthy
+        )
     }
 
-    @Test("Timed out restoration does not become READY")
+    @Test("T-6GK-R3 restore success after usage fetch, not before")
     func grokRestorerTimeoutDoesNotBecomeReady() {
         var gate = GrokSessionRestorerGate()
         let generation = gate.beginRestore()
         gate.complete(attemptGeneration: generation, outcome: .timeout)
         #expect(gate.phase == .unknown)
+        #expect(
+            GrokV2RecoveryInterpretation.cardPhase(
+                restorerPhase: .ready,
+                usageParseSucceeded: false
+            ) != .healthy
+        )
+        #expect(
+            GrokV2RecoveryInterpretation.cardPhase(
+                restorerPhase: .ready,
+                usageParseSucceeded: true
+            ) == .healthy
+        )
     }
 
-    @Test("Reset invalidates in-flight restoration completion")
+    @Test("T-6GK-R6 generation mismatch ignores parse success")
     func grokRestorerResetInvalidatesInFlightCompletion() {
         var gate = GrokSessionRestorerGate()
         let generation = gate.beginRestore()
@@ -1683,6 +1739,29 @@ struct AIUsageBarTests {
         gate.complete(attemptGeneration: generation, outcome: .success)
         #expect(gate.phase == .unknown)
         #expect(gate.generation != generation)
+        var coordinator = V2RecoveryCoordinator()
+        let captured = coordinator.beginRecover()
+        coordinator.logout()
+        #expect(coordinator.ignoreStale(capturedGeneration: captured))
+        #expect(
+            coordinator.handle(
+                .validSnapshot(
+                    V2UsageSnapshot(
+                        provider: .grok,
+                        accountKey: "grok-1",
+                        meters: [
+                            V2UsageMeter(
+                                meterId: "grok.short",
+                                window: V2Window(classification: .short, duration: 7200),
+                                remainingPercent: 40,
+                                isPrimaryDisplayed: true
+                            )!
+                        ],
+                        fetchedAt: Date()
+                    )!
+                )
+            ) == .requiresUserAction
+        )
     }
 
     @Test("Recoverable Grok WAF permits exactly one restoration retry")
@@ -2128,7 +2207,7 @@ struct AIUsageBarTests {
         #expect(presentation.weeklyPercent == menuBarPrimary)
     }
 
-    @Test("Logout generation rejects in-flight Grok HTTP completion")
+    @Test("T-6GK-R4 race: parsed snapshot then logout is ignored")
     func grokLogoutGenerationRejectsOldHTTPCompletion() {
         var generation = GrokHTTPAuthGeneration()
         let captured = generation.value
@@ -2139,6 +2218,11 @@ struct AIUsageBarTests {
                 current: generation.value
             ) == false
         )
+        var coordinator = V2RecoveryCoordinator()
+        let recover = coordinator.beginRecover()
+        coordinator.logout()
+        #expect(coordinator.ignoreStale(capturedGeneration: recover))
+        #expect(coordinator.phase == .requiresUserAction)
     }
 
     @Test("Logout before WAF recovery blocks old-auth retry")
@@ -2162,7 +2246,7 @@ struct AIUsageBarTests {
         )
     }
 
-    @Test("Old Grok HTTP generation cannot overwrite a newer login generation")
+    @Test("T-6GK-R5 race: logout then parsed snapshot cannot clobber")
     func grokOldHTTPGenerationCannotOverwriteNewLogin() {
         var generation = GrokHTTPAuthGeneration()
         let old = generation.value
@@ -2180,6 +2264,27 @@ struct AIUsageBarTests {
                 captured: newLogin,
                 current: generation.value
             )
+        )
+        var coordinator = V2RecoveryCoordinator()
+        coordinator.logout()
+        #expect(
+            coordinator.handle(
+                .validSnapshot(
+                    V2UsageSnapshot(
+                        provider: .grok,
+                        accountKey: "grok-1",
+                        meters: [
+                            V2UsageMeter(
+                                meterId: "grok.short",
+                                window: V2Window(classification: .short, duration: 7200),
+                                remainingPercent: 40,
+                                isPrimaryDisplayed: true
+                            )!
+                        ],
+                        fetchedAt: Date()
+                    )!
+                )
+            ) == .requiresUserAction
         )
     }
 

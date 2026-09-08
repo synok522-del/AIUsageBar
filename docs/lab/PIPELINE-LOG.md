@@ -1,0 +1,28 @@
+# Cursor V2 pipeline log
+
+**Branch:** `cursor/v2-pipeline-48a2`  
+**Base:** `origin/cursor/v2-experiment-48a2` `ebdd2034818ccf29aa2c59c682e10a2ab8d25ad0`  
+**Frozen production / `main`:** `d6a4bd7c17a4a559300f93479a8fb8d0d82d384a`  
+**Orchestrator:** PIPELINE conversation (not Build / Review / Plan)
+
+Per-sprint review is recorded here before the next sprint starts. Linux `xcodebuild` absence is `BLOCKED_PENDING_REAL_MAC_EVIDENCE`, not a faked PASS.
+
+| sprint | commit SHA | verdict | notes |
+|---|---|---|---|
+| BOOTSTRAP | 54f561269daccc01d1f83f5b6bb89cf9cd5e2d00 | PASS | Imported `docs/V2.1-SPRINT-PLAN.md` and `docs/V2.1-PIPELINE-ORCHESTRATOR-PROMPT.md` from `origin/cursor/v2-sprint-plan-48a2` only. Start SHA confirmed `ebdd203`. `main` still `d6a4bd7`. No Swift / production change. |
+| S01H | fa787536a05b93fdc31ff385db62ae8a91aa6e98 | PASS | Cherry-pick of `018130d` applied cleanly (plus this log). Docs only (`docs/lab/S01H-copilot-benchmark.md`). No Copilot Swift types, no UI card. §16 FAIL list empty. Tests: 0 (as specified). |
+| S01F | 6b4fbd1aa5a4e1a775e34e74bb31afc0ab94187e | HOLD | T-1F-01…08 written. Production HOLD, no Cursor card, no `UsageProvider.cursor`. Parser in-memory only; does not open Application Support or `state.vscdb`. §16 FAIL list empty. Test execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE` (`xcodebuild` absent). Allowed HOLD — continue. |
+| S01G | 2e3e46332749f28ab6b62135119e963012f64b30 | HOLD | T-1G-01…08 written. Apps=`gemini-apps`, CLI=`gemini-cli`, never merged. Missing one family ≠ unauth of the other. No Gemini card. Fabricated resetAt rejected. §16 FAIL list empty. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. Allowed HOLD — continue. |
+| S01A | e5ee3b8615bf22ef8fe150a008438919ed1da826 | BLOCKED | `BLOCKED_PENDING_USER_AUTH`. Codex binary absent; login not runnable. `account/rateLimits/read` not captured and not invented. `~/.codex/auth.json` was **not** opened (T-1A-L4 = NO). ChatGPT production untouched. Allowed BLOCKED — continue. |
+| S02 | 5a8f7a08561a57fcf7c7a219f33a42424760cbaa | PASS | T-2-01…15 written. Types frozen in `V2Architecture.swift` + `docs/V2_ARCHITECTURE_DECISION.md`. No ChatGPT/Claude/Grok migration. Cookie-exists / navigation-finished cannot produce FRESH. Primary-meter 20% alerts only. Named cooldown/backoff constants. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. §16 FAIL list empty. |
+| S03 | 5e2a76c797f56a3ccb5d3f62dbf130ffc7f89590 | PASS | T-3-01…22 written. Adapters wrap V1 `parseUsage` / `parseRateLimits` / `validatedWeekly`. No UI rewrite. Codex + Claude snapshot-bridge default off. Cursor HOLD stub. Gemini two families not selected for UI. `billing_period_end` ignored as weekly reset. 133 `@Test` still counted in `AIUsageBarTests.swift`. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. §16 FAIL list empty. |
+| S04 | 9a55ecb957b48431c9dc63dfb3b5f1e83243e534 | PASS | T-4-01…18 written. Cache slots split by account/meter/window. User-visible 20% alerts remain primary-meter-only. Existing ChatGPT/Claude/Grok 20% notification sequences still pass. Codex not merged (`NOT_PROVEN`). Gemini Apps/CLI never share a slot. Identity helper is pure. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. §16 FAIL list empty. |
+| S05 | 09db6e1f428df505c8fc21d3f6d10c5c3df5bf26 | PASS | T-5-01…23 written. Coordinator is source-agnostic; no WebKit import, no provider URLs, no new hidden WKWebView. Cookie/navigation/READY do not become HEALTHY. Claude missing `rate_limits` is not REQUIRES_USER_ACTION. 133 `@Test` still counted. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. §16 FAIL list empty. |
+| S06A | 6a08701b2fbff9573d23036aabbe9d11e17d17cc | PASS | T-6CG-01…08 written. ChatGPT stays on `wham/usage`. S01C `NOT_PROVEN`. Codex disabled. No ChatGPT WKWebView restorer. 401 → `需重新登入`. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. §16 FAIL list empty. |
+| S06B | a516287f8efbd0cf7ae5f2fb8a765cccd9466382 | PASS | T-6CL-01…08 written. Default source `claude.ai` web. Snapshot bridge default off. Missing `rate_limits` is not logout. No OAuth credential reuse. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. §16 FAIL list empty. |
+| S06C | 6ca7de3da2b5ea30de45fa16f5b2f7ed480a1095 | PASS | T-6GK-01…08 written. T-6GK-R1…R8 rewritten in the existing 133 (`@Test` count still 133). Cookie-exists / restorer READY are credential probes, not card `已登入`. Web Grok baseline kept. `billing_period_end` ignored. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. §16 FAIL list empty. |
+| S06D | c73afa8855152b010bf17c025f7e2c1b388f416b | HOLD | T-6CU-01…02 written. No Cursor card. Cursor source cannot emit Provider UI state. Allowed HOLD. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. §16 FAIL list empty. |
+| S06E | 618c0eb25809f847731a063bd199f8ff5b585438 | HOLD | T-6GE-01…03 written. No Gemini card. Apps vs CLI remain distinct. Merged Apps+CLI snapshot rejected. Allowed HOLD. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. §16 FAIL list empty. |
+| S07 | 194225f2d65816395a6f4010ba19391d2a0acd49 | PASS | T-7-01…08 written. `docs/V2_SECURITY_REVIEW.md` has PASS/HOLD per provider. Production ChatGPT/Claude/Grok are PASS, none UNCLEAR. No `auth.json` / `state.vscdb` / chat APIs. Tier 6 foreign-cookie reuse disabled. Execution `BLOCKED_PENDING_REAL_MAC_EVIDENCE`. Pipeline STOP. S08/S09/S10 not implemented. |
+
+Independent review of PR #27 (2026-09-08) **PASS**. Two SHA cells above were wrong in the original log (`S05` had a non-existent `1d0aa24…`; `S07` had a non-existent `4cc1321…`). Corrected here to the commits on `cursor/v2-pipeline-48a2`. Verdicts were already correct. This correction commit is docs-only. Do not merge to `main`. Do not merge to experiment unless 偉凱 asks.

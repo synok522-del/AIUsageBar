@@ -10,6 +10,9 @@ struct LocalizationTests {
         #expect(L10n.t(.signedIn, language: .english) == "Signed in")
         #expect(L10n.t(.signedOut, language: .english) == "Signed out")
         #expect(L10n.t(.quitApp, language: .english) == "Quit AIUsageBar")
+        #expect(L10n.t(.openInWindow, language: .english) == "Open in Window")
+        #expect(L10n.t(.openMainWindowAtLaunch, language: .english) == "Open window at launch")
+        #expect(L10n.t(.openInWindow, language: .chineseTraditional) == "在視窗中開啟")
     }
 
     @Test("System preference follows zh vs other language codes")

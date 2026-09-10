@@ -23,6 +23,10 @@ enum L10n {
         case lowUsageNotificationsHelp
         case launchAtLogin
         case launchAtLoginHelp
+        case openInWindow
+        case openMainWindowAtLaunch
+        case openMainWindowAtLaunchHelp
+        case mainWindowTitle
         case quitApp
         case version(String, String)
         case signedIn
@@ -92,6 +96,10 @@ enum L10n {
             case .lowUsageNotificationsHelp: return "剩餘用量低於 20% 時提醒我"
             case .launchAtLogin: return "開機自動啟動"
             case .launchAtLoginHelp: return "登入 macOS 後自動在選單列啟動 AIUsageBar"
+            case .openInWindow: return "在視窗中開啟"
+            case .openMainWindowAtLaunch: return "啟動時開啟主視窗"
+            case .openMainWindowAtLaunchHelp: return "啟動後在桌面顯示主視窗，用量會一直留在畫面上。選單列圖示仍會保留。"
+            case .mainWindowTitle: return "AIUsageBar"
             case .quitApp: return "結束 AIUsageBar"
             case .version(let version, let build): return "版本 \(version) (\(build))"
             case .signedIn: return "已登入"
@@ -165,6 +173,10 @@ enum L10n {
             case .lowUsageNotificationsHelp: return "Notify me when remaining usage drops below 20%"
             case .launchAtLogin: return "Launch at login"
             case .launchAtLoginHelp: return "Start AIUsageBar in the menu bar when you log in to macOS"
+            case .openInWindow: return "Open in Window"
+            case .openMainWindowAtLaunch: return "Open window at launch"
+            case .openMainWindowAtLaunchHelp: return "Show a desktop window when AIUsageBar starts. The menu bar icon stays available."
+            case .mainWindowTitle: return "AIUsageBar"
             case .quitApp: return "Quit AIUsageBar"
             case .version(let version, let build): return "Version \(version) (\(build))"
             case .signedIn: return "Signed in"

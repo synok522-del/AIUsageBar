@@ -142,10 +142,7 @@ enum L10n {
     }
 
     static func hoursMinutes(hours: Int, minutes: Int) -> String {
-        if hours == 1 {
-            return tr("duration.hourMinutes", "1 hour %d minutes", minutes)
-        }
-        return tr("duration.hoursMinutes", "%d hours %d minutes", hours, minutes)
+        tr("duration.compound", "%@ %@", hours(hours), minutes(minutes))
     }
 
     static func minutes(_ count: Int) -> String {
@@ -156,10 +153,7 @@ enum L10n {
     }
 
     static func minutesSeconds(minutes: Int, seconds: Int) -> String {
-        if minutes == 1 {
-            return tr("duration.minuteSeconds", "1 minute %d seconds", seconds)
-        }
-        return tr("duration.minutesSeconds", "%d minutes %d seconds", minutes, seconds)
+        tr("duration.compound", "%@ %@", minutes(minutes), seconds(seconds))
     }
 
     static func seconds(_ count: Int) -> String {
@@ -179,6 +173,10 @@ enum L10n {
 
     static func resetsAbsolute(_ absolute: String) -> String {
         tr("reset.absolute", "Resets %@", absolute)
+    }
+
+    static func combinedReset(_ session: String, _ weekly: String) -> String {
+        tr("reset.combined", "%@ · %@", session, weekly)
     }
 
     // MARK: - Notifications

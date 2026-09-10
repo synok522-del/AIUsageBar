@@ -783,36 +783,19 @@
         }
       }
     },
-    "duration.hourMinutes": {
+    "duration.compound": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 hour %d minutes"
+            "value": "%@ %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 小時 %d 分鐘"
-          }
-        }
-      }
-    },
-    "duration.hoursMinutes": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d hours %d minutes"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d 小時 %d 分鐘"
+            "value": "%@ %@"
           }
         }
       }
@@ -847,40 +830,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d 分鐘"
-          }
-        }
-      }
-    },
-    "duration.minuteSeconds": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 minute %d seconds"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 分鐘 %d 秒"
-          }
-        }
-      }
-    },
-    "duration.minutesSeconds": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d minutes %d seconds"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d 分鐘 %d 秒"
           }
         }
       }
@@ -949,6 +898,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "重置於 %@"
+          }
+        }
+      }
+    },
+    "reset.combined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@｜%@"
           }
         }
       }

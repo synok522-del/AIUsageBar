@@ -39,10 +39,10 @@ struct LocalizationTests {
 
         for key in required {
             let entry = try #require(catalog.strings[key])
-            #expect(entry.en != nil, "missing English for \(key)")
-            #expect(entry.zhHant != nil, "missing zh-Hant for \(key)")
-            #expect(!(entry.en ?? "").isEmpty, "empty English for \(key)")
-            #expect(!(entry.zhHant ?? "").isEmpty, "missing zh-Hant value for \(key)")
+            #expect(entry.en != nil, Comment("missing English for \(key)"))
+            #expect(entry.zhHant != nil, Comment("missing zh-Hant for \(key)"))
+            #expect(!(entry.en ?? "").isEmpty, Comment("empty English for \(key)"))
+            #expect(!(entry.zhHant ?? "").isEmpty, Comment("missing zh-Hant value for \(key)"))
         }
     }
 
@@ -54,8 +54,8 @@ struct LocalizationTests {
             let english = try #require(entry.en)
             let chinese = try #require(entry.zhHant)
             #expect(
-                FormatSpecifiers.count(in: english) == FormatSpecifiers.count(in: chinese),
-                "placeholder mismatch for \(key): \(english) vs \(chinese)"
+                FormatSpecifiers.tokens(in: english) == FormatSpecifiers.tokens(in: chinese),
+                Comment("placeholder mismatch for \(key): \(english) vs \(chinese)")
             )
         }
     }
@@ -73,9 +73,9 @@ struct LocalizationTests {
         #expect(!L10n.seconds(45).isEmpty)
         #expect(!L10n.resetsRelative("in 5 hours").isEmpty)
         #expect(!L10n.resetsAbsolute("Sep 10, 10:00 AM").isEmpty)
-        #expect(!L10n.loginSucceeded("Claude").contains("Claude"))
-        #expect(!L10n.providerError("Grok", "unavailable").isEmpty)
-        #expect(!L10n.lowUsageTitle("ChatGPT").contains("ChatGPT"))
+        #expect(L10n.loginSucceeded("Claude").contains("Claude"))
+        #expect(L10n.providerError("Grok", "unavailable").contains("Grok"))
+        #expect(L10n.lowUsageTitle("ChatGPT").contains("ChatGPT"))
         #expect(!L10n.lowUsageBody(19).isEmpty)
         #expect(!L10n.lowUsageBodyWithReset(19, L10n.resetsRelative("in 2 hours")).isEmpty)
         #expect(!L10n.httpError("Grok", 503).isEmpty)
@@ -101,16 +101,16 @@ struct LocalizationTests {
         ] {
             let entry = try #require(catalog.strings[key])
             if key.contains("ChatGPT") || (entry.en?.contains("ChatGPT") == true) {
-                #expect(entry.zhHant?.contains("ChatGPT") == true, "ChatGPT translated in \(key)")
+                #expect(entry.zhHant?.contains("ChatGPT") == true, Comment("ChatGPT translated in \(key)"))
             }
             if entry.en?.contains("Claude") == true {
-                #expect(entry.zhHant?.contains("Claude") == true, "Claude translated in \(key)")
+                #expect(entry.zhHant?.contains("Claude") == true, Comment("Claude translated in \(key)"))
             }
             if entry.en?.contains("Grok") == true {
-                #expect(entry.zhHant?.contains("Grok") == true, "Grok translated in \(key)")
+                #expect(entry.zhHant?.contains("Grok") == true, Comment("Grok translated in \(key)"))
             }
             if entry.en?.contains("AIUsageBar") == true {
-                #expect(entry.zhHant?.contains("AIUsageBar") == true, "AIUsageBar translated in \(key)")
+                #expect(entry.zhHant?.contains("AIUsageBar") == true, Comment("AIUsageBar translated in \(key)"))
             }
         }
     }
@@ -138,7 +138,8 @@ struct LocalizationTests {
         let weeklyOnly = ServiceSupport.combinedResetText(session: "", weekly: "Sep 2")
         #expect(weeklyOnly == L10n.resetsAbsolute("Sep 2"))
         #expect(
-            ServiceSupport.combinedResetText(session: "A", weekly: "B") == "A｜B"
+            ServiceSupport.combinedResetText(session: "A", weekly: "B")
+                == L10n.combinedReset("A", "B")
         )
     }
 
@@ -160,8 +161,42 @@ struct LocalizationTests {
         let leftovers = try ChineseLiteralScanner.scanProductionSources()
         #expect(
             leftovers.isEmpty,
-            leftovers.map { "\($0.file):\($0.line): \($0.literal)" }.joined(separator: "\n")
+            Comment(leftovers.map { "\($0.file):\($0.line): \($0.literal)" }.joined(separator: "\n"))
         )
+    }
+
+    @Test("Format specifier parser detects %%, %@, %d, and %s in order")
+    func formatSpecifierParserDetectsPercentTokensInOrder() {
+        #expect(
+            FormatSpecifiers.tokens(in: "%@ used %d of %s %% done")
+                == ["%@", "%d", "%s", "%%"]
+        )
+        #expect(FormatSpecifiers.tokens(in: "%d%% remaining") == ["%d", "%%"])
+        #expect(FormatSpecifiers.tokens(in: "no specifiers") == [])
+        #expect(FormatSpecifiers.tokens(in: "%%") == ["%%"])
+    }
+
+    @Test("English duration catalog values use singular and plural forms")
+    func englishDurationCatalogUsesSingularAndPlural() throws {
+        let catalog = try CatalogFile.load()
+        #expect(catalog.strings["duration.hour.one"]?.en == "1 hour")
+        #expect(catalog.strings["duration.hours.other"]?.en == "%d hours")
+        #expect(catalog.strings["duration.minute.one"]?.en == "1 minute")
+        #expect(catalog.strings["duration.minutes.other"]?.en == "%d minutes")
+        #expect(catalog.strings["duration.second.one"]?.en == "1 second")
+        #expect(catalog.strings["duration.seconds.other"]?.en == "%d seconds")
+        #expect(catalog.strings["duration.compound"]?.en == "%@ %@")
+        #expect(catalog.strings["duration.compound"]?.zhHant == "%@ %@")
+        #expect(catalog.strings["reset.combined"]?.en == "%@ · %@")
+        #expect(catalog.strings["reset.combined"]?.zhHant == "%@｜%@")
+
+        #expect(L10n.hoursMinutes(hours: 1, minutes: 1) == L10n.tr("duration.compound", "%@ %@", L10n.hours(1), L10n.minutes(1)))
+        #expect(L10n.hoursMinutes(hours: 1, minutes: 2) == L10n.tr("duration.compound", "%@ %@", L10n.hours(1), L10n.minutes(2)))
+        #expect(L10n.hoursMinutes(hours: 2, minutes: 1) == L10n.tr("duration.compound", "%@ %@", L10n.hours(2), L10n.minutes(1)))
+        #expect(L10n.hoursMinutes(hours: 2, minutes: 2) == L10n.tr("duration.compound", "%@ %@", L10n.hours(2), L10n.minutes(2)))
+        #expect(L10n.minutesSeconds(minutes: 1, seconds: 1) == L10n.tr("duration.compound", "%@ %@", L10n.minutes(1), L10n.seconds(1)))
+        #expect(L10n.minutesSeconds(minutes: 2, seconds: 1) == L10n.tr("duration.compound", "%@ %@", L10n.minutes(2), L10n.seconds(1)))
+        #expect(L10n.minutesSeconds(minutes: 2, seconds: 2) == L10n.tr("duration.compound", "%@ %@", L10n.minutes(2), L10n.seconds(2)))
     }
 }
 
@@ -219,16 +254,29 @@ private struct CatalogEntry {
 }
 
 private enum FormatSpecifiers {
-    static func count(in value: String) -> [String: Int] {
-        var counts: [String: Int] = [:]
-        let pattern = try! NSRegularExpression(pattern: "%(?:%|@[ds])")
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
-        for match in pattern.matches(in: value, range: range) {
-            guard let matchRange = Range(match.range, in: value) else { continue }
-            let token = String(value[matchRange])
-            counts[token, default: 0] += 1
+    static func tokens(in value: String) -> [String] {
+        var tokens: [String] = []
+        let characters = Array(value)
+        var index = 0
+        while index < characters.count {
+            if characters[index] == "%", index + 1 < characters.count {
+                let next = characters[index + 1]
+                switch next {
+                case "%":
+                    tokens.append("%%")
+                    index += 2
+                    continue
+                case "@", "d", "s":
+                    tokens.append("%\(next)")
+                    index += 2
+                    continue
+                default:
+                    break
+                }
+            }
+            index += 1
         }
-        return counts
+        return tokens
     }
 }
 
@@ -253,12 +301,12 @@ private struct ChineseLiteralScanner {
         while let url = enumerator?.nextObject() as? URL {
             guard url.pathExtension == "swift" else { continue }
             let source = try String(contentsOf: url, encoding: .utf8)
-            findings.append(contentsOf: findings(in: source, file: url.lastPathComponent))
+            findings.append(contentsOf: scanSource(source, file: url.lastPathComponent))
         }
         return findings
     }
 
-    private static func findings(in source: String, file: String) -> [Finding] {
+    private static func scanSource(_ source: String, file: String) -> [Finding] {
         var findings: [Finding] = []
         var index = source.startIndex
         var line = 1

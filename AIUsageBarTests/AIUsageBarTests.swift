@@ -439,6 +439,13 @@ struct AIUsageBarTests {
         #expect(GrokService.sessionRowLabel(windowSeconds: 45) == L10n.seconds(45))
         #expect(GrokService.sessionRowLabel(windowSeconds: 3599) == L10n.minutesSeconds(minutes: 59, seconds: 59))
         #expect(GrokService.sessionRowLabel(windowSeconds: 5400) == L10n.hoursMinutes(hours: 1, minutes: 30))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3660) == L10n.hoursMinutes(hours: 1, minutes: 1))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3720) == L10n.hoursMinutes(hours: 1, minutes: 2))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 7260) == L10n.hoursMinutes(hours: 2, minutes: 1))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 7320) == L10n.hoursMinutes(hours: 2, minutes: 2))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 61) == L10n.minutesSeconds(minutes: 1, seconds: 1))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 121) == L10n.minutesSeconds(minutes: 2, seconds: 1))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 122) == L10n.minutesSeconds(minutes: 2, seconds: 2))
         #expect(GrokService.sessionRowLabel(windowSeconds: 0) == L10n.shortWindow)
         #expect(GrokService.sessionRowLabel(windowSeconds: 7200) != L10n.hours(5))
         #expect(GrokService.sessionRowLabel(windowSeconds: 1800) != L10n.hours(1))
@@ -1047,7 +1054,7 @@ struct AIUsageBarTests {
         #expect(ServiceSupport.combinedResetText(
             session: "重置於 32 分鐘後",
             weekly: "9 月 2 日 上午 10:57"
-        ) == "重置於 32 分鐘後｜9 月 2 日 上午 10:57")
+        ) == L10n.combinedReset("重置於 32 分鐘後", "9 月 2 日 上午 10:57"))
         #expect(ServiceSupport.combinedResetText(
             session: "重置於 32 分鐘後",
             weekly: ""

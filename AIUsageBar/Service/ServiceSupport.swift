@@ -164,7 +164,7 @@ enum ServiceSupport {
         weekly: String
     ) -> String {
         if !session.isEmpty && !weekly.isEmpty {
-            return "\(session)｜\(weekly)"
+            return L10n.combinedReset(session, weekly)
         }
 
         if !session.isEmpty {

@@ -6,6 +6,7 @@ import SwiftUI
 final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
     private enum WindowID: Hashable {
+        case main
         case settings
         case claudeLogin
         case chatGPTLogin
@@ -52,7 +53,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         present(
             id: .welcome,
-            title: "AIUsageBar",
+            title: L10n.t(.mainWindowTitle),
             size: nil,
             styleMask: [.titled, .closable]
         ) { [weak self] in
@@ -76,6 +77,23 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
+
+    // MARK: - Main window
+
+    func showMainWindow(viewModel: UsageViewModel) {
+        present(
+            id: .main,
+            title: L10n.t(.mainWindowTitle),
+            size: nil,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable]
+        ) {
+            UsagePanelView(
+                viewModel: viewModel,
+                windowCoordinator: self,
+                chrome: .mainWindow
+            )
+        }
+    }
 
     // MARK: - Settings
 
@@ -204,7 +222,23 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         window.title = title
         window.styleMask = styleMask
 
-        if let size {
+        if id == .main {
+            controller.view.layoutSubtreeIfNeeded()
+            let fitting = controller.view.fittingSize
+            window.setContentSize(
+                NSSize(
+                    width: max(360, fitting.width),
+                    height: max(280, fitting.height)
+                )
+            )
+            window.minSize = NSSize(width: 340, height: 240)
+            window.backgroundColor = NSColor(
+                red: 0.067,
+                green: 0.071,
+                blue: 0.102,
+                alpha: 1
+            )
+        } else if let size {
             window.setContentSize(size)
         } else {
             controller.view.layoutSubtreeIfNeeded()
@@ -215,6 +249,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         window.delegate = self
 
         windows[id] = window
+        syncActivationPolicy()
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -222,10 +257,19 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
 
     private func relocalizeOpenWindows() {
+        windows[.main]?.title = L10n.t(.mainWindowTitle)
+        windows[.welcome]?.title = L10n.t(.mainWindowTitle)
         windows[.settings]?.title = L10n.t(.settingsWindowTitle)
         windows[.claudeLogin]?.title = L10n.t(.loginWindowTitle("Claude"))
         windows[.chatGPTLogin]?.title = L10n.t(.loginWindowTitle("ChatGPT"))
         windows[.grokLogin]?.title = L10n.t(.loginWindowTitle("Grok"))
+    }
+
+    private func syncActivationPolicy() {
+        let showsDock = AppActivationPolicyDecision.showsDockIcon(
+            visibleWindowCount: windows.count
+        )
+        NSApp.setActivationPolicy(showsDock ? .regular : .accessory)
     }
 
     private func close(_ id: WindowID) {
@@ -249,5 +293,6 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         windows = windows.filter {
             $0.value !== window
         }
+        syncActivationPolicy()
     }
 }

@@ -13,6 +13,9 @@ struct SettingsView: View {
     private var lowUsageNotificationsEnabled =
         UsageNotificationSettings.defaultEnabled
 
+    @AppStorage(AppPresentationSettings.openMainWindowAtLaunchKey)
+    private var openMainWindowAtLaunch = true
+
     var onLoginChatGPT: () -> Void
     var onLoginClaude: () -> Void
     var onLoginGrok: () -> Void
@@ -73,6 +76,19 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .accessibilityLabel(L10n.t(.language))
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle(
+                    L10n.t(.openMainWindowAtLaunch),
+                    isOn: $openMainWindowAtLaunch
+                )
+
+                Text(L10n.t(.openMainWindowAtLaunchHelp))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Divider()

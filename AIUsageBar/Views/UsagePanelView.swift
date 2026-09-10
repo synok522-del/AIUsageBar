@@ -4,7 +4,8 @@ struct UsagePanelView: View {
 
     @ObservedObject var viewModel: UsageViewModel
     @ObservedObject private var languageStore = AppLanguageStore.shared
-    @StateObject private var windowCoordinator = WindowCoordinator()
+    var windowCoordinator: WindowCoordinator
+    var chrome: UsageChrome = .menuBarPanel
     @State private var isPanelVisible = false
 
     var body: some View {
@@ -48,6 +49,18 @@ struct UsagePanelView: View {
                 .frame(width: 18, height: 18)
                 .animation(.easeInOut(duration: 0.25), value: viewModel.isLoading)
 
+                if chrome == .menuBarPanel {
+                    Button {
+                        windowCoordinator.showMainWindow(viewModel: viewModel)
+                    } label: {
+                        Image(systemName: "macwindow")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.t(.openInWindow))
+                    .accessibilityLabel(L10n.t(.openInWindow))
+                }
 
                 Button {
 
@@ -91,30 +104,38 @@ struct UsagePanelView: View {
                 .animation(.easeInOut(duration: 0.25), value: viewModel.lastUpdated)
 
         }
-        .padding(14)
-        .frame(width: 300)
+        .padding(chrome == .mainWindow ? 18 : 14)
+        .frame(width: chrome == .mainWindow ? 360 : 300)
 
         .background {
-
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Theme.background)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                        .accessibilityHidden(true)
-                }
-                .accessibilityHidden(true)
-                .shadow(color: .black.opacity(0.32), radius: 24, y: 12)
+            if chrome == .menuBarPanel {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Theme.background)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            .accessibilityHidden(true)
+                    }
+                    .accessibilityHidden(true)
+                    .shadow(color: .black.opacity(0.32), radius: 24, y: 12)
+            } else {
+                Theme.background
+                    .accessibilityHidden(true)
+            }
         }
-        .opacity(isPanelVisible ? 1 : 0)
-        .animation(.easeOut(duration: 0.2), value: isPanelVisible)
+        .opacity(chrome == .menuBarPanel ? (isPanelVisible ? 1 : 0) : 1)
+        .animation(chrome == .menuBarPanel ? .easeOut(duration: 0.2) : nil, value: isPanelVisible)
         .animation(.easeInOut(duration: 0.25), value: viewModel.statusMessage)
         .environment(\.locale, languageStore.resolved.locale)
         .onAppear {
-            isPanelVisible = true
+            if chrome == .menuBarPanel {
+                isPanelVisible = true
+            }
         }
         .onDisappear {
-            isPanelVisible = false
+            if chrome == .menuBarPanel {
+                isPanelVisible = false
+            }
         }
 
         .task {

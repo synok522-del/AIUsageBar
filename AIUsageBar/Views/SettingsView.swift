@@ -4,6 +4,7 @@ import AppKit
 struct SettingsView: View {
 
     @ObservedObject var viewModel: UsageViewModel
+    @ObservedObject private var languageStore = AppLanguageStore.shared
 
     @State private var launchAtLogin =
         LaunchAtLoginManager.shared.isEnabled
@@ -20,7 +21,7 @@ struct SettingsView: View {
 
         VStack(alignment: .leading, spacing: 18) {
 
-            Text("設定")
+            Text(L10n.t(.settings))
                 .font(.title3)
                 .bold()
 
@@ -61,13 +62,29 @@ struct SettingsView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
+                Text(L10n.t(.language))
+                    .font(.headline)
+
+                Picker("", selection: $languageStore.preference) {
+                    Text(L10n.t(.languageSystem)).tag(AppLanguagePreference.system)
+                    Text(L10n.t(.languageChinese)).tag(AppLanguagePreference.chineseTraditional)
+                    Text(L10n.t(.languageEnglish)).tag(AppLanguagePreference.english)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel(L10n.t(.language))
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
 
                 Toggle(
-                    "低用量通知",
+                    L10n.t(.lowUsageNotifications),
                     isOn: $lowUsageNotificationsEnabled
                 )
 
-                Text("剩餘用量低於 20% 時提醒我")
+                Text(L10n.t(.lowUsageNotificationsHelp))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -77,7 +94,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
 
                 Toggle(
-                    "開機自動啟動",
+                    L10n.t(.launchAtLogin),
                     isOn: Binding(
                         get: { launchAtLogin },
                         set: { newValue in
@@ -87,7 +104,7 @@ struct SettingsView: View {
                     )
                 )
 
-                Text("登入 macOS 後自動在選單列啟動 AIUsageBar")
+                Text(L10n.t(.launchAtLoginHelp))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -103,14 +120,14 @@ struct SettingsView: View {
 
                 Spacer()
 
-                Button("結束 AIUsageBar") {
+                Button(L10n.t(.quitApp)) {
                     NSApplication.shared.terminate(nil)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .foregroundStyle(.secondary)
-                .help("結束 AIUsageBar")
-                .accessibilityLabel("結束 AIUsageBar")
+                .help(L10n.t(.quitApp))
+                .accessibilityLabel(L10n.t(.quitApp))
             }
 
             Spacer()
@@ -119,6 +136,8 @@ struct SettingsView: View {
         .padding(.top, 30)
         .padding(.bottom, 20)
         .frame(width: 460)
+        .environment(\.locale, languageStore.resolved.locale)
+        .id(languageStore.preference)
     }
 
     private var appVersionText: String {
@@ -134,7 +153,7 @@ struct SettingsView: View {
             return ""
         }
 
-        var text = "版本 \(version) (\(build))"
+        var text = L10n.t(.version(version, build))
         if let gitCommit {
             text += " · \(gitCommit)"
         }
@@ -182,17 +201,17 @@ struct SettingsView: View {
             if isLoggedIn {
 
                 Label(
-                    "已登入",
+                    L10n.t(.signedIn),
                     systemImage: "checkmark.circle.fill"
                 )
                 .foregroundStyle(.green)
 
-                Button("重新登入") {
+                Button(L10n.t(.signInAgain)) {
                     loginAction()
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button("登出") {
+                Button(L10n.t(.signOut)) {
                     logoutAction()
                 }
                 .buttonStyle(.bordered)
@@ -200,12 +219,12 @@ struct SettingsView: View {
             } else {
 
                 Label(
-                    "未登入",
+                    L10n.t(.signedOut),
                     systemImage: "xmark.circle.fill"
                 )
                 .foregroundStyle(.red)
 
-                Button("登入") {
+                Button(L10n.t(.signIn)) {
                     loginAction()
                 }
                 .buttonStyle(.borderedProminent)

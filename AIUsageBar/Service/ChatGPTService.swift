@@ -75,7 +75,7 @@ struct ChatGPTService: ChatGPTUsageFetching {
         let data = try await ServiceSupport.data(for: request, serviceName: "ChatGPT")
         let object = try ServiceSupport.jsonObject(from: data, serviceName: "ChatGPT")
         guard let accessToken = object["accessToken"] as? String, !accessToken.isEmpty else {
-            throw AIUsageServiceError.missingValue("無法取得 ChatGPT Access Token")
+            throw AIUsageServiceError.missingValue(L10n.t(.missingChatGPTAccessToken))
         }
         return accessToken
     }

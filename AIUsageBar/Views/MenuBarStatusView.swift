@@ -3,6 +3,7 @@ import AppKit
 
 struct MenuBarStatusView: View {
     @ObservedObject var viewModel: UsageViewModel
+    @ObservedObject private var languageStore = AppLanguageStore.shared
 
     var body: some View {
         ZStack {
@@ -34,7 +35,7 @@ struct MenuBarStatusView: View {
                     .frame(width: 16, height: 16)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(menuBarHelpText)
-                    .accessibilityValue("尚未連接 AI")
+                    .accessibilityValue(L10n.t(.notConnected))
             }
         }
         .frame(
@@ -44,6 +45,11 @@ struct MenuBarStatusView: View {
         .fixedSize(horizontal: true, vertical: true)
         .accessibilityElement(children: .contain)
         .help(menuBarHelpText)
+        .onChange(of: languageStore.preference) { _ in
+            Task {
+                await viewModel.refreshAll()
+            }
+        }
         .task {
             await viewModel.refreshAll()
         }
@@ -65,7 +71,7 @@ struct MenuBarStatusView: View {
 
     private var menuBarHelpText: String {
         providerVisibility.shouldShowSetupState
-            ? "尚未連接 AI"
+            ? L10n.t(.notConnected)
             : providerVisibility.menuBarHelpText
     }
 
@@ -223,11 +229,11 @@ struct MenuBarStatusView: View {
             .fill(.clear)
             .frame(width: menuBarImageSize.width, height: barHeight)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(label) 剩餘用量")
+            .accessibilityLabel(L10n.t(.remainingUsageA11y(label)))
             .accessibilityValue(
                 info.isLoaded
                 ? "\(percent)%"
-                : "尚未載入"
+                : L10n.t(.notLoaded)
             )
     }
 

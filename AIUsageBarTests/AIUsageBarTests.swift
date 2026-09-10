@@ -10,6 +10,9 @@ import Testing
 @testable import AIUsageBar
 
 struct AIUsageBarTests {
+    init() {
+        AppLanguageSettings.testingOverride = .chineseTraditional
+    }
 
     @Test("Welcome shows when both providers are logged out")
     func welcomeShowsWhenBothProvidersAreLoggedOut() {

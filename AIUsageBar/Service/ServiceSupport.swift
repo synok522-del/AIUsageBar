@@ -126,16 +126,19 @@ enum ServiceSupport {
         return clampedPercent(value)
     }
 
-    static func resetText(_ value: Any?) -> String {
+    static func resetText(
+        _ value: Any?,
+        language: ResolvedAppLanguage = AppLanguageSettings.resolved
+    ) -> String {
         guard let date = resetDate(value) else {
             return ""
         }
 
         let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: "zh_TW")
+        formatter.locale = language.locale
         formatter.unitsStyle = .full
 
-        return "重置於 " +
+        return L10n.t(.resetPrefix, language: language) +
             formatter.localizedString(
                 for: date,
                 relativeTo: Date()
@@ -144,23 +147,25 @@ enum ServiceSupport {
 
     static func absoluteResetText(
         _ value: Any?,
-        locale: Locale = Locale(identifier: "zh_TW"),
-        timeZone: TimeZone = .current
+        locale: Locale? = nil,
+        timeZone: TimeZone = .current,
+        language: ResolvedAppLanguage = AppLanguageSettings.resolved
     ) -> String {
         guard let date = resetDate(value) else {
             return ""
         }
 
         let formatter = DateFormatter()
-        formatter.locale = locale
+        formatter.locale = locale ?? language.locale
         formatter.timeZone = timeZone
-        formatter.dateFormat = "M 月 d 日 a h:mm"
+        formatter.dateFormat = language == .english ? "MMM d, h:mm a" : "M 月 d 日 a h:mm"
         return formatter.string(from: date)
     }
 
     static func combinedResetText(
         session: String,
-        weekly: String
+        weekly: String,
+        language: ResolvedAppLanguage = AppLanguageSettings.resolved
     ) -> String {
         if !session.isEmpty && !weekly.isEmpty {
             return "\(session)｜\(weekly)"
@@ -171,7 +176,7 @@ enum ServiceSupport {
         }
 
         if !weekly.isEmpty {
-            return "重置於 \(weekly)"
+            return L10n.t(.resetPrefix, language: language) + weekly
         }
 
         return ""
@@ -298,36 +303,36 @@ enum AIUsageServiceError: LocalizedError {
         switch self {
 
         case .invalidResponse(let service):
-            return "\(service) 回應格式錯誤"
+            return L10n.t(.invalidResponse(service))
 
         case .httpStatus(let service, let statusCode):
 
             switch statusCode {
 
             case 401:
-                return "\(service) 登入已失效，請重新登入"
+                return L10n.t(.loginExpired(service))
 
             case 403:
-                return "\(service) 沒有權限，請重新登入"
+                return L10n.t(.noPermission(service))
 
             case 429:
-                return "\(service) 請求過於頻繁，請稍後再試"
+                return L10n.t(.rateLimited(service))
 
             case 500...599:
-                return "\(service) 服務暫時無法使用"
+                return L10n.t(.serviceUnavailable(service))
 
             default:
-                return "\(service) 發生錯誤（HTTP \(statusCode)）"
+                return L10n.t(.httpError(service, statusCode))
             }
 
         case .invalidPayload(let service):
-            return "\(service) 回傳資料格式錯誤"
+            return L10n.t(.invalidPayload(service))
 
         case .missingValue(let message):
             return message
 
         case .wafBlocked(let service):
-            return "\(service) 被網站防護擋下，請稍後再試"
+            return L10n.t(.wafBlocked(service))
         }
     }
 }

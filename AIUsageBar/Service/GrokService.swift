@@ -88,9 +88,12 @@ struct GrokService: GrokUsageFetching {
         return (remainingPercent, resetText, max(0, windowSeconds), resetAt)
     }
 
-    static func sessionRowLabel(windowSeconds: Int) -> String {
+    static func sessionRowLabel(
+        windowSeconds: Int,
+        language: ResolvedAppLanguage = AppLanguageSettings.resolved
+    ) -> String {
         guard windowSeconds > 0 else {
-            return "短窗"
+            return L10n.t(.shortWindow, language: language)
         }
 
         let hours = windowSeconds / 3600
@@ -99,19 +102,19 @@ struct GrokService: GrokUsageFetching {
 
         if hours > 0 {
             if minutes == 0 {
-                return "\(hours) 小時"
+                return L10n.t(.hours(hours), language: language)
             }
-            return "\(hours) 小時 \(minutes) 分鐘"
+            return L10n.t(.hoursMinutes(hours, minutes), language: language)
         }
 
         if minutes > 0 {
             if seconds == 0 {
-                return "\(minutes) 分鐘"
+                return L10n.t(.minutes(minutes), language: language)
             }
-            return "\(minutes) 分鐘 \(seconds) 秒"
+            return L10n.t(.minutesSeconds(minutes, seconds), language: language)
         }
 
-        return "\(seconds) 秒"
+        return L10n.t(.seconds(seconds), language: language)
     }
 
     static func ssoToken(from cookieHeader: String) -> String? {

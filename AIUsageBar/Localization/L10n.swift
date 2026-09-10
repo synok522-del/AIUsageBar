@@ -142,7 +142,7 @@ enum L10n {
     }
 
     static func hoursMinutes(hours: Int, minutes: Int) -> String {
-        tr("duration.compound", "%@ %@", hours(hours), minutes(minutes))
+        tr("duration.compound", "%@ %@", Self.hours(hours), Self.minutes(minutes))
     }
 
     static func minutes(_ count: Int) -> String {
@@ -153,7 +153,7 @@ enum L10n {
     }
 
     static func minutesSeconds(minutes: Int, seconds: Int) -> String {
-        tr("duration.compound", "%@ %@", minutes(minutes), seconds(seconds))
+        tr("duration.compound", "%@ %@", Self.minutes(minutes), Self.seconds(seconds))
     }
 
     static func seconds(_ count: Int) -> String {

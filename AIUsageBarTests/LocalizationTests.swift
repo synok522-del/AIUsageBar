@@ -39,10 +39,10 @@ struct LocalizationTests {
 
         for key in required {
             let entry = try #require(catalog.strings[key])
-            #expect(entry.en != nil, Comment("missing English for \(key)"))
-            #expect(entry.zhHant != nil, Comment("missing zh-Hant for \(key)"))
-            #expect(!(entry.en ?? "").isEmpty, Comment("empty English for \(key)"))
-            #expect(!(entry.zhHant ?? "").isEmpty, Comment("missing zh-Hant value for \(key)"))
+            #expect(entry.en != nil, Comment(rawValue: "missing English for \(key)"))
+            #expect(entry.zhHant != nil, Comment(rawValue: "missing zh-Hant for \(key)"))
+            #expect(!(entry.en ?? "").isEmpty, Comment(rawValue: "empty English for \(key)"))
+            #expect(!(entry.zhHant ?? "").isEmpty, Comment(rawValue: "missing zh-Hant value for \(key)"))
         }
     }
 
@@ -55,7 +55,7 @@ struct LocalizationTests {
             let chinese = try #require(entry.zhHant)
             #expect(
                 FormatSpecifiers.tokens(in: english) == FormatSpecifiers.tokens(in: chinese),
-                Comment("placeholder mismatch for \(key): \(english) vs \(chinese)")
+                Comment(rawValue: "placeholder mismatch for \(key): \(english) vs \(chinese)")
             )
         }
     }
@@ -101,16 +101,16 @@ struct LocalizationTests {
         ] {
             let entry = try #require(catalog.strings[key])
             if key.contains("ChatGPT") || (entry.en?.contains("ChatGPT") == true) {
-                #expect(entry.zhHant?.contains("ChatGPT") == true, Comment("ChatGPT translated in \(key)"))
+                #expect(entry.zhHant?.contains("ChatGPT") == true, Comment(rawValue: "ChatGPT translated in \(key)"))
             }
             if entry.en?.contains("Claude") == true {
-                #expect(entry.zhHant?.contains("Claude") == true, Comment("Claude translated in \(key)"))
+                #expect(entry.zhHant?.contains("Claude") == true, Comment(rawValue: "Claude translated in \(key)"))
             }
             if entry.en?.contains("Grok") == true {
-                #expect(entry.zhHant?.contains("Grok") == true, Comment("Grok translated in \(key)"))
+                #expect(entry.zhHant?.contains("Grok") == true, Comment(rawValue: "Grok translated in \(key)"))
             }
             if entry.en?.contains("AIUsageBar") == true {
-                #expect(entry.zhHant?.contains("AIUsageBar") == true, Comment("AIUsageBar translated in \(key)"))
+                #expect(entry.zhHant?.contains("AIUsageBar") == true, Comment(rawValue: "AIUsageBar translated in \(key)"))
             }
         }
     }
@@ -161,7 +161,7 @@ struct LocalizationTests {
         let leftovers = try ChineseLiteralScanner.scanProductionSources()
         #expect(
             leftovers.isEmpty,
-            Comment(leftovers.map { "\($0.file):\($0.line): \($0.literal)" }.joined(separator: "\n"))
+            Comment(rawValue: leftovers.map { "\($0.file):\($0.line): \($0.literal)" }.joined(separator: "\n"))
         )
     }
 

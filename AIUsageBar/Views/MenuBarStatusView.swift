@@ -34,7 +34,7 @@ struct MenuBarStatusView: View {
                     .frame(width: 16, height: 16)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(menuBarHelpText)
-                    .accessibilityValue("尚未連接 AI")
+                    .accessibilityValue(L10n.notConnected)
             }
         }
         .frame(
@@ -65,7 +65,7 @@ struct MenuBarStatusView: View {
 
     private var menuBarHelpText: String {
         providerVisibility.shouldShowSetupState
-            ? "尚未連接 AI"
+            ? L10n.notConnected
             : providerVisibility.menuBarHelpText
     }
 
@@ -223,11 +223,11 @@ struct MenuBarStatusView: View {
             .fill(.clear)
             .frame(width: menuBarImageSize.width, height: barHeight)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(label) 剩餘用量")
+            .accessibilityLabel(L10n.remainingUsageA11y(label))
             .accessibilityValue(
                 info.isLoaded
                 ? "\(percent)%"
-                : "尚未載入"
+                : L10n.notLoaded
             )
     }
 

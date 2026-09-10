@@ -13,7 +13,7 @@ struct ClaudeLoginView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            LoginHeaderView(title: "請在下方登入 Claude")
+            LoginHeaderView(title: L10n.loginHeader("Claude"))
 
             WebLoginView(provider: .claude, onCredentialFound: onSuccess)
         }

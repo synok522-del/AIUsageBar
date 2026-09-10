@@ -282,7 +282,7 @@ struct AIUsageBarTests {
             isClaudeAuthenticated: false
         )
 
-        #expect(policy.menuBarHelpText == "ChatGPT 剩餘用量")
+        #expect(policy.menuBarHelpText == L10n.remainingUsageOne("ChatGPT"))
     }
 
     @Test("Menu bar help text identifies Claude only")
@@ -292,7 +292,7 @@ struct AIUsageBarTests {
             isClaudeAuthenticated: true
         )
 
-        #expect(policy.menuBarHelpText == "Claude 剩餘用量")
+        #expect(policy.menuBarHelpText == L10n.remainingUsageOne("Claude"))
     }
 
     @Test("Menu bar help text identifies both providers")
@@ -302,7 +302,7 @@ struct AIUsageBarTests {
             isClaudeAuthenticated: true
         )
 
-        #expect(policy.menuBarHelpText == "ChatGPT 與 Claude 剩餘用量")
+        #expect(policy.menuBarHelpText == L10n.remainingUsageTwo("ChatGPT", "Claude"))
     }
 
     @Test("Menu bar help text identifies an unconfigured app")
@@ -431,18 +431,18 @@ struct AIUsageBarTests {
 
     @Test("Grok window label uses seconds not a hardcoded five hours")
     func grokWindowLabelUsesSecondsNotHardcodedFiveHours() {
-        #expect(GrokService.sessionRowLabel(windowSeconds: 7200) == "2 小時")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 18000) == "5 小時")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 3600) == "1 小時")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 1800) == "30 分鐘")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 90) == "1 分鐘 30 秒")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 45) == "45 秒")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 3599) == "59 分鐘 59 秒")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 5400) == "1 小時 30 分鐘")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 0) == "短窗")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 7200) != "5 小時")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 1800) != "1 小時")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 3599) != "1 小時")
+        #expect(GrokService.sessionRowLabel(windowSeconds: 7200) == L10n.hours(2))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 18000) == L10n.hours(5))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3600) == L10n.hours(1))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 1800) == L10n.minutes(30))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 90) == L10n.minutesSeconds(minutes: 1, seconds: 30))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 45) == L10n.seconds(45))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3599) == L10n.minutesSeconds(minutes: 59, seconds: 59))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 5400) == L10n.hoursMinutes(hours: 1, minutes: 30))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 0) == L10n.shortWindow)
+        #expect(GrokService.sessionRowLabel(windowSeconds: 7200) != L10n.hours(5))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 1800) != L10n.hours(1))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 3599) != L10n.hours(1))
     }
 
     @Test("Menu bar layout is 24 by 10 with 4px bars for one or two providers")
@@ -492,28 +492,28 @@ struct AIUsageBarTests {
                 isChatGPTAuthenticated: false,
                 isClaudeAuthenticated: false,
                 isGrokAuthenticated: true
-            ).menuBarHelpText == "Grok 剩餘用量"
+            ).menuBarHelpText == L10n.remainingUsageOne("Grok")
         )
         #expect(
             ProviderVisibilityPolicy(
                 isChatGPTAuthenticated: true,
                 isClaudeAuthenticated: false,
                 isGrokAuthenticated: true
-            ).menuBarHelpText == "ChatGPT 與 Grok 剩餘用量"
+            ).menuBarHelpText == L10n.remainingUsageTwo("ChatGPT", "Grok")
         )
         #expect(
             ProviderVisibilityPolicy(
                 isChatGPTAuthenticated: false,
                 isClaudeAuthenticated: true,
                 isGrokAuthenticated: true
-            ).menuBarHelpText == "Claude 與 Grok 剩餘用量"
+            ).menuBarHelpText == L10n.remainingUsageTwo("Claude", "Grok")
         )
         #expect(
             ProviderVisibilityPolicy(
                 isChatGPTAuthenticated: true,
                 isClaudeAuthenticated: true,
                 isGrokAuthenticated: true
-            ).menuBarHelpText == "ChatGPT、Claude 與 Grok 剩餘用量"
+            ).menuBarHelpText == L10n.remainingUsageThree("ChatGPT", "Claude", "Grok")
         )
     }
 
@@ -625,9 +625,9 @@ struct AIUsageBarTests {
         let milliseconds = ServiceSupport.resetText("1700000000000")
         let fractionalISO8601 = ServiceSupport.resetText("2026-08-18T12:34:56.789Z")
 
-        #expect(unix.hasPrefix("重置於 "))
-        #expect(milliseconds.hasPrefix("重置於 "))
-        #expect(fractionalISO8601.hasPrefix("重置於 "))
+        #expect(unix.hasPrefix(L10n.resetPrefix))
+        #expect(milliseconds.hasPrefix(L10n.resetPrefix))
+        #expect(fractionalISO8601.hasPrefix(L10n.resetPrefix))
         #expect(ServiceSupport.resetText("invalid-date").isEmpty)
         #expect(ServiceSupport.resetText(nil).isEmpty)
         #expect(ServiceSupport.resetText(["unsupported": true]).isEmpty)
@@ -746,9 +746,21 @@ struct AIUsageBarTests {
         )
         #expect(
             UsageRefreshStatePolicy.shouldClearStatusMessage(
-                "Claude 登入成功",
+                L10n.loginSucceeded("Claude"),
                 for: "Claude"
             )
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldClearStatusMessage(
+                L10n.providerError("Claude", "expired"),
+                for: "Claude"
+            )
+        )
+        #expect(
+            UsageRefreshStatePolicy.shouldClearStatusMessage(
+                L10n.loginSucceeded("ChatGPT"),
+                for: "Claude"
+            ) == false
         )
         #expect(
             UsageRefreshStatePolicy.shouldClearStatusMessage(
@@ -775,8 +787,8 @@ struct AIUsageBarTests {
 
         #expect(parsed.sessionRemainingPercent == 100)
         #expect(parsed.weeklyRemainingPercent == 0)
-        #expect(parsed.resetText.hasPrefix("重置於 "))
-        #expect(!parsed.weeklyResetText.hasPrefix("重置於 "))
+        #expect(parsed.resetText.hasPrefix(L10n.resetPrefix))
+        #expect(!parsed.weeklyResetText.hasPrefix(L10n.resetPrefix))
         #expect(parsed.sessionResetAt != nil)
         #expect(parsed.weeklyResetAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
@@ -805,7 +817,7 @@ struct AIUsageBarTests {
         #expect(parsed.sessionResetAt == nil)
         #expect(parsed.weeklyResetAt == Date(timeIntervalSince1970: 1_700_000_000))
         #expect(!parsed.weeklyResetText.isEmpty)
-        #expect(combined == "重置於 \(parsed.weeklyResetText)")
+        #expect(combined == L10n.resetsAbsolute(parsed.weeklyResetText))
         #expect(!combined.contains("｜"))
     }
 
@@ -842,7 +854,7 @@ struct AIUsageBarTests {
         let parsed = try ChatGPTService.parseUsage(usage)
 
         #expect(parsed.sessionRemainingPercent == 0)
-        #expect(parsed.resetText.hasPrefix("重置於 "))
+        #expect(parsed.resetText.hasPrefix(L10n.resetPrefix))
         #expect(parsed.sessionResetAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
@@ -1043,7 +1055,7 @@ struct AIUsageBarTests {
         #expect(ServiceSupport.combinedResetText(
             session: "",
             weekly: "9 月 2 日 上午 10:57"
-        ) == "重置於 9 月 2 日 上午 10:57")
+        ) == L10n.resetsAbsolute("9 月 2 日 上午 10:57"))
         #expect(ServiceSupport.combinedResetText(session: "", weekly: "").isEmpty)
     }
 
@@ -1303,8 +1315,8 @@ struct AIUsageBarTests {
         #expect(parsed.windowSeconds == 7200)
         #expect(parsed.resetText.isEmpty)
         #expect(parsed.resetAt == nil)
-        #expect(GrokService.sessionRowLabel(windowSeconds: parsed.windowSeconds) == "2 小時")
-        #expect(GrokService.sessionRowLabel(windowSeconds: 0) == "短窗")
+        #expect(GrokService.sessionRowLabel(windowSeconds: parsed.windowSeconds) == L10n.hours(2))
+        #expect(GrokService.sessionRowLabel(windowSeconds: 0) == L10n.shortWindow)
     }
 
     @Test("Grok remaining percent uses totalQueries even when totalTokens is present")
@@ -1372,7 +1384,7 @@ struct AIUsageBarTests {
 
         #expect(parsed.windowSeconds == 7200)
         #expect(parsed.resetText.isEmpty)
-        #expect(!parsed.resetText.hasPrefix("重置於 "))
+        #expect(!parsed.resetText.hasPrefix(L10n.resetPrefix))
     }
 
     @Test("Grok uses a genuine reset timestamp when one is present")
@@ -1385,7 +1397,7 @@ struct AIUsageBarTests {
         ])
 
         #expect(parsed.windowSeconds == 7200)
-        #expect(parsed.resetText.hasPrefix("重置於 "))
+        #expect(parsed.resetText.hasPrefix(L10n.resetPrefix))
         #expect(!parsed.resetText.isEmpty)
         #expect(parsed.resetAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
@@ -1440,7 +1452,7 @@ struct AIUsageBarTests {
             )
             Issue.record("expected WAF error for 200 HTML")
         } catch let error as AIUsageServiceError {
-            #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+            #expect(error.localizedDescription == L10n.wafBlocked("Grok"))
         } catch {
             Issue.record("unexpected error type for 200 HTML")
         }
@@ -1454,7 +1466,7 @@ struct AIUsageBarTests {
             )
             Issue.record("expected WAF error for 403 HTML")
         } catch let error as AIUsageServiceError {
-            #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+            #expect(error.localizedDescription == L10n.wafBlocked("Grok"))
         } catch {
             Issue.record("unexpected error type for 403 HTML")
         }
@@ -1463,7 +1475,7 @@ struct AIUsageBarTests {
             _ = try ServiceSupport.jsonObject(from: html, serviceName: "Grok")
             Issue.record("expected WAF error for HTML jsonObject")
         } catch let error as AIUsageServiceError {
-            #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+            #expect(error.localizedDescription == L10n.wafBlocked("Grok"))
         } catch {
             Issue.record("unexpected error type for HTML jsonObject")
         }
@@ -1482,7 +1494,7 @@ struct AIUsageBarTests {
             )
             Issue.record("expected 401 auth error")
         } catch let error as AIUsageServiceError {
-            #expect(error.localizedDescription == "Grok 登入已失效，請重新登入")
+            #expect(error.localizedDescription == L10n.sessionExpired("Grok"))
         } catch {
             Issue.record("unexpected error type for 401")
         }
@@ -1501,7 +1513,7 @@ struct AIUsageBarTests {
             )
             Issue.record("expected 403 permission error")
         } catch let error as AIUsageServiceError {
-            #expect(error.localizedDescription == "Grok 沒有權限，請重新登入")
+            #expect(error.localizedDescription == L10n.forbidden("Grok"))
         } catch {
             Issue.record("unexpected error type for JSON 403")
         }
@@ -1707,7 +1719,7 @@ struct AIUsageBarTests {
                 error: error
             ) == false
         )
-        #expect(error.localizedDescription == "Grok 被網站防護擋下，請稍後再試")
+        #expect(error.localizedDescription == L10n.wafBlocked("Grok"))
     }
 
     @Test("HTTP 401 is a recoverable Grok session failure")

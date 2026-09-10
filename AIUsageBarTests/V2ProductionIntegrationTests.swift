@@ -353,7 +353,7 @@ struct V2ProductionIntegrationTests {
         #expect(model.chatGPT.isLoaded)
         #expect(model.chatGPT.sessionPercent == 40)
         #expect(model.chatGPT.errorMessage != nil)
-        #expect(!model.statusMessage.contains("登入已失效"))
+        #expect(!model.statusMessage.contains(L10n.sessionExpiredMarker))
     }
 
     @Test("Elapsed resetAt after a loaded card applies new remaining without payload error")
@@ -397,7 +397,7 @@ struct V2ProductionIntegrationTests {
         #expect(model.chatGPT.isLoaded)
         #expect(model.chatGPT.sessionPercent == 100)
         #expect(model.chatGPT.errorMessage == nil)
-        #expect(!model.statusMessage.contains("格式錯誤"))
+        #expect(!model.statusMessage.contains(L10n.invalidPayloadMarker))
         #expect(model.v2Snapshot(for: .chatGPT)?.displayedPrimaryMeter?.remainingPercent == 100)
     }
 
@@ -435,7 +435,7 @@ struct V2ProductionIntegrationTests {
         #expect(model.grok.sessionPercent == 55)
         #expect(model.v2Snapshot(for: .grok)?.displayedPrimaryMeter?.meterId == "grok.short")
         #expect(model.grok.errorMessage == nil)
-        #expect(!model.statusMessage.contains("格式錯誤"))
+        #expect(!model.statusMessage.contains(L10n.invalidPayloadMarker))
         #expect(model.v2GrokRecoveryState() != .requiresUserAction)
     }
 
@@ -492,7 +492,7 @@ struct V2ProductionIntegrationTests {
         #expect(model.grok.sessionPercent == 55)
         #expect(model.v2Snapshot(for: .grok)?.displayedPrimaryMeter?.meterId == "grok.short")
         #expect(model.grok.errorMessage == nil)
-        #expect(!model.statusMessage.contains("格式錯誤"))
+        #expect(!model.statusMessage.contains(L10n.invalidPayloadMarker))
     }
 
     @Test("Post-recovery elapsed Grok weekly does not latch login")
@@ -531,7 +531,7 @@ struct V2ProductionIntegrationTests {
         #expect(model.grok.sessionPercent == 70)
         #expect(model.v2GrokRecoveryState() == .healthy)
         #expect(restorer.restoreAfterCount == 1)
-        #expect(!model.statusMessage.contains("格式錯誤"))
+        #expect(!model.statusMessage.contains(L10n.invalidPayloadMarker))
     }
 
     @Test("Identity-unavailable recovery can succeed safely without cache reuse")

@@ -132,19 +132,20 @@ enum ServiceSupport {
         }
 
         let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: "zh_TW")
+        formatter.locale = .current
         formatter.unitsStyle = .full
 
-        return "重置於 " +
+        return L10n.resetsRelative(
             formatter.localizedString(
                 for: date,
                 relativeTo: Date()
             )
+        )
     }
 
     static func absoluteResetText(
         _ value: Any?,
-        locale: Locale = Locale(identifier: "zh_TW"),
+        locale: Locale = .current,
         timeZone: TimeZone = .current
     ) -> String {
         guard let date = resetDate(value) else {
@@ -154,7 +155,7 @@ enum ServiceSupport {
         let formatter = DateFormatter()
         formatter.locale = locale
         formatter.timeZone = timeZone
-        formatter.dateFormat = "M 月 d 日 a h:mm"
+        formatter.setLocalizedDateFormatFromTemplate("MMMd jm")
         return formatter.string(from: date)
     }
 
@@ -171,7 +172,7 @@ enum ServiceSupport {
         }
 
         if !weekly.isEmpty {
-            return "重置於 \(weekly)"
+            return L10n.resetsAbsolute(weekly)
         }
 
         return ""
@@ -298,36 +299,36 @@ enum AIUsageServiceError: LocalizedError {
         switch self {
 
         case .invalidResponse(let service):
-            return "\(service) 回應格式錯誤"
+            return L10n.invalidResponse(service)
 
         case .httpStatus(let service, let statusCode):
 
             switch statusCode {
 
             case 401:
-                return "\(service) 登入已失效，請重新登入"
+                return L10n.sessionExpired(service)
 
             case 403:
-                return "\(service) 沒有權限，請重新登入"
+                return L10n.forbidden(service)
 
             case 429:
-                return "\(service) 請求過於頻繁，請稍後再試"
+                return L10n.rateLimited(service)
 
             case 500...599:
-                return "\(service) 服務暫時無法使用"
+                return L10n.temporarilyUnavailable(service)
 
             default:
-                return "\(service) 發生錯誤（HTTP \(statusCode)）"
+                return L10n.httpError(service, statusCode)
             }
 
         case .invalidPayload(let service):
-            return "\(service) 回傳資料格式錯誤"
+            return L10n.invalidPayload(service)
 
         case .missingValue(let message):
             return message
 
         case .wafBlocked(let service):
-            return "\(service) 被網站防護擋下，請稍後再試"
+            return L10n.wafBlocked(service)
         }
     }
 }

@@ -346,14 +346,16 @@ final class UsageNotificationManager {
     ) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
 
-        content.title = "\(payload.provider.displayName) 剩餘用量偏低"
+        content.title = L10n.lowUsageTitle(payload.provider.displayName)
 
-        var body = "目前剩餘 \(payload.remainingPercent)%"
-        if !payload.resetText.isEmpty {
-            body += "，\(payload.resetText)"
+        if payload.resetText.isEmpty {
+            content.body = L10n.lowUsageBody(payload.remainingPercent)
+        } else {
+            content.body = L10n.lowUsageBodyWithReset(
+                payload.remainingPercent,
+                payload.resetText
+            )
         }
-
-        content.body = body
         content.sound = .default
 
         return UNNotificationRequest(

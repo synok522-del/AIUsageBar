@@ -13,7 +13,7 @@ struct ChatGPTLoginView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            LoginHeaderView(title: "請在下方登入 ChatGPT")
+            LoginHeaderView(title: L10n.loginHeader("ChatGPT"))
 
             WebLoginView(provider: .chatGPT, onCredentialFound: onSuccess)
         }

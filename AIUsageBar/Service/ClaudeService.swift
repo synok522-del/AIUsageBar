@@ -54,7 +54,7 @@ struct ClaudeService: ClaudeUsageFetching {
 
         if let id = first["id"] as? String { return id }
         if let uuid = first["uuid"] as? String { return uuid }
-        throw AIUsageServiceError.missingValue("找不到 Claude Organization ID")
+        throw AIUsageServiceError.missingValue(L10n.t(.missingClaudeOrganization))
     }
 
     private func fetchUsage(organizationID: String, sessionKey: String) async throws -> [String: [String: Any]] {

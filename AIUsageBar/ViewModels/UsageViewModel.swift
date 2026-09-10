@@ -464,7 +464,7 @@ final class UsageViewModel: ObservableObject {
         guard !key.isEmpty else {
 
             claude = UsageInfo(
-                errorMessage: "尚未登入"
+                errorMessage: L10n.t(.notLoggedIn)
             )
 
             return false
@@ -499,8 +499,8 @@ final class UsageViewModel: ObservableObject {
                 error: error
             ) {
                 claude = nextState
-                let message = nextState.errorMessage ?? "更新失敗"
-                statusMessage = "Claude：\(message)"
+                let message = nextState.errorMessage ?? L10n.t(.updateFailed)
+                statusMessage = L10n.t(.providerStatus("Claude", message))
             }
 
             return false
@@ -523,7 +523,7 @@ final class UsageViewModel: ObservableObject {
         guard !token.isEmpty else {
 
             chatGPT = UsageInfo(
-                errorMessage: "尚未登入"
+                errorMessage: L10n.t(.notLoggedIn)
             )
 
             return false
@@ -561,8 +561,8 @@ final class UsageViewModel: ObservableObject {
                 error: error
             ) {
                 chatGPT = nextState
-                let message = nextState.errorMessage ?? "更新失敗"
-                statusMessage = "ChatGPT：\(message)"
+                let message = nextState.errorMessage ?? L10n.t(.updateFailed)
+                statusMessage = L10n.t(.providerStatus("ChatGPT", message))
             }
 
             return false
@@ -585,7 +585,7 @@ final class UsageViewModel: ObservableObject {
         guard !token.isEmpty else {
 
             grok = UsageInfo(
-                errorMessage: "尚未登入"
+                errorMessage: L10n.t(.notLoggedIn)
             )
 
             return false
@@ -819,8 +819,8 @@ final class UsageViewModel: ObservableObject {
             error: error
         ) {
             grok = nextState
-            let message = nextState.errorMessage ?? "更新失敗"
-            statusMessage = "Grok：\(message)"
+            let message = nextState.errorMessage ?? L10n.t(.updateFailed)
+            statusMessage = L10n.t(.providerStatus("Grok", message))
         }
     }
 

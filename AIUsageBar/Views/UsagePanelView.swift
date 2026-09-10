@@ -3,6 +3,7 @@ import SwiftUI
 struct UsagePanelView: View {
 
     @ObservedObject var viewModel: UsageViewModel
+    @ObservedObject private var languageStore = AppLanguageStore.shared
     @StateObject private var windowCoordinator = WindowCoordinator()
     @State private var isPanelVisible = false
 
@@ -32,8 +33,8 @@ struct UsagePanelView: View {
                             .foregroundStyle(Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
-                    .help("重新整理用量")
-                    .accessibilityLabel("重新整理用量")
+                    .help(L10n.t(.refreshUsage))
+                    .accessibilityLabel(L10n.t(.refreshUsage))
                     .accessibilityHidden(viewModel.isLoading)
                     .opacity(viewModel.isLoading ? 0 : 1)
                     .allowsHitTesting(!viewModel.isLoading)
@@ -41,7 +42,7 @@ struct UsagePanelView: View {
                     ProgressView()
                         .scaleEffect(0.7)
                         .opacity(viewModel.isLoading ? 1 : 0)
-                        .accessibilityLabel("正在重新整理用量")
+                        .accessibilityLabel(L10n.t(.refreshingUsage))
                         .accessibilityHidden(!viewModel.isLoading)
                 }
                 .frame(width: 18, height: 18)
@@ -59,8 +60,8 @@ struct UsagePanelView: View {
                         .foregroundStyle(Theme.textSecondary)
                 }
                 .buttonStyle(.plain)
-                .help("設定")
-                .accessibilityLabel("設定")
+                .help(L10n.t(.settings))
+                .accessibilityLabel(L10n.t(.settings))
 
             }
 
@@ -108,6 +109,7 @@ struct UsagePanelView: View {
         .opacity(isPanelVisible ? 1 : 0)
         .animation(.easeOut(duration: 0.2), value: isPanelVisible)
         .animation(.easeInOut(duration: 0.25), value: viewModel.statusMessage)
+        .environment(\.locale, languageStore.resolved.locale)
         .onAppear {
             isPanelVisible = true
         }
@@ -142,8 +144,8 @@ struct UsagePanelView: View {
                 info: viewModel.chatGPT,
                 supportsWeeklyQuota: viewModel.chatGPT.weeklyAvailable,
                 showsSessionRow: true,
-                sessionRowLabel: "5 小時",
-                sessionAccessibilityLabel: "5 小時"
+                sessionRowLabel: L10n.t(.fiveHours),
+                sessionAccessibilityLabel: L10n.t(.fiveHours)
             )
 
         case .claude:
@@ -152,8 +154,8 @@ struct UsagePanelView: View {
                 info: viewModel.claude,
                 supportsWeeklyQuota: true,
                 showsSessionRow: true,
-                sessionRowLabel: "5 小時",
-                sessionAccessibilityLabel: "5 小時"
+                sessionRowLabel: L10n.t(.fiveHours),
+                sessionAccessibilityLabel: L10n.t(.fiveHours)
             )
 
         case .grok:
@@ -176,22 +178,22 @@ struct UsagePanelView: View {
 
     private var setupState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("尚未連接 AI")
+            Text(L10n.t(.notConnected))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.textPrimary)
 
-            Text("登入 ChatGPT、Claude 或 Grok\n即可開始查看使用量。")
+            Text(L10n.t(.setupPrompt))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button("前往設定") {
+            Button(L10n.t(.goToSettings)) {
                 openSettings()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .frame(maxWidth: .infinity, alignment: .center)
-            .accessibilityLabel("前往設定")
+            .accessibilityLabel(L10n.t(.goToSettings))
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -228,8 +230,8 @@ struct UsagePanelView: View {
                 sessionRowLabel: sessionRowLabel,
                 sessionAccessibilityLabel: sessionAccessibilityLabel,
                 weekly: supportsWeeklyQuota ? info.weeklyPercent : nil,
-                weeklyRowLabel: "每週",
-                weeklyAccessibilityLabel: "每週",
+                weeklyRowLabel: L10n.t(.weekly),
+                weeklyAccessibilityLabel: L10n.t(.weekly),
                 reset: ServiceSupport.combinedResetText(
                     session: info.resetText,
                     weekly: info.weeklyResetText
@@ -270,9 +272,9 @@ struct UsagePanelView: View {
                 sessionRowLabel: sessionRowLabel,
                 sessionAccessibilityLabel: sessionAccessibilityLabel,
                 weekly: nil,
-                weeklyRowLabel: "每週",
-                weeklyAccessibilityLabel: "每週",
-                reset: "更新中…",
+                weeklyRowLabel: L10n.t(.weekly),
+                weeklyAccessibilityLabel: L10n.t(.weekly),
+                reset: L10n.t(.updating),
 
             )
         }
@@ -284,15 +286,15 @@ struct UsagePanelView: View {
 
         guard let date = viewModel.lastUpdated else {
 
-            return "尚未更新"
+            return L10n.t(.notUpdatedYet)
         }
 
         let formatter = DateFormatter()
 
-        formatter.locale = Locale(identifier: "zh_TW")
+        formatter.locale = AppLanguageSettings.resolved.locale
         formatter.dateFormat = "HH:mm"
 
-        return "更新於 \(formatter.string(from: date))"
+        return L10n.t(.updatedAt(formatter.string(from: date)))
     }
 
 
@@ -313,7 +315,7 @@ struct UsagePanelView: View {
                 coordinator.showClaudeLogin { credential in
 
                     model.setClaudeSessionKey(credential.value)
-                    model.statusMessage = "Claude 登入成功"
+                    model.statusMessage = L10n.t(.loginSucceeded("Claude"))
 
                     Task {
                         await model.refreshAll()
@@ -327,7 +329,7 @@ struct UsagePanelView: View {
                 coordinator.showChatGPTLogin { credential in
 
                     model.setChatGPTCredential(credential)
-                    model.statusMessage = "ChatGPT 登入成功"
+                    model.statusMessage = L10n.t(.loginSucceeded("ChatGPT"))
 
                     Task {
                         await model.refreshAll()
@@ -341,7 +343,7 @@ struct UsagePanelView: View {
                 coordinator.showGrokLogin { credential in
 
                     model.setGrokCredential(credential)
-                    model.statusMessage = "Grok 登入成功"
+                    model.statusMessage = L10n.t(.loginSucceeded("Grok"))
                 }
             }
         )

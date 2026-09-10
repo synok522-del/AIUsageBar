@@ -121,6 +121,6 @@ private struct ProgressLine: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue("剩餘 \(percent)%")
+        .accessibilityValue(L10n.t(.remainingPercent(percent)))
     }
 }

@@ -32,36 +32,37 @@ struct WelcomeView: View {
     let onLoginClaude: () -> Void
     let onLoginGrok: () -> Void
     let onLater: () -> Void
+    @ObservedObject private var languageStore = AppLanguageStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("歡迎使用 AIUsageBar")
+                Text(L10n.t(.welcomeTitle))
                     .font(.title2)
                     .fontWeight(.semibold)
 
-                Text("AIUsageBar 會常駐在 macOS 選單列，\n讓你快速查看 ChatGPT、Claude 與 Grok 的剩餘用量。")
+                Text(L10n.t(.welcomeBody))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("開始使用：")
+                Text(L10n.t(.getStarted))
                     .font(.headline)
 
                 HStack(spacing: 10) {
-                    Button("登入 ChatGPT", action: onLoginChatGPT)
+                    Button(L10n.t(.signInProvider("ChatGPT")), action: onLoginChatGPT)
                         .buttonStyle(.borderedProminent)
 
-                    Button("登入 Claude", action: onLoginClaude)
+                    Button(L10n.t(.signInProvider("Claude")), action: onLoginClaude)
                         .buttonStyle(.borderedProminent)
 
-                    Button("登入 Grok", action: onLoginGrok)
+                    Button(L10n.t(.signInProvider("Grok")), action: onLoginGrok)
                         .buttonStyle(.borderedProminent)
                 }
             }
 
-            Text("你不需要同時登入全部服務，也可以只使用其中一個。")
+            Text(L10n.t(.welcomeOptional))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -69,14 +70,16 @@ struct WelcomeView: View {
             HStack {
                 Spacer()
 
-                Button("稍後設定", action: onLater)
+                Button(L10n.t(.setUpLater), action: onLater)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help("稍後設定 AIUsageBar")
-                    .accessibilityLabel("稍後設定")
+                    .help(L10n.t(.setUpLaterHelp))
+                    .accessibilityLabel(L10n.t(.setUpLater))
             }
         }
         .padding(28)
         .frame(width: 440)
+        .environment(\.locale, languageStore.resolved.locale)
+        .id(languageStore.preference)
     }
 }

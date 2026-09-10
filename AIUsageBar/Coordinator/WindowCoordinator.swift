@@ -15,6 +15,16 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
     private var windows: [WindowID: NSWindow] = [:]
     private var welcomeSuppressedForCurrentSession = false
+    private var languageCancellable: AnyCancellable?
+
+    override init() {
+        super.init()
+        languageCancellable = AppLanguageStore.shared.$preference
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.relocalizeOpenWindows()
+            }
+    }
 
 
     // MARK: - Welcome
@@ -78,7 +88,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         present(
             id: .settings,
-            title: "AI 用量設定",
+            title: L10n.t(.settingsWindowTitle),
             size: nil,
             styleMask: [.titled, .closable]
         ) {
@@ -101,7 +111,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         present(
             id: .claudeLogin,
-            title: "登入 Claude",
+            title: L10n.t(.loginWindowTitle("Claude")),
             size: NSSize(width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable]
         ) { [weak self] in
@@ -125,7 +135,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         present(
             id: .chatGPTLogin,
-            title: "登入 ChatGPT",
+            title: L10n.t(.loginWindowTitle("ChatGPT")),
             size: NSSize(width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable]
         ) { [weak self] in
@@ -149,7 +159,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         present(
             id: .grokLogin,
-            title: "登入 Grok",
+            title: L10n.t(.loginWindowTitle("Grok")),
             size: NSSize(width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable]
         ) { [weak self] in
@@ -210,6 +220,13 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+
+    private func relocalizeOpenWindows() {
+        windows[.settings]?.title = L10n.t(.settingsWindowTitle)
+        windows[.claudeLogin]?.title = L10n.t(.loginWindowTitle("Claude"))
+        windows[.chatGPTLogin]?.title = L10n.t(.loginWindowTitle("ChatGPT"))
+        windows[.grokLogin]?.title = L10n.t(.loginWindowTitle("Grok"))
+    }
 
     private func close(_ id: WindowID) {
 

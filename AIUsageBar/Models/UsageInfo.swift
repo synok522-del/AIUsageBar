@@ -130,18 +130,23 @@ struct ProviderVisibilityPolicy {
     }
 
     var menuBarHelpText: String {
+        menuBarHelpText(language: AppLanguageSettings.resolved)
+    }
+
+    func menuBarHelpText(language: ResolvedAppLanguage) -> String {
         let names = visibleProviders.map(\.displayName)
 
         switch names.count {
         case 0:
             return "AIUsageBar"
         case 1:
-            return "\(names[0]) 剩餘用量"
+            return L10n.t(.remainingUsage(names[0]), language: language)
         case 2:
-            return "\(names[0]) 與 \(names[1]) 剩餘用量"
+            return L10n.t(.remainingUsageTwo(names[0], names[1]), language: language)
         default:
-            let leading = names.dropLast().joined(separator: "、")
-            return "\(leading) 與 \(names.last!) 剩餘用量"
+            let separator = language == .english ? ", " : "、"
+            let leading = names.dropLast().joined(separator: separator)
+            return L10n.t(.remainingUsageMany(leading, names.last!), language: language)
         }
     }
 
@@ -177,7 +182,9 @@ enum UsageRefreshStatePolicy {
         for provider: String
     ) -> Bool {
         message.hasPrefix("\(provider)：") ||
-        message.hasPrefix("\(provider) 登入")
+        message.hasPrefix("\(provider):") ||
+        message.hasPrefix("\(provider) 登入") ||
+        message.hasPrefix("\(provider) signed in")
     }
 
     static func state(afterFailure current: UsageInfo, error: Error) -> UsageInfo? {
@@ -186,7 +193,7 @@ enum UsageRefreshStatePolicy {
         }
 
         let message = error.localizedDescription.isEmpty
-            ? "更新失敗"
+            ? L10n.t(.updateFailed)
             : error.localizedDescription
 
         guard current.isLoaded else {

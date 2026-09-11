@@ -36,7 +36,8 @@ enum ServiceSupport {
             statusCode: httpResponse.statusCode,
             contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
             data: data,
-            serviceName: serviceName
+            serviceName: serviceName,
+            retryAfter: httpResponse.value(forHTTPHeaderField: "Retry-After")
         )
 
         return data
@@ -46,10 +47,19 @@ enum ServiceSupport {
         statusCode: Int,
         contentType: String?,
         data: Data,
-        serviceName: String
+        serviceName: String,
+        retryAfter: String? = nil,
+        now: Date = Date()
     ) throws {
         if statusCode == 401 {
             throw AIUsageServiceError.httpStatus(serviceName, 401)
+        }
+
+        if statusCode == 429 {
+            throw AIUsageServiceError.rateLimited(
+                serviceName,
+                retryAfter: RetryAfterParser.timeInterval(from: retryAfter, now: now)
+            )
         }
 
         if isNonJSONResponse(contentType: contentType, data: data) {
@@ -126,7 +136,7 @@ enum ServiceSupport {
         return clampedPercent(value)
     }
 
-    static func resetText(_ value: Any?) -> String {
+    static func resetText(_ value: Any?, now: Date = Date()) -> String {
         guard let date = resetDate(value) else {
             return ""
         }
@@ -138,7 +148,7 @@ enum ServiceSupport {
         return "重置於 " +
             formatter.localizedString(
                 for: date,
-                relativeTo: Date()
+                relativeTo: now
             )
     }
 
@@ -289,9 +299,28 @@ enum AIUsageServiceError: LocalizedError {
 
     case invalidResponse(String)
     case httpStatus(String, Int)
+    case rateLimited(String, retryAfter: TimeInterval?)
     case invalidPayload(String)
     case missingValue(String)
     case wafBlocked(String)
+
+    var isRateLimited: Bool {
+        switch self {
+        case .rateLimited:
+            return true
+        case .httpStatus(_, let statusCode):
+            return statusCode == 429
+        default:
+            return false
+        }
+    }
+
+    var retryAfter: TimeInterval? {
+        if case .rateLimited(_, let retryAfter) = self {
+            return retryAfter
+        }
+        return nil
+    }
 
     var errorDescription: String? {
 
@@ -320,6 +349,9 @@ enum AIUsageServiceError: LocalizedError {
                 return "\(service) 發生錯誤（HTTP \(statusCode)）"
             }
 
+        case .rateLimited(let service, _):
+            return "\(service) 請求過於頻繁，請稍後再試"
+
         case .invalidPayload(let service):
             return "\(service) 回傳資料格式錯誤"
 
@@ -329,6 +361,16 @@ enum AIUsageServiceError: LocalizedError {
         case .wafBlocked(let service):
             return "\(service) 被網站防護擋下，請稍後再試"
         }
+    }
+}
+
+extension Error {
+    var isRateLimitedError: Bool {
+        (self as? AIUsageServiceError)?.isRateLimited ?? false
+    }
+
+    var rateLimitedRetryAfter: TimeInterval? {
+        (self as? AIUsageServiceError)?.retryAfter
     }
 }
 

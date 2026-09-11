@@ -606,6 +606,63 @@ struct V2UsageLayerTests {
         #expect(state.lastSnapshots[.grok] == nil)
     }
 
+    @Test("restoreLastGood accepts stale snapshots that commit still rejects")
+    func restoreLastGoodDoesNotWeakenNetworkCommit() {
+        var state = V2RuntimeState()
+        let asOf = Date(timeIntervalSince1970: 1_000)
+        let now = asOf.addingTimeInterval(200)
+        let snapshot = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 44,
+                resetText: "old-relative",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: now.addingTimeInterval(3_600)
+            ),
+            token: "tok",
+            asOf: asOf
+        )
+        let accountKey = UsageIdentity.accountKey(from: "tok")
+        #expect(snapshot.validity(now: now, expectedAccountKey: accountKey) == .staleButValid)
+        #expect(state.commit(snapshot, now: now) == false)
+        #expect(state.lastSnapshots[.chatGPT] == nil)
+        #expect(state.restoreLastGood(snapshot, expectedAccountKey: accountKey, now: now))
+        #expect(state.lastSnapshots[.chatGPT]?.asOf == asOf)
+        #expect(state.restoredFromPersistence.contains(.chatGPT))
+        #expect(
+            state.restoreLastGood(
+                snapshot,
+                expectedAccountKey: UsageIdentity.accountKey(from: "other"),
+                now: now
+            ) == false
+        )
+    }
+
+    @Test("restoreLastGood rejects expired and invalid snapshots")
+    func restoreLastGoodRejectsExpiredAndInvalid() {
+        var state = V2RuntimeState()
+        let now = Date(timeIntervalSince1970: 5_000)
+        let expired = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 10,
+                resetText: "gone",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: now.addingTimeInterval(-1)
+            ),
+            token: "tok",
+            asOf: now.addingTimeInterval(-200)
+        )
+        #expect(
+            state.restoreLastGood(
+                expired,
+                expectedAccountKey: UsageIdentity.accountKey(from: "tok"),
+                now: now
+            ) == false
+        )
+        #expect(state.lastSnapshots[.chatGPT] == nil)
+    }
+
     @Test("Expired primary can replace a loaded snapshot but cannot publish first load")
     func expiredPrimaryCommitPolicyKeepsFirstLoadBlank() {
         var state = V2RuntimeState()

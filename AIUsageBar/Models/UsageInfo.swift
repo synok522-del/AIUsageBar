@@ -18,6 +18,8 @@ struct UsageInfo {
     var sessionWindowSeconds: Int = 0
     var isLoaded: Bool = false
     var errorMessage: String?
+    var isStale: Bool = false
+    var observedAt: Date?
 
     var primaryRemainingPercent: Int {
         weeklyAvailable ? weeklyPercent : sessionPercent
@@ -31,6 +33,13 @@ struct UsageInfo {
             )
         }
         return resetText
+    }
+
+    var staleCaption: String? {
+        guard isStale, let observedAt else {
+            return nil
+        }
+        return StaleUsagePresentation.caption(asOf: observedAt)
     }
 }
 

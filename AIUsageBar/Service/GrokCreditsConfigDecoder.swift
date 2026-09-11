@@ -27,6 +27,8 @@ enum GrokCreditsConfigDecoder {
         grpcStatusHeader: String? = nil,
         now: Date = Date()
     ) -> GrokWeeklyQuota? {
+        // HTTP 429 must never become sign-out. Weekly overlay is optional, so
+        // any non-success status (including HTML 429) simply omits weekly.
         guard (200..<300).contains(httpStatus) else {
             return nil
         }

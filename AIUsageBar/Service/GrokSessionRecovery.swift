@@ -103,7 +103,7 @@ enum GrokSessionRecoveryPolicy {
             return true
         case .httpStatus(_, let statusCode):
             return statusCode == 401 || statusCode == 403
-        case .invalidPayload, .invalidResponse, .missingValue:
+        case .rateLimited, .invalidPayload, .invalidResponse, .missingValue:
             return false
         }
     }

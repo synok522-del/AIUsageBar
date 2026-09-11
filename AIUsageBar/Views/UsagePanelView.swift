@@ -234,6 +234,7 @@ struct UsagePanelView: View {
                     session: info.resetText,
                     weekly: info.weeklyResetText
                 ),
+                footnote: info.staleCaption
             )
 
         } else if let error = info.errorMessage {

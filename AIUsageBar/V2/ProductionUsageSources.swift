@@ -135,6 +135,7 @@ struct V2RuntimeState {
     var chatGPTRecovery = RecoveryCoordinator()
     var claudeRecovery = RecoveryCoordinator()
     var lastSnapshots: [UsageProviderID: UsageSnapshot] = [:]
+    var restoredFromPersistence: Set<UsageProviderID> = []
     var pathInvocations = 0
     var fetchInvocations: [UsageProviderID: Int] = [:]
 
@@ -156,6 +157,7 @@ struct V2RuntimeState {
         switch snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) {
         case .fresh:
             lastSnapshots[snapshot.provider] = snapshot
+            restoredFromPersistence.remove(snapshot.provider)
             cache.store(snapshot)
             return true
         case .expired:
@@ -166,9 +168,36 @@ struct V2RuntimeState {
                 return false
             }
             lastSnapshots[snapshot.provider] = snapshot
+            restoredFromPersistence.remove(snapshot.provider)
             cache.store(snapshot)
             return true
         case .staleButValid, .invalid:
+            return false
+        }
+    }
+
+    mutating func restoreLastGood(
+        _ snapshot: UsageSnapshot,
+        expectedAccountKey: String?,
+        now: Date = Date()
+    ) -> Bool {
+        guard !snapshot.accountKeyUnavailable, let accountKey = snapshot.accountKey else {
+            return false
+        }
+        guard expectedAccountKey == accountKey else {
+            return false
+        }
+        if let existing = lastSnapshots[snapshot.provider],
+           existing.accountKey != accountKey {
+            return false
+        }
+
+        switch snapshot.validity(now: now, expectedAccountKey: expectedAccountKey) {
+        case .fresh, .staleButValid:
+            lastSnapshots[snapshot.provider] = snapshot
+            restoredFromPersistence.insert(snapshot.provider)
+            return true
+        case .expired, .invalid:
             return false
         }
     }
@@ -188,5 +217,6 @@ struct V2RuntimeState {
             cache.invalidateAccount(provider: provider, accountKey: accountKey)
         }
         lastSnapshots[provider] = nil
+        restoredFromPersistence.remove(provider)
     }
 }

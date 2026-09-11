@@ -1488,6 +1488,48 @@ struct AIUsageBarTests {
         }
     }
 
+    @Test("HTTP 429 is classified before HTML WAF and is not login expiry")
+    func http429IsClassifiedBeforeHTMLWAF() {
+        let html = Data("<!DOCTYPE html><html><body>Too Many Requests</body></html>".utf8)
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 429,
+                contentType: "text/html",
+                data: html,
+                serviceName: "Grok",
+                retryAfter: "120"
+            )
+            Issue.record("expected 429 rate limit error")
+        } catch let error as AIUsageServiceError {
+            #expect(error.isRateLimited)
+            #expect(error.retryAfter == 120)
+            #expect(error.localizedDescription == "Grok 請求過於頻繁，請稍後再試")
+            #expect(error.localizedDescription.contains("登入已失效") == false)
+        } catch {
+            Issue.record("unexpected error type for 429 HTML")
+        }
+    }
+
+    @Test("Retry-After 0 still yields a rate-limited error")
+    func retryAfterZeroStillRateLimited() {
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 429,
+                contentType: "application/json",
+                data: Data("{}".utf8),
+                serviceName: "ChatGPT",
+                retryAfter: "0"
+            )
+            Issue.record("expected 429 rate limit error")
+        } catch let error as AIUsageServiceError {
+            #expect(error.isRateLimited)
+            #expect(error.retryAfter == 0)
+        } catch {
+            Issue.record("unexpected error type for Retry-After 0")
+        }
+    }
+
     @Test("JSON 403 stays a permission error rather than WAF")
     func json403StaysPermissionError() {
         let json = Data("{\"error\":true}".utf8)

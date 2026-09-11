@@ -14,6 +14,8 @@ struct GrokUsage {
     let weeklyRelativeResetText: String?
     let sessionResetAt: Date?
     let weeklyResetAt: Date?
+    let weeklyRateLimited: Bool
+    let weeklyRateLimitRetryAfter: TimeInterval?
 
     init(
         sessionRemainingPercent: Int,
@@ -23,7 +25,9 @@ struct GrokUsage {
         weeklyResetText: String?,
         weeklyRelativeResetText: String?,
         sessionResetAt: Date? = nil,
-        weeklyResetAt: Date? = nil
+        weeklyResetAt: Date? = nil,
+        weeklyRateLimited: Bool = false,
+        weeklyRateLimitRetryAfter: TimeInterval? = nil
     ) {
         self.sessionRemainingPercent = sessionRemainingPercent
         self.resetText = resetText
@@ -33,5 +37,7 @@ struct GrokUsage {
         self.weeklyRelativeResetText = weeklyRelativeResetText
         self.sessionResetAt = sessionResetAt
         self.weeklyResetAt = weeklyResetAt
+        self.weeklyRateLimited = weeklyRateLimited
+        self.weeklyRateLimitRetryAfter = weeklyRateLimitRetryAfter
     }
 }

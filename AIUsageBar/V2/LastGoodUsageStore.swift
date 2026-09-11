@@ -180,11 +180,15 @@ enum UsageInfoFromSnapshot {
 
         switch snapshot.provider {
         case .chatGPT:
-            let weekly = snapshot.meters.first(where: { $0.meterId == "chatgpt.secondary_window" })
+            let weekly = displayedSecondary(
+                snapshot.meters.first(where: { $0.meterId == "chatgpt.secondary_window" }),
+                observedAt: snapshot.asOf,
+                now: now
+            )
             return UsageInfo(
                 sessionPercent: primary.remainingPercent ?? 0,
-                weeklyPercent: weekly?.remainingPercent ?? 0,
-                weeklyAvailable: weekly?.remainingPercent != nil,
+                weeklyPercent: weekly?.percent ?? 0,
+                weeklyAvailable: weekly != nil,
                 resetText: relativeReset(primary.resetAt, now: now),
                 weeklyResetText: weekly.flatMap { absoluteReset($0.resetAt) } ?? "",
                 isLoaded: true,
@@ -194,18 +198,17 @@ enum UsageInfoFromSnapshot {
             )
         case .claude:
             let session = snapshot.meters.first(where: { $0.meterId == "claude.five_hour" })
-            let weekly = snapshot.meters.first(where: { $0.meterId == "claude.seven_day" })
-            guard let session, let weekly,
-                  let sessionPercent = session.remainingPercent,
-                  let weeklyPercent = weekly.remainingPercent else {
+            let weeklyMeter = snapshot.meters.first(where: { $0.meterId == "claude.seven_day" })
+            guard let session, let sessionPercent = session.remainingPercent else {
                 return nil
             }
+            let weekly = displayedSecondary(weeklyMeter, observedAt: snapshot.asOf, now: now)
             return UsageInfo(
                 sessionPercent: sessionPercent,
-                weeklyPercent: weeklyPercent,
-                weeklyAvailable: true,
+                weeklyPercent: weekly?.percent ?? 0,
+                weeklyAvailable: weekly != nil,
                 resetText: relativeReset(session.resetAt, now: now),
-                weeklyResetText: absoluteReset(weekly.resetAt) ?? "",
+                weeklyResetText: weekly.flatMap { absoluteReset($0.resetAt) } ?? "",
                 isLoaded: true,
                 errorMessage: nil,
                 isStale: stale,
@@ -213,17 +216,20 @@ enum UsageInfoFromSnapshot {
             )
         case .grok:
             let short = snapshot.meters.first(where: { $0.meterId == "grok.short" })
-            let weekly = snapshot.meters.first(where: { $0.meterId == "grok.weekly" })
-            let weeklyPercent = weekly?.remainingPercent
+            let weekly = displayedSecondary(
+                snapshot.meters.first(where: { $0.meterId == "grok.weekly" }),
+                observedAt: snapshot.asOf,
+                now: now
+            )
             let sessionPercent = short?.remainingPercent ?? primary.remainingPercent ?? 0
             return UsageInfo(
                 sessionPercent: sessionPercent,
-                weeklyPercent: weeklyPercent ?? 0,
-                weeklyAvailable: weeklyPercent != nil,
-                resetText: weeklyPercent != nil
+                weeklyPercent: weekly?.percent ?? 0,
+                weeklyAvailable: weekly != nil,
+                resetText: weekly != nil
                     ? relativeReset(weekly?.resetAt, now: now)
                     : relativeReset(short?.resetAt ?? primary.resetAt, now: now),
-                weeklyResetText: absoluteReset(weekly?.resetAt) ?? "",
+                weeklyResetText: weekly.flatMap { absoluteReset($0.resetAt) } ?? "",
                 sessionWindowSeconds: short?.windowDurationSeconds ?? 0,
                 isLoaded: true,
                 errorMessage: nil,
@@ -231,6 +237,27 @@ enum UsageInfoFromSnapshot {
                 observedAt: snapshot.asOf
             )
         default:
+            return nil
+        }
+    }
+
+    private struct SecondaryDisplay {
+        var percent: Int
+        var resetAt: Date?
+    }
+
+    private static func displayedSecondary(
+        _ meter: UsageMeter?,
+        observedAt: Date,
+        now: Date
+    ) -> SecondaryDisplay? {
+        guard let meter, let percent = meter.remainingPercent else {
+            return nil
+        }
+        switch meter.validity(observedAt: observedAt, now: now, identityMatches: true) {
+        case .fresh, .staleButValid:
+            return SecondaryDisplay(percent: percent, resetAt: meter.resetAt)
+        case .expired, .invalid:
             return nil
         }
     }

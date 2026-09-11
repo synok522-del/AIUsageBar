@@ -4,6 +4,7 @@
 //
 //
 
+import AppKit
 import Combine
 import Foundation
 
@@ -40,8 +41,11 @@ final class UsageViewModel: ObservableObject {
     private var grokCookieHeader = ""
     private var grokHTTPAuthGeneration = GrokHTTPAuthGeneration()
     private var lanes = ProviderRefreshLaneBook()
-    private var laneWaiters: [UsageProviderID: [CheckedContinuation<Bool, Never>]] = [:]
+    private var laneWaiters: [UsageProviderID: LaneWaiterBox] = [:]
+    private var laneWork: [UsageProviderID: Task<Bool, Never>] = [:]
     private var wakeObserver: WorkspaceWakeObserver?
+    private var wakeCoalesceTask: Task<Void, Never>?
+    private(set) var wakeTriggeredRefreshCount = 0
 
 
     private let claudeService: any ClaudeUsageFetching
@@ -53,7 +57,14 @@ final class UsageViewModel: ObservableObject {
     private let lastGoodStore: LastGoodUsageStoring
     private let backoffStore: HTTPRateLimitBackoffStoring
     private let refreshDeadlines: ProviderRefreshDeadlines
+    private let now: () -> Date
+    private let wakeCoalesce: TimeInterval
     private var v2 = V2RuntimeState()
+
+    private struct LaneWaiterBox {
+        var epoch: UInt
+        var waiters: [CheckedContinuation<Bool, Never>]
+    }
 
     /// Claude last-good may be persisted, but cold-launch restore stays off
     /// until P0-5 org pinning can bind the snapshot to a stable organization.
@@ -80,7 +91,10 @@ final class UsageViewModel: ObservableObject {
         lastGoodStore: LastGoodUsageStoring? = nil,
         backoffStore: HTTPRateLimitBackoffStoring? = nil,
         refreshDeadlines: ProviderRefreshDeadlines = .production,
-        observesWorkspaceWake: Bool? = nil
+        observesWorkspaceWake: Bool? = nil,
+        wakeNotificationCenter: NotificationCenter? = nil,
+        wakeCoalesce: TimeInterval = 0.02,
+        now: @escaping () -> Date = Date.init
     ) {
 
         self.credentialStore = credentialStore ?? KeychainManager(inMemory: KeychainManager.isTestProcess)
@@ -102,6 +116,8 @@ final class UsageViewModel: ObservableObject {
         self.lastGoodStore = lastGoodStore ?? LastGoodUsageStore(defaults: defaults)
         self.backoffStore = backoffStore ?? HTTPRateLimitBackoffStore(defaults: defaults)
         self.refreshDeadlines = refreshDeadlines
+        self.now = now
+        self.wakeCoalesce = max(0, wakeCoalesce)
 
         if !KeychainManager.isTestProcess { migrateToKeychain() }
 
@@ -144,10 +160,12 @@ final class UsageViewModel: ObservableObject {
                 return "sso=\(savedGrokToken)"
             }()
 
-        restorePersistedLastGoodIfNeeded()
+        restorePersistedLastGoodIfNeeded(now: now())
 
         if observesWorkspaceWake ?? !KeychainManager.isTestProcess {
-            wakeObserver = WorkspaceWakeObserver { [weak self] in
+            wakeObserver = WorkspaceWakeObserver(
+                center: wakeNotificationCenter ?? NSWorkspace.shared.notificationCenter
+            ) { [weak self] in
                 self?.handleWake()
             }
         }
@@ -237,6 +255,8 @@ final class UsageViewModel: ObservableObject {
     func setClaudeSessionKey(_ value: String) {
         let identityChanged = claudeSessionKey != value
         if identityChanged {
+            let hadFlight = lanes.isInFlight(.claude)
+            abortProviderLane(.claude)
             claude = UsageInfo()
             usageNotificationManager.resetTracking(for: .claude)
             let previousAccountKey = UsageIdentity.accountKey(from: claudeSessionKey)
@@ -250,10 +270,22 @@ final class UsageViewModel: ObservableObject {
             }
             resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != .claude })
             scheduleNextResetRefresh()
+            claudeSessionKey = value
+            persistClaudeSessionKey(value)
+            if hadFlight, !value.isEmpty {
+                requestRefresh(.claude)
+            }
+            return
         }
 
         claudeSessionKey = value
+        persistClaudeSessionKey(value)
+        if !value.isEmpty {
+            surfaceBackoffStatus(provider: .claude, providerName: "Claude")
+        }
+    }
 
+    private func persistClaudeSessionKey(_ value: String) {
         if value.isEmpty {
 
             self.credentialStore.delete(
@@ -287,6 +319,8 @@ final class UsageViewModel: ObservableObject {
             chatGPTSessionToken != credential.value
             || chatGPTCookieHeader != credential.cookieHeader
         if identityChanged {
+            let hadFlight = lanes.isInFlight(.chatGPT)
+            abortProviderLane(.chatGPT)
             chatGPT = UsageInfo()
             usageNotificationManager.resetTracking(for: .chatGPT)
             let previousAccountKey = UsageIdentity.accountKey(from: chatGPTSessionToken)
@@ -300,8 +334,20 @@ final class UsageViewModel: ObservableObject {
             }
             resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != .chatGPT })
             scheduleNextResetRefresh()
+            persistChatGPTCredential(credential)
+            if hadFlight, !credential.value.isEmpty {
+                requestRefresh(.chatGPT)
+            }
+            return
         }
 
+        persistChatGPTCredential(credential)
+        if !credential.value.isEmpty {
+            surfaceBackoffStatus(provider: .chatGPT, providerName: "ChatGPT")
+        }
+    }
+
+    private func persistChatGPTCredential(_ credential: WebCredential) {
         chatGPTSessionToken = credential.value
         chatGPTCookieHeader = credential.cookieHeader
 
@@ -349,9 +395,19 @@ final class UsageViewModel: ObservableObject {
             previousToken != credential.value || previousHeader != credential.cookieHeader
 
         if !identityChanged {
+            if !credential.value.isEmpty {
+                surfaceBackoffStatus(provider: .grok, providerName: "Grok")
+                if skipDueToBackoff(
+                    provider: .grok,
+                    accountKey: UsageIdentity.accountKey(from: credential.value)
+                ) {
+                    requestRefresh(.grok)
+                }
+            }
             return
         }
 
+        abortProviderLane(.grok)
         grokHTTPAuthGeneration.invalidate()
         let previousAccountKey = UsageIdentity.accountKey(from: previousToken)
         v2.invalidateProvider(
@@ -412,7 +468,28 @@ final class UsageViewModel: ObservableObject {
     }
 
     func handleWake() {
-        requestRefreshAll()
+        wakeCoalesceTask?.cancel()
+        wakeCoalesceTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let delay = BoundedAsyncWait.nanoseconds(for: self.wakeCoalesce)
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            self.wakeTriggeredRefreshCount += 1
+            self.requestRefreshAll()
+        }
+    }
+
+    func invalidateWakeObserver() {
+        wakeObserver?.invalidate()
+        wakeObserver = nil
+        wakeCoalesceTask?.cancel()
+        wakeCoalesceTask = nil
     }
 
     func isProviderInFlight(_ provider: UsageProviderID) -> Bool {
@@ -423,10 +500,20 @@ final class UsageViewModel: ObservableObject {
         Task { await refreshAll() }
     }
 
+    private func requestRefresh(_ provider: UsageProviderID) {
+        Task { await refreshLane(provider) }
+    }
+
     private func refreshLane(_ provider: UsageProviderID) async -> Bool {
         if lanes.isInFlight(provider) {
             return await withCheckedContinuation { continuation in
-                laneWaiters[provider, default: []].append(continuation)
+                let epoch = lanes.currentEpoch(provider)
+                if var box = laneWaiters[provider], box.epoch == epoch {
+                    box.waiters.append(continuation)
+                    laneWaiters[provider] = box
+                } else {
+                    laneWaiters[provider] = LaneWaiterBox(epoch: epoch, waiters: [continuation])
+                }
             }
         }
 
@@ -434,10 +521,7 @@ final class UsageViewModel: ObservableObject {
         isLoading = true
         let result = await executeLane(provider, epoch: epoch)
         finishLane(provider, epoch: epoch)
-        let waiters = laneWaiters.removeValue(forKey: provider) ?? []
-        for waiter in waiters {
-            waiter.resume(returning: result)
-        }
+        resumeLaneWaiters(provider, epoch: epoch, result: result)
         return result
     }
 
@@ -446,34 +530,58 @@ final class UsageViewModel: ObservableObject {
         isLoading = lanes.anyInFlight
     }
 
+    private func resumeLaneWaiters(
+        _ provider: UsageProviderID,
+        epoch: UInt,
+        result: Bool
+    ) {
+        guard let box = laneWaiters[provider], box.epoch == epoch else {
+            return
+        }
+        laneWaiters[provider] = nil
+        for waiter in box.waiters {
+            waiter.resume(returning: result)
+        }
+    }
+
+    private func abortProviderLane(_ provider: UsageProviderID) {
+        let epoch = lanes.currentEpoch(provider)
+        lanes.abort(provider)
+        laneWork[provider]?.cancel()
+        laneWork[provider] = nil
+        resumeLaneWaiters(provider, epoch: epoch, result: false)
+        if provider == .grok {
+            v2.grokRecovery.abortInFlightRecovery()
+        }
+        isLoading = lanes.anyInFlight
+    }
+
     private func executeLane(_ provider: UsageProviderID, epoch: UInt) async -> Bool {
         let timeout = refreshDeadlines.timeout(for: provider)
         let work = Task { @MainActor in
             await self.performLane(provider, epoch: epoch)
         }
-
-        let winner = await withTaskGroup(of: ProviderRefreshLaneRace.self) { group in
-            group.addTask {
-                .finished(await work.value)
+        laneWork[provider] = work
+        defer {
+            if laneWork[provider] == work {
+                laneWork[provider] = nil
             }
-            group.addTask {
-                try? await Task.sleep(
-                    nanoseconds: BoundedAsyncWait.nanoseconds(for: timeout)
-                )
-                return .timedOut
-            }
-            let first = await group.next() ?? .timedOut
-            group.cancelAll()
-            return first
         }
 
+        let winner = await BoundedAsyncWait.race(timeout: timeout, work: work)
         switch winner {
         case .finished(let succeeded):
             return succeeded
         case .timedOut:
             work.cancel()
-            applyDeadlineOutcome(provider, epoch: epoch)
-            return false
+            if lanes.claim(provider, epoch: epoch, success: false) {
+                if provider == .grok {
+                    v2.grokRecovery.abortInFlightRecovery()
+                }
+                applyDeadlineOutcome(provider)
+                return false
+            }
+            return lanes.claimedSuccess(provider, epoch: epoch)
         }
     }
 
@@ -490,10 +598,7 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
-    private func applyDeadlineOutcome(_ provider: UsageProviderID, epoch: UInt) {
-        guard lanes.isCurrent(provider, epoch: epoch) else {
-            return
-        }
+    private func applyDeadlineOutcome(_ provider: UsageProviderID) {
         let error = ProviderRefreshTimeoutError.timedOut
         switch provider {
         case .chatGPT:
@@ -512,7 +617,7 @@ final class UsageViewModel: ObservableObject {
         providerName: String,
         error: Error
     ) {
-        if let nextState = UsageRefreshStatePolicy.state(afterFailure: info, error: error) {
+        if let nextState = UsageRefreshStatePolicy.state(afterFailure: info, error: error, now: now()) {
             info = nextState
             let message = nextState.errorMessage ?? "更新失敗"
             statusMessage = "\(providerName)：\(message)"
@@ -565,7 +670,7 @@ final class UsageViewModel: ObservableObject {
         return backoffStore.isBackingOff(
             provider: provider,
             accountKey: accountKey,
-            now: Date()
+            now: now()
         )
     }
 
@@ -581,8 +686,42 @@ final class UsageViewModel: ObservableObject {
             provider: provider,
             accountKey: accountKey,
             retryAfter: error.rateLimitedRetryAfter,
-            now: Date()
+            now: now()
         )
+    }
+
+    private func recordWeeklyRateLimit(
+        provider: UsageProviderID,
+        accountKey: String?,
+        retryAfter: TimeInterval?
+    ) {
+        guard let accountKey else {
+            return
+        }
+        backoffStore.record(
+            provider: provider,
+            accountKey: accountKey,
+            retryAfter: retryAfter,
+            now: now()
+        )
+    }
+
+    private func forgetResetRefresh(for provider: UsageProviderID) {
+        resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != provider })
+    }
+
+    private func surfaceBackoffStatus(
+        provider: UsageProviderID,
+        providerName: String,
+        accountKey: String? = nil
+    ) {
+        let key = accountKey ?? currentAccountKey(for: provider)
+        guard let key,
+              let until = backoffStore.backoffUntil(provider: provider, accountKey: key, now: now()) else {
+            return
+        }
+        let seconds = max(1, Int(ceil(until.timeIntervalSince(now()))))
+        statusMessage = "\(providerName)：請求過於頻繁，約 \(seconds) 秒後可再更新"
     }
 
     private func clearBackoff(provider: UsageProviderID, accountKey: String?) {
@@ -722,6 +861,12 @@ final class UsageViewModel: ObservableObject {
 
         let expectedAccountKey = UsageIdentity.accountKey(from: key)
         if skipDueToBackoff(provider: .claude, accountKey: expectedAccountKey) {
+            forgetResetRefresh(for: .claude)
+            surfaceBackoffStatus(
+                provider: .claude,
+                providerName: "Claude",
+                accountKey: expectedAccountKey
+            )
             return false
         }
 
@@ -747,11 +892,22 @@ final class UsageViewModel: ObservableObject {
             }
 
             try Task.checkCancellation()
-            guard commitV2Snapshot(snapshot) else { throw AIUsageServiceError.invalidPayload("Claude") }
-            applyClaude(usage)
+            guard canCommit(
+                provider: .claude,
+                epoch: epoch,
+                capturedGeneration: captured,
+                expectedAccountKey: expectedAccountKey
+            ) else {
+                return false
+            }
+            guard lanes.claim(.claude, epoch: epoch, success: true) else {
+                return false
+            }
+            guard commitV2Snapshot(snapshot, now: now()) else { throw AIUsageServiceError.invalidPayload("Claude") }
+            applyClaude(usage, observedAt: snapshot.asOf)
             clearBackoff(provider: .claude, accountKey: expectedAccountKey)
             evaluateNotifications()
-            lastUpdated = Date()
+            lastUpdated = now()
             return true
         } catch {
             guard canCommit(
@@ -797,6 +953,12 @@ final class UsageViewModel: ObservableObject {
 
         let expectedAccountKey = UsageIdentity.accountKey(from: token)
         if skipDueToBackoff(provider: .chatGPT, accountKey: expectedAccountKey) {
+            forgetResetRefresh(for: .chatGPT)
+            surfaceBackoffStatus(
+                provider: .chatGPT,
+                providerName: "ChatGPT",
+                accountKey: expectedAccountKey
+            )
             return false
         }
 
@@ -825,11 +987,22 @@ final class UsageViewModel: ObservableObject {
             }
 
             try Task.checkCancellation()
-            guard commitV2Snapshot(snapshot) else { throw AIUsageServiceError.invalidPayload("ChatGPT") }
-            applyChatGPT(usage)
+            guard canCommit(
+                provider: .chatGPT,
+                epoch: epoch,
+                capturedGeneration: captured,
+                expectedAccountKey: expectedAccountKey
+            ) else {
+                return false
+            }
+            guard lanes.claim(.chatGPT, epoch: epoch, success: true) else {
+                return false
+            }
+            guard commitV2Snapshot(snapshot, now: now()) else { throw AIUsageServiceError.invalidPayload("ChatGPT") }
+            applyChatGPT(usage, observedAt: snapshot.asOf)
             clearBackoff(provider: .chatGPT, accountKey: expectedAccountKey)
             evaluateNotifications()
-            lastUpdated = Date()
+            lastUpdated = now()
             return true
         } catch {
             guard canCommit(
@@ -875,6 +1048,12 @@ final class UsageViewModel: ObservableObject {
 
         let expectedAccountKey = UsageIdentity.accountKey(from: token)
         if skipDueToBackoff(provider: .grok, accountKey: expectedAccountKey) {
+            forgetResetRefresh(for: .grok)
+            surfaceBackoffStatus(
+                provider: .grok,
+                providerName: "Grok",
+                accountKey: expectedAccountKey
+            )
             return false
         }
 
@@ -967,15 +1146,33 @@ final class UsageViewModel: ObservableObject {
                     )
                     return false
                 }
-                v2.grokRecovery.markSuccess()
             }
 
             try Task.checkCancellation()
-            guard commitV2Snapshot(snapshot) else { throw AIUsageServiceError.invalidPayload("Grok") }
-            applyGrok(usage)
-            clearBackoff(provider: .grok, accountKey: expectedAccountKey)
+            guard lanes.claim(.grok, epoch: epoch, success: true) else {
+                return false
+            }
+            if v2.grokRecovery.state == .recovering {
+                v2.grokRecovery.markSuccess()
+            }
+            guard commitV2Snapshot(snapshot, now: now()) else { throw AIUsageServiceError.invalidPayload("Grok") }
+            applyGrok(usage, observedAt: snapshot.asOf)
+            if usage.weeklyRateLimited {
+                recordWeeklyRateLimit(
+                    provider: .grok,
+                    accountKey: expectedAccountKey,
+                    retryAfter: usage.weeklyRateLimitRetryAfter
+                )
+                surfaceBackoffStatus(
+                    provider: .grok,
+                    providerName: "Grok",
+                    accountKey: expectedAccountKey
+                )
+            } else {
+                clearBackoff(provider: .grok, accountKey: expectedAccountKey)
+            }
             evaluateNotifications()
-            lastUpdated = Date()
+            lastUpdated = now()
             return true
         } catch {
             guard canCommitGrok(epoch: epoch, authGeneration: authGeneration, expectedAccountKey: expectedAccountKey) else {
@@ -1111,7 +1308,7 @@ final class UsageViewModel: ObservableObject {
         )
     }
 
-    private func applyClaude(_ usage: ClaudeUsage) {
+    private func applyClaude(_ usage: ClaudeUsage, observedAt: Date) {
         claude = UsageInfo(
             sessionPercent: usage.sessionRemainingPercent,
             weeklyPercent: usage.weeklyRemainingPercent,
@@ -1121,12 +1318,12 @@ final class UsageViewModel: ObservableObject {
             isLoaded: true,
             errorMessage: nil,
             isStale: false,
-            observedAt: Date()
+            observedAt: observedAt
         )
         clearStatusMessage(for: "Claude")
     }
 
-    private func applyChatGPT(_ usage: ChatGPTUsage) {
+    private func applyChatGPT(_ usage: ChatGPTUsage, observedAt: Date) {
         chatGPT = UsageInfo(
             sessionPercent: usage.sessionRemainingPercent,
             weeklyPercent: usage.weeklyRemainingPercent ?? 0,
@@ -1136,12 +1333,12 @@ final class UsageViewModel: ObservableObject {
             isLoaded: true,
             errorMessage: nil,
             isStale: false,
-            observedAt: Date()
+            observedAt: observedAt
         )
         clearStatusMessage(for: "ChatGPT")
     }
 
-    private func applyGrok(_ usage: GrokUsage) {
+    private func applyGrok(_ usage: GrokUsage, observedAt: Date) {
         grok = UsageInfo(
             sessionPercent: usage.sessionRemainingPercent,
             weeklyPercent: usage.weeklyRemainingPercent ?? 0,
@@ -1154,7 +1351,7 @@ final class UsageViewModel: ObservableObject {
             isLoaded: true,
             errorMessage: nil,
             isStale: false,
-            observedAt: Date()
+            observedAt: observedAt
         )
         clearStatusMessage(for: "Grok")
     }
@@ -1245,6 +1442,10 @@ final class UsageViewModel: ObservableObject {
         v2.grokRecovery.state
     }
 
+    func v2GrokRecoveryHasActiveScope() -> Bool {
+        v2.grokRecovery.hasActiveScope
+    }
+
     func v2GrokRestoresUsed() -> Int {
         v2.grokRecovery.restoresUsed
     }
@@ -1268,8 +1469,8 @@ final class UsageViewModel: ObservableObject {
         v2.restoredFromPersistence.contains(provider)
     }
 
-    func backoffUntil(provider: UsageProviderID, accountKey: String, now: Date = Date()) -> Date? {
-        backoffStore.backoffUntil(provider: provider, accountKey: accountKey, now: now)
+    func backoffUntil(provider: UsageProviderID, accountKey: String, now: Date? = nil) -> Date? {
+        backoffStore.backoffUntil(provider: provider, accountKey: accountKey, now: now ?? self.now())
     }
 
     func expireInvalidUsage(now: Date = Date()) {

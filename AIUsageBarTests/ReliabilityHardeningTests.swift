@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import AIUsageBar
@@ -92,6 +93,110 @@ struct ReliabilityHardeningUnitTests {
         #expect(info.resetText != "resets in 5 minutes")
         #expect(info.resetText.contains("重置於"))
         #expect(info.staleCaption?.contains("上次更新") == true)
+    }
+
+    @Test("Timeout claim invalidates the epoch so late success cannot win")
+    func timeoutClaimBeatsLateSuccess() {
+        var book = ProviderRefreshLaneBook()
+        let epoch = book.begin(.chatGPT)
+        #expect(book.claim(.chatGPT, epoch: epoch, success: false))
+        #expect(book.isCurrent(.chatGPT, epoch: epoch) == false)
+        #expect(book.isInFlight(.chatGPT) == false)
+        #expect(book.claim(.chatGPT, epoch: epoch, success: true) == false)
+    }
+
+    @Test("Success claim prevents a timeout from overwriting the winner")
+    func successClaimBeatsTimeout() {
+        var book = ProviderRefreshLaneBook()
+        let epoch = book.begin(.chatGPT)
+        #expect(book.claim(.chatGPT, epoch: epoch, success: true))
+        #expect(book.claim(.chatGPT, epoch: epoch, success: false) == false)
+        #expect(book.claimedSuccess(.chatGPT, epoch: epoch))
+        #expect(book.isInFlight(.chatGPT))
+    }
+
+    @Test("Abort releases lane ownership for a new identity flight")
+    func abortReleasesLaneForNewIdentity() {
+        var book = ProviderRefreshLaneBook()
+        let first = book.begin(.chatGPT)
+        #expect(book.abort(.chatGPT) == first)
+        #expect(book.isInFlight(.chatGPT) == false)
+        let second = book.begin(.chatGPT)
+        #expect(second != first)
+        #expect(book.isCurrent(.chatGPT, epoch: second))
+    }
+
+    @Test("Grok recovery abort leaves coordinator able to start a new recovery")
+    func grokRecoveryAbortDoesNotTripCircuit() {
+        var coordinator = RecoveryCoordinator()
+        let scope = RecoveryScope(provider: .grok, accountKey: "acct-a")
+        #expect(coordinator.beginRecovery(scope: scope))
+        #expect(coordinator.consumeRestoreAttempt())
+        coordinator.abortInFlightRecovery()
+        #expect(coordinator.state == .healthy)
+        #expect(coordinator.hasActiveScope == false)
+        #expect(coordinator.beginRecovery(scope: scope))
+        #expect(coordinator.state == .recovering)
+        #expect(coordinator.hasActiveScope)
+    }
+
+    @Test("Preserved last-good becomes stale after freshness TTL")
+    func preservedLastGoodBecomesStaleAfterTTL() throws {
+        let observedAt = Date(timeIntervalSince1970: 1_000)
+        let loaded = UsageInfo(
+            sessionPercent: 41,
+            isLoaded: true,
+            isStale: false,
+            observedAt: observedAt
+        )
+        let freshFailure = try #require(
+            UsageRefreshStatePolicy.state(
+                afterFailure: loaded,
+                error: URLError(.timedOut),
+                now: observedAt.addingTimeInterval(30)
+            )
+        )
+        #expect(freshFailure.isStale == false)
+        #expect(freshFailure.observedAt == observedAt)
+        #expect(freshFailure.sessionPercent == 41)
+
+        let staleFailure = try #require(
+            UsageRefreshStatePolicy.state(
+                afterFailure: loaded,
+                error: URLError(.timedOut),
+                now: observedAt.addingTimeInterval(UsageValidityPolicy.freshnessTTL + 1)
+            )
+        )
+        #expect(staleFailure.isStale)
+        #expect(staleFailure.observedAt == observedAt)
+        #expect(staleFailure.sessionPercent == 41)
+        #expect(staleFailure.staleCaption?.contains("上次更新") == true)
+    }
+
+    @Test("Expired secondary meter is omitted on restore while primary stays")
+    func expiredSecondaryIsOmittedOnRestore() throws {
+        let asOf = Date(timeIntervalSince1970: 5_000)
+        let snapshot = V1UsageAdapters.grokSnapshot(
+            usage: GrokUsage(
+                sessionRemainingPercent: 44,
+                resetText: "s",
+                sessionWindowSeconds: 7200,
+                weeklyRemainingPercent: 22,
+                weeklyResetText: "w",
+                weeklyRelativeResetText: "r",
+                sessionResetAt: asOf.addingTimeInterval(3_600),
+                weeklyResetAt: asOf.addingTimeInterval(86_400)
+            ),
+            sso: "token-A",
+            asOf: asOf
+        )
+        let now = asOf.addingTimeInterval(90_000)
+        let info = try #require(UsageInfoFromSnapshot.make(snapshot, stale: true, now: now))
+        #expect(info.sessionPercent == 44)
+        #expect(info.weeklyAvailable == false)
+        #expect(info.isLoaded)
+        #expect(GrokCardPresentation.from(info).showsWeeklyRow == false)
+        #expect(GrokCardPresentation.from(info).weeklyPercent == nil)
     }
 
     @Test("Weekly 429 HTML never becomes a Grok quota payload")
@@ -237,8 +342,8 @@ struct ReliabilityHardeningIntegrationTests {
         #expect(model.isLoading == false)
     }
 
-    @Test("Logout during flight rejects the late ChatGPT result")
-    func logoutDuringFlightRejectsLateResult() async {
+    @Test("Account switch A to B starts a new ChatGPT fetch and rejects A")
+    func accountSwitchStartsFreshFetchForB() async {
         let chatGPT = HangingChatGPTUsageService()
         let model = makeModel(
             chatGPT: chatGPT,
@@ -249,11 +354,39 @@ struct ReliabilityHardeningIntegrationTests {
         let inFlight = Task { await model.refreshAll() }
         await chatGPT.waitUntilStarted(1)
         model.setChatGPTSessionToken("token-B")
-        chatGPT.complete(sampleChatGPT(session: 12))
+        await chatGPT.waitUntilStarted(2)
+        chatGPT.complete(sampleChatGPT(session: 77, resetAt: Date().addingTimeInterval(3_600)))
         await inFlight.value
         await waitUntilRefreshIdle(model)
-        #expect(model.v2Snapshot(for: .chatGPT) == nil)
-        #expect(model.chatGPT.isLoaded == false)
+        #expect(model.chatGPT.sessionPercent == 77)
+        #expect(model.v2Snapshot(for: .chatGPT)?.accountKey == UsageIdentity.accountKey(from: "token-B"))
+        #expect(chatGPT.fetchCount == 2)
+    }
+
+    @Test("Hung A does not block B after account switch")
+    func hungAccountADoesNotBlockAccountB() async {
+        let chatGPT = HangingChatGPTUsageService()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            deadlines: ProviderRefreshDeadlines(
+                chatGPT: 2,
+                claude: 2,
+                grok: 2,
+                cookieStore: 0.05
+            )
+        )
+        model.setChatGPTSessionToken("token-A")
+        let hung = Task { await model.refreshAll() }
+        await chatGPT.waitUntilStarted(1)
+        model.setChatGPTSessionToken("token-B")
+        await chatGPT.waitUntilStarted(2)
+        chatGPT.complete(sampleChatGPT(session: 63, resetAt: Date().addingTimeInterval(3_600)))
+        await waitUntilRefreshIdle(model)
+        #expect(model.chatGPT.sessionPercent == 63)
+        #expect(model.v2Snapshot(for: .chatGPT)?.accountKey == UsageIdentity.accountKey(from: "token-B"))
+        hung.cancel()
     }
 
     @Test("Grok recovery stays one restore and one retry inside a single lane")
@@ -678,25 +811,409 @@ struct ReliabilityHardeningIntegrationTests {
         #expect(model.grok.isLoaded)
     }
 
+    @Test("Never-released ChatGPT fetch returns at the provider deadline")
+    func neverReleasedServiceReturnsAtDeadline() async {
+        let chatGPT = NeverReleasedChatGPTUsageService()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            deadlines: ProviderRefreshDeadlines(
+                chatGPT: 0.12,
+                claude: 2,
+                grok: 2,
+                cookieStore: 0.05
+            )
+        )
+        model.setChatGPTSessionToken("token-A")
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+        #expect(model.isLoading == false)
+        #expect(model.isProviderInFlight(.chatGPT) == false)
+        #expect(model.chatGPT.errorMessage?.contains("逾時") == true)
+        #expect(model.chatGPT.isLoaded == false)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        #expect(model.chatGPT.sessionPercent == 0)
+        #expect(model.v2Snapshot(for: .chatGPT) == nil)
+    }
+
+    @Test("Success near the deadline is not overwritten by timeout")
+    func successNearDeadlineIsNotOverwritten() async {
+        let chatGPT = HangingChatGPTUsageService()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            deadlines: ProviderRefreshDeadlines(
+                chatGPT: 0.4,
+                claude: 2,
+                grok: 2,
+                cookieStore: 0.05
+            )
+        )
+        model.setChatGPTSessionToken("token-A")
+        let refresh = Task { await model.refreshAll() }
+        await chatGPT.waitUntilStarted(1)
+        chatGPT.complete(sampleChatGPT(session: 52, resetAt: Date().addingTimeInterval(3_600)))
+        await refresh.value
+        await waitUntilRefreshIdle(model)
+        #expect(model.chatGPT.sessionPercent == 52)
+        #expect(model.chatGPT.errorMessage == nil)
+        #expect(model.isLoading == false)
+        try? await Task.sleep(nanoseconds: 450_000_000)
+        #expect(model.chatGPT.sessionPercent == 52)
+        #expect(model.chatGPT.errorMessage == nil)
+    }
+
+    @Test("Rapid A-B-A switching only commits the current identity")
+    func rapidAccountSwitchingOnlyCommitsCurrentIdentity() async {
+        let chatGPT = HangingChatGPTUsageService()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService()
+        )
+        model.setChatGPTSessionToken("token-A")
+        let first = Task { await model.refreshAll() }
+        await chatGPT.waitUntilStarted(1)
+        model.setChatGPTSessionToken("token-B")
+        await chatGPT.waitUntilStarted(2)
+        model.setChatGPTSessionToken("token-A")
+        await chatGPT.waitUntilStarted(3)
+        chatGPT.complete(sampleChatGPT(session: 19, resetAt: Date().addingTimeInterval(3_600)))
+        await first.value
+        await waitUntilRefreshIdle(model)
+        #expect(model.chatGPT.sessionPercent == 19)
+        #expect(model.v2Snapshot(for: .chatGPT)?.accountKey == UsageIdentity.accountKey(from: "token-A"))
+    }
+
+    @Test("Grok timeout during recovery unwinds the coordinator")
+    func grokTimeoutDuringRecoveryUnwindsCoordinator() async {
+        let grok = ControllableGrokUsageService()
+        let restorer = OnceHangingGrokRestorer()
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: grok,
+            restorer: restorer,
+            deadlines: ProviderRefreshDeadlines(
+                chatGPT: 2,
+                claude: 2,
+                grok: 0.15,
+                cookieStore: 0.05
+            )
+        )
+        grok.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await grok.waitUntilFetchStartedCount(1)
+        await waitUntilRefreshIdle(model)
+        #expect(model.v2GrokRecoveryState() != .recovering)
+        #expect(model.v2GrokRecoveryHasActiveScope() == false)
+        #expect(model.isLoading == false)
+        #expect(model.grok.isLoaded == false)
+
+        grok.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        grok.enqueue(.success(sampleGrok(session: 61, weekly: 20)))
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+        #expect(restorer.restoreAfterCount == 2)
+        #expect(model.v2GrokRecoveryState() == .healthy)
+        #expect(model.grok.sessionPercent == 61)
+        #expect(model.grok.weeklyPercent == 20)
+    }
+
+    @Test("Failed refresh marks last-good stale after the freshness TTL")
+    func failedRefreshMarksLastGoodStaleAfterTTL() async throws {
+        let clock = TestClock()
+        let chatGPT = CountingChatGPTUsageService()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            now: { clock.date }
+        )
+        model.setChatGPTSessionToken("token-A")
+        chatGPT.enqueue(
+            .success(sampleChatGPT(session: 41, resetAt: Date().addingTimeInterval(3_600)))
+        )
+        await model.refreshAll()
+        let observedAt = try #require(model.chatGPT.observedAt)
+        #expect(model.chatGPT.isStale == false)
+        clock.advance(UsageValidityPolicy.freshnessTTL + 1)
+        chatGPT.enqueue(.failure(URLError(.notConnectedToInternet)))
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+        #expect(model.chatGPT.sessionPercent == 41)
+        #expect(model.chatGPT.isStale)
+        #expect(model.chatGPT.observedAt == observedAt)
+        #expect(model.chatGPT.staleCaption?.contains("上次更新") == true)
+    }
+
+    @Test("Expired weekly meter is omitted on ChatGPT cold restore")
+    func expiredWeeklyOmittedOnChatGPTColdRestore() async throws {
+        let defaults = isolatedDefaults()
+        let keychain = KeychainManager(inMemory: true)
+        let lastGood = LastGoodUsageStore(defaults: defaults)
+        let asOf = Date().addingTimeInterval(-30)
+        let snapshot = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 58,
+                resetText: "s",
+                weeklyRemainingPercent: 12,
+                weeklyResetText: "w",
+                sessionResetAt: Date().addingTimeInterval(3_600),
+                weeklyResetAt: Date().addingTimeInterval(-15)
+            ),
+            token: "token-A",
+            asOf: asOf
+        )
+        lastGood.save(snapshot)
+        keychain.save("token-A", forKey: "chatGPTSessionToken")
+        keychain.save("__Secure-next-auth.session-token=token-A", forKey: "chatGPTCookieHeader")
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults,
+            lastGoodStore: lastGood
+        )
+        #expect(model.chatGPT.isLoaded)
+        #expect(model.chatGPT.sessionPercent == 58)
+        #expect(model.chatGPT.weeklyAvailable == false)
+    }
+
+    @Test("Wake observer coalesces notifications and stops after invalidate")
+    func wakeObserverCoalescesAndStopsAfterInvalidate() async {
+        let center = NotificationCenter()
+        let grok = ControllableGrokUsageService()
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: grok,
+            observesWorkspaceWake: true,
+            wakeNotificationCenter: center,
+            wakeCoalesce: 0.02
+        )
+        grok.enqueue(.success(sampleGrok(session: 40, weekly: nil)))
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await grok.waitUntilFetchStartedCount(1)
+        await waitUntilRefreshIdle(model)
+        let afterLogin = grok.cookieHeaders.count
+        grok.enqueue(.success(sampleGrok(session: 41, weekly: nil)))
+        center.post(name: NSWorkspace.didWakeNotification, object: nil)
+        center.post(name: NSWorkspace.didWakeNotification, object: nil)
+        try? await Task.sleep(nanoseconds: 80_000_000)
+        await waitUntilRefreshIdle(model)
+        #expect(model.wakeTriggeredRefreshCount == 1)
+        #expect(grok.cookieHeaders.count == afterLogin + 1)
+        model.invalidateWakeObserver()
+        grok.enqueue(.success(sampleGrok(session: 42, weekly: nil)))
+        center.post(name: NSWorkspace.didWakeNotification, object: nil)
+        try? await Task.sleep(nanoseconds: 80_000_000)
+        await waitUntilRefreshIdle(model)
+        #expect(model.wakeTriggeredRefreshCount == 1)
+        #expect(grok.cookieHeaders.count == afterLogin + 1)
+    }
+
+    @Test("Reset boundary during backoff can still refresh after backoff expires")
+    func resetBoundaryDuringBackoffCanRefreshLater() async {
+        let chatGPT = CountingChatGPTUsageService()
+        let defaults = isolatedDefaults()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            defaults: defaults
+        )
+        model.setChatGPTSessionToken("token-A")
+        let accountKey = UsageIdentity.accountKey(from: "token-A")!
+        chatGPT.enqueue(
+            .success(sampleChatGPT(session: 40, resetAt: Date().addingTimeInterval(3_600)))
+        )
+        await model.refreshAll()
+        chatGPT.enqueue(
+            .failure(AIUsageServiceError.rateLimited("ChatGPT", retryAfter: 120))
+        )
+        await model.refreshAll()
+        #expect(chatGPT.fetchCount == 2)
+        model.expireInvalidUsage(now: Date().addingTimeInterval(10_000))
+        await waitUntilRefreshIdle(model)
+        #expect(chatGPT.fetchCount == 2)
+        expireBackoff(defaults: defaults, provider: .chatGPT, accountKey: accountKey)
+        chatGPT.enqueue(
+            .success(sampleChatGPT(session: 18, resetAt: Date().addingTimeInterval(3_600)))
+        )
+        model.expireInvalidUsage(now: Date().addingTimeInterval(10_000))
+        await waitUntilRefreshIdle(model)
+        #expect(chatGPT.fetchCount == 3)
+        #expect(model.chatGPT.sessionPercent == 18)
+    }
+
+    @Test("Same-account relogin during backoff does not hit HTTP")
+    func sameAccountReloginDuringBackoffSurfacesStatus() async {
+        let chatGPT = CountingChatGPTUsageService()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService()
+        )
+        model.setChatGPTSessionToken("token-A")
+        chatGPT.enqueue(
+            .failure(AIUsageServiceError.rateLimited("ChatGPT", retryAfter: 120))
+        )
+        await model.refreshAll()
+        #expect(chatGPT.fetchCount == 1)
+        model.setChatGPTSessionToken("token-A")
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+        #expect(chatGPT.fetchCount == 1)
+        #expect(model.statusMessage.contains("過於頻繁"))
+        #expect(model.chatGPT.errorMessage?.contains("過於頻繁") == true)
+    }
+
+    @Test("Weekly rate-limited Grok usage records backoff without recovery")
+    func grokWeeklyRateLimitedUsageRecordsBackoff() async throws {
+        let grok = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let defaults = isolatedDefaults()
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: grok,
+            restorer: restorer,
+            defaults: defaults
+        )
+        grok.enqueue(
+            .success(
+                GrokUsage(
+                    sessionRemainingPercent: 80,
+                    resetText: "s",
+                    sessionWindowSeconds: 7200,
+                    weeklyRemainingPercent: nil,
+                    weeklyResetText: nil,
+                    weeklyRelativeResetText: nil,
+                    sessionResetAt: Date().addingTimeInterval(3_600),
+                    weeklyRateLimited: true,
+                    weeklyRateLimitRetryAfter: 120
+                )
+            )
+        )
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await grok.waitUntilFetchStartedCount(1)
+        await waitUntilRefreshIdle(model)
+        let accountKey = try #require(UsageIdentity.accountKey(from: "token-A"))
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyAvailable == false)
+        #expect(restorer.restoreAfterCount == 0)
+        #expect(model.v2GrokRecoveryState() != .requiresUserAction)
+        let until = try #require(model.backoffUntil(provider: .grok, accountKey: accountKey))
+        #expect(until.timeIntervalSinceNow >= 119)
+        grok.enqueue(.success(sampleGrok(session: 81, weekly: nil)))
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+        #expect(grok.cookieHeaders.count == 1)
+        expireBackoff(defaults: defaults, provider: .grok, accountKey: accountKey)
+        grok.enqueue(.success(sampleGrok(session: 82, weekly: 30)))
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+        #expect(grok.cookieHeaders.count == 2)
+        #expect(model.grok.weeklyPercent == 30)
+        #expect(model.backoffUntil(provider: .grok, accountKey: accountKey) == nil)
+    }
+
+    @Test("Primary 200 plus weekly 429 records Grok backoff on the production HTTP path")
+    func grokWeekly429ProductionPathRecordsBackoff() async throws {
+        GrokHTTPStubURLProtocol.reset()
+        GrokHTTPStubURLProtocol.weeklyStatus = 429
+        GrokHTTPStubURLProtocol.weeklyHeaders = [
+            "Retry-After": "120",
+            "Content-Type": "text/html"
+        ]
+        GrokHTTPStubURLProtocol.weeklyBody = Data("<html>429</html>".utf8)
+        let session = GrokHTTPStubURLProtocol.makeSession()
+        let grok = GrokService(session: session)
+        let restorer = GrokSessionRestorerSpy()
+        let defaults = isolatedDefaults()
+        let keychain = KeychainManager(inMemory: true)
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: grok,
+            restorer: restorer,
+            keychain: keychain,
+            defaults: defaults
+        )
+        model.setGrokCredential(
+            WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A")
+        )
+        await waitUntilRefreshIdle(model)
+        let accountKey = try #require(UsageIdentity.accountKey(from: "token-A"))
+        #expect(model.grok.isLoaded)
+        #expect(model.grok.weeklyAvailable == false)
+        #expect(model.grok.errorMessage?.contains("登入已失效") != true)
+        #expect(restorer.restoreAfterCount == 0)
+        let until = try #require(model.backoffUntil(provider: .grok, accountKey: accountKey))
+        #expect(until.timeIntervalSinceNow >= 119)
+        let requestsAfterFirst = GrokHTTPStubURLProtocol.requestCount()
+        #expect(requestsAfterFirst >= 2)
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+        #expect(GrokHTTPStubURLProtocol.requestCount() == requestsAfterFirst)
+
+        let model2 = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: GrokService(session: session),
+            restorer: GrokSessionRestorerSpy(),
+            keychain: keychain,
+            defaults: defaults
+        )
+        await model2.refreshAll()
+        await waitUntilRefreshIdle(model2)
+        #expect(GrokHTTPStubURLProtocol.requestCount() == requestsAfterFirst)
+        #expect(model2.backoffUntil(provider: .grok, accountKey: accountKey) != nil)
+
+        expireBackoff(defaults: defaults, provider: .grok, accountKey: accountKey)
+        GrokHTTPStubURLProtocol.weeklyStatus = 404
+        GrokHTTPStubURLProtocol.weeklyHeaders = ["Content-Type": "application/json"]
+        GrokHTTPStubURLProtocol.weeklyBody = Data()
+        await model2.refreshAll()
+        await waitUntilRefreshIdle(model2)
+        #expect(model2.backoffUntil(provider: .grok, accountKey: accountKey) == nil)
+        #expect(model2.grok.isLoaded)
+        #expect(restorer.restoreAfterCount == 0)
+    }
+
     private func makeModel(
         chatGPT: any ChatGPTUsageFetching,
         claude: any ClaudeUsageFetching,
         grok: GrokUsageFetching,
-        restorer: GrokSessionRestorerSpy = GrokSessionRestorerSpy(),
+        restorer: (any GrokSessionRestoring)? = nil,
         cookies: (any GrokRefreshCookieSource)? = nil,
         notifications: UsageNotificationManager? = nil,
         keychain: KeychainManager? = nil,
         defaults: UserDefaults? = nil,
         lastGoodStore: LastGoodUsageStoring? = nil,
         backoffStore: HTTPRateLimitBackoffStoring? = nil,
-        deadlines: ProviderRefreshDeadlines = .production
+        deadlines: ProviderRefreshDeadlines = .production,
+        observesWorkspaceWake: Bool = false,
+        wakeNotificationCenter: NotificationCenter? = nil,
+        wakeCoalesce: TimeInterval = 0,
+        now: @escaping () -> Date = Date.init
     ) -> UsageViewModel {
         let defaults = defaults ?? isolatedDefaults()
         return UsageViewModel(
             claudeService: claude,
             chatGPTService: chatGPT,
             grokService: grok,
-            grokSessionRestorer: restorer,
+            grokSessionRestorer: restorer ?? GrokSessionRestorerSpy(),
             grokCookieSource: cookies ?? EmptyGrokRefreshCookieSource(),
             usageNotificationManager: notifications,
             credentialStore: keychain ?? KeychainManager(inMemory: true),
@@ -704,7 +1221,10 @@ struct ReliabilityHardeningIntegrationTests {
             lastGoodStore: lastGoodStore ?? LastGoodUsageStore(defaults: defaults),
             backoffStore: backoffStore ?? HTTPRateLimitBackoffStore(defaults: defaults),
             refreshDeadlines: deadlines,
-            observesWorkspaceWake: false
+            observesWorkspaceWake: observesWorkspaceWake,
+            wakeNotificationCenter: wakeNotificationCenter,
+            wakeCoalesce: wakeCoalesce,
+            now: now
         )
     }
 
@@ -765,6 +1285,8 @@ struct ReliabilityHardeningIntegrationTests {
             sessionResetAt: Date().addingTimeInterval(3_600)
         )
     }
+
+    private func sampleGrok(session: Int, weekly: Int?) -> GrokUsage {
         GrokUsage(
             sessionRemainingPercent: session,
             resetText: "s",
@@ -777,35 +1299,48 @@ struct ReliabilityHardeningIntegrationTests {
     }
 
     private func waitUntilRefreshIdle(_ model: UsageViewModel) async {
-        for _ in 0..<4_000 {
-            if !model.isLoading {
-                return
-            }
-            await Task.yield()
-        }
+        await waitUntil({ !model.isLoading }, message: "refresh idle")
     }
 
-    private func yieldUntil(_ condition: @escaping () -> Bool) async {
-        for _ in 0..<4_000 {
+    private func waitUntil(
+        _ condition: @escaping () -> Bool,
+        timeout: Duration = .seconds(3),
+        message: String = "condition"
+    ) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
             if condition() {
                 return
             }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
         }
+        Issue.record("Timed out waiting for \(message)")
+    }
+
+    private func yieldUntil(_ condition: @escaping () -> Bool) async {
+        await waitUntil(condition, message: "yieldUntil condition")
     }
 
     private func yieldBriefly() async {
-        for _ in 0..<50 {
-            await Task.yield()
-        }
+        try? await Task.sleep(for: .milliseconds(20))
     }
 }
 
 @MainActor
 final class HangingChatGPTUsageService: ChatGPTUsageFetching {
+    private struct Pending {
+        let id: UUID
+        let continuation: CheckedContinuation<ChatGPTUsage, Error>
+    }
+
+    private final class Store: @unchecked Sendable {
+        let lock = NSLock()
+        var pending: [Pending] = []
+        var queued: [ChatGPTUsage] = []
+    }
+
+    private let store = Store()
     private(set) var fetchCount = 0
-    private var pending: [CheckedContinuation<ChatGPTUsage, Error>] = []
-    private var queued: [ChatGPTUsage] = []
     private var startedWaiters: [CheckedContinuation<Void, Never>] = []
 
     func waitUntilStarted(_ count: Int) async {
@@ -821,7 +1356,9 @@ final class HangingChatGPTUsageService: ChatGPTUsageFetching {
     }
 
     func complete(_ usage: ChatGPTUsage) {
-        queued.append(usage)
+        store.lock.lock()
+        store.queued.append(usage)
+        store.lock.unlock()
         flush()
     }
 
@@ -830,26 +1367,56 @@ final class HangingChatGPTUsageService: ChatGPTUsageFetching {
         let waiters = startedWaiters
         startedWaiters.removeAll()
         waiters.forEach { $0.resume() }
-        if !queued.isEmpty {
-            return queued.removeFirst()
+        store.lock.lock()
+        if !store.queued.isEmpty {
+            let usage = store.queued.removeFirst()
+            store.lock.unlock()
+            return usage
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            pending.append(continuation)
-            flush()
+        store.lock.unlock()
+        let id = UUID()
+        let store = self.store
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                store.lock.lock()
+                store.pending.append(Pending(id: id, continuation: continuation))
+                store.lock.unlock()
+                self.flush()
+            }
+        } onCancel: {
+            store.lock.lock()
+            if let idx = store.pending.firstIndex(where: { $0.id == id }) {
+                let item = store.pending.remove(at: idx)
+                store.lock.unlock()
+                item.continuation.resume(throwing: CancellationError())
+            } else {
+                store.lock.unlock()
+            }
         }
     }
 
     private func flush() {
-        while !queued.isEmpty, !pending.isEmpty {
-            pending.removeFirst().resume(returning: queued.removeFirst())
+        store.lock.lock()
+        while !store.queued.isEmpty, !store.pending.isEmpty {
+            let item = store.pending.removeFirst()
+            let usage = store.queued.removeFirst()
+            store.lock.unlock()
+            item.continuation.resume(returning: usage)
+            store.lock.lock()
         }
+        store.lock.unlock()
     }
 }
 
 @MainActor
 final class HangingClaudeUsageService: ClaudeUsageFetching {
+    private struct Pending {
+        let id: UUID
+        let continuation: CheckedContinuation<ClaudeUsage, Error>
+    }
+
     private(set) var fetchCount = 0
-    private var pending: [CheckedContinuation<ClaudeUsage, Error>] = []
+    private var pending: [Pending] = []
     private var queued: [ClaudeUsage] = []
     private var startedWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -878,15 +1445,25 @@ final class HangingClaudeUsageService: ClaudeUsageFetching {
         if !queued.isEmpty {
             return queued.removeFirst()
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            pending.append(continuation)
-            flush()
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                pending.append(Pending(id: id, continuation: continuation))
+                flush()
+            }
+        } onCancel: {
+            Task { @MainActor in
+                if let idx = self.pending.firstIndex(where: { $0.id == id }) {
+                    let item = self.pending.remove(at: idx)
+                    item.continuation.resume(throwing: CancellationError())
+                }
+            }
         }
     }
 
     private func flush() {
         while !queued.isEmpty, !pending.isEmpty {
-            pending.removeFirst().resume(returning: queued.removeFirst())
+            pending.removeFirst().continuation.resume(returning: queued.removeFirst())
         }
     }
 }
@@ -956,4 +1533,152 @@ final class HangingGrokCookieSource: GrokRefreshCookieSource {
     func grokCookies() async -> [HTTPCookie] {
         await withCheckedContinuation { _ in }
     }
+}
+
+@MainActor
+final class NeverReleasedChatGPTUsageService: ChatGPTUsageFetching {
+    private(set) var fetchCount = 0
+    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var held: [CheckedContinuation<ChatGPTUsage, Error>] = []
+
+    func waitUntilStarted(_ count: Int) async {
+        while fetchCount < count {
+            await withCheckedContinuation { continuation in
+                if fetchCount >= count {
+                    continuation.resume()
+                } else {
+                    startedWaiters.append(continuation)
+                }
+            }
+        }
+    }
+
+    func fetchUsage(cookieHeader: String) async throws -> ChatGPTUsage {
+        fetchCount += 1
+        let waiters = startedWaiters
+        startedWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        return try await withCheckedThrowingContinuation { continuation in
+            held.append(continuation)
+        }
+    }
+}
+
+@MainActor
+final class OnceHangingGrokRestorer: GrokSessionRestoring {
+    private(set) var restoreAfterCount = 0
+    private var shouldHang = true
+
+    func restoreIfNeeded() async -> GrokSessionRestoreOutcome {
+        .success
+    }
+
+    func restoreAfterRecoverableFailure() async -> GrokSessionRestoreOutcome {
+        restoreAfterCount += 1
+        if shouldHang {
+            shouldHang = false
+            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+            return .cancelled
+        }
+        return .success
+    }
+
+    func reset() {}
+}
+
+final class TestClock: @unchecked Sendable {
+    var date = Date()
+
+    func advance(_ interval: TimeInterval) {
+        date = date.addingTimeInterval(interval)
+    }
+}
+
+final class GrokHTTPStubURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private static var requestPaths: [String] = []
+    static var weeklyStatus = 429
+    static var weeklyHeaders: [String: String] = [
+        "Retry-After": "120",
+        "Content-Type": "text/html"
+    ]
+    static var weeklyBody = Data("<html>429</html>".utf8)
+
+    static func reset() {
+        lock.lock()
+        requestPaths = []
+        weeklyStatus = 429
+        weeklyHeaders = [
+            "Retry-After": "120",
+            "Content-Type": "text/html"
+        ]
+        weeklyBody = Data("<html>429</html>".utf8)
+        lock.unlock()
+    }
+
+    static func requestCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestPaths.count
+    }
+
+    static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GrokHTTPStubURLProtocol.self]
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCache = nil
+        return URLSession(
+            configuration: configuration,
+            delegate: GrokURLSessionRedirectDelegate.shared,
+            delegateQueue: nil
+        )
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let url = request.url?.absoluteString ?? ""
+        Self.lock.lock()
+        Self.requestPaths.append(url)
+        let isRateLimits = url.contains("rate-limits")
+        let status: Int
+        let headers: [String: String]
+        let body: Data
+        if isRateLimits {
+            status = 200
+            headers = ["Content-Type": "application/json"]
+            let resetAt = Date().addingTimeInterval(3_600).timeIntervalSince1970
+            body = Data("""
+            {"remainingQueries":80,"totalQueries":100,"windowSizeSeconds":7200,"resetAt":\(resetAt)}
+            """.utf8)
+        } else {
+            status = Self.weeklyStatus
+            headers = Self.weeklyHeaders
+            body = Self.weeklyBody
+        }
+        Self.lock.unlock()
+
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                url: url,
+                statusCode: status,
+                httpVersion: "HTTP/1.1",
+                headerFields: headers
+              ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

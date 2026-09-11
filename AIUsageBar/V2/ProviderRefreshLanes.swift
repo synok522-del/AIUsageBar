@@ -8,6 +8,8 @@ struct ProviderRefreshLaneBook {
     struct Lane: Equatable {
         var epoch: UInt = 0
         var inFlight = false
+        var terminal = false
+        var claimedSuccess = false
     }
 
     private var lanes: [UsageProviderID: Lane] = [:]
@@ -16,6 +18,8 @@ struct ProviderRefreshLaneBook {
         var lane = lanes[provider] ?? Lane()
         lane.epoch += 1
         lane.inFlight = true
+        lane.terminal = false
+        lane.claimedSuccess = false
         lanes[provider] = lane
         return lane.epoch
     }
@@ -24,7 +28,54 @@ struct ProviderRefreshLaneBook {
         guard let lane = lanes[provider] else {
             return false
         }
-        return lane.inFlight && lane.epoch == epoch
+        return lane.inFlight && lane.epoch == epoch && !lane.terminal
+    }
+
+    func currentEpoch(_ provider: UsageProviderID) -> UInt {
+        lanes[provider]?.epoch ?? 0
+    }
+
+    /// Atomically chooses the single winner for this lane epoch.
+    /// Timeout/failure invalidates the epoch immediately so late work cannot commit.
+    mutating func claim(
+        _ provider: UsageProviderID,
+        epoch: UInt,
+        success: Bool
+    ) -> Bool {
+        guard var lane = lanes[provider],
+              lane.epoch == epoch,
+              lane.inFlight,
+              !lane.terminal else {
+            return false
+        }
+        lane.terminal = true
+        lane.claimedSuccess = success
+        if !success {
+            lane.inFlight = false
+            lane.epoch += 1
+        }
+        lanes[provider] = lane
+        return true
+    }
+
+    func claimedSuccess(_ provider: UsageProviderID, epoch: UInt) -> Bool {
+        guard let lane = lanes[provider], lane.epoch == epoch else {
+            return false
+        }
+        return lane.claimedSuccess
+    }
+
+    /// Drops in-flight ownership so a new identity can start its own flight.
+    @discardableResult
+    mutating func abort(_ provider: UsageProviderID) -> UInt {
+        var lane = lanes[provider] ?? Lane()
+        let abortedEpoch = lane.epoch
+        lane.inFlight = false
+        lane.terminal = true
+        lane.claimedSuccess = false
+        lane.epoch += 1
+        lanes[provider] = lane
+        return abortedEpoch
     }
 
     mutating func finish(_ provider: UsageProviderID, epoch: UInt) {

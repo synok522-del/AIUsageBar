@@ -92,7 +92,9 @@ enum V1UsageAdapters {
             weeklyResetText: nil,
             weeklyRelativeResetText: nil,
             sessionResetAt: usage.sessionResetAt,
-            weeklyResetAt: nil
+            weeklyResetAt: nil,
+            weeklyRateLimited: usage.weeklyRateLimited,
+            weeklyRateLimitRetryAfter: usage.weeklyRateLimitRetryAfter
         )
     }
 

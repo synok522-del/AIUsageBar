@@ -2790,6 +2790,7 @@ final class GrokSessionRestorerSpy: GrokSessionRestoring {
 
 final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable {
     struct Pending {
+        let id: UUID
         let cookieHeader: String
         let continuation: CheckedContinuation<GrokUsage, Error>
     }
@@ -2832,15 +2833,35 @@ final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable
         if !queued.isEmpty {
             return try queued.removeFirst().get()
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            pending.append(
-                Pending(cookieHeader: rateLimitsCookieHeader, continuation: continuation)
-            )
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                pending.append(
+                    Pending(
+                        id: id,
+                        cookieHeader: rateLimitsCookieHeader,
+                        continuation: continuation
+                    )
+                )
+                lock.unlock()
+            }
+        } onCancel: {
+            lock.lock()
+            if let idx = pending.firstIndex(where: { $0.id == id }) {
+                let item = pending.remove(at: idx)
+                lock.unlock()
+                item.continuation.resume(throwing: CancellationError())
+            } else {
+                lock.unlock()
+            }
         }
     }
 
     func completeNext(_ usage: GrokUsage) {
+        lock.lock()
         let item = pending.removeFirst()
+        lock.unlock()
         item.continuation.resume(returning: usage)
     }
 

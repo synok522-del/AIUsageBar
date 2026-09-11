@@ -189,7 +189,7 @@ enum UsageRefreshStatePolicy {
         message.hasPrefix("\(provider) 登入")
     }
 
-    static func state(afterFailure current: UsageInfo, error: Error) -> UsageInfo? {
+    static func state(afterFailure current: UsageInfo, error: Error, now: Date = Date()) -> UsageInfo? {
         guard !isCancellation(error) else {
             return nil
         }
@@ -204,6 +204,10 @@ enum UsageRefreshStatePolicy {
 
         var preserved = current
         preserved.errorMessage = message
+        if let observedAt = current.observedAt,
+           now.timeIntervalSince(observedAt) >= UsageValidityPolicy.freshnessTTL {
+            preserved.isStale = true
+        }
         return preserved
     }
 

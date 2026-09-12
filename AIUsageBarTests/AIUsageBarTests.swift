@@ -521,24 +521,27 @@ struct AIUsageBarTests {
     func grokLowUsageNotificationTriggersOnceAtTwentyPercent() {
         var state = UsageNotificationState()
 
-        #expect(state.shouldNotify(
+        let high = state.shouldNotify(
             for: .grok,
             remainingPercent: 40,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(high == false)
+        let crossed = state.shouldNotify(
             for: .grok,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
-        #expect(state.shouldNotify(
+        )
+        #expect(crossed == true)
+        let stillLow = state.shouldNotify(
             for: .grok,
             remainingPercent: 10,
             isLoaded: true,
             hasError: false
-        ) == false)
+        )
+        #expect(stillLow == false)
     }
 
     @Test("Grok notification recovery above 20 percent re-arms")
@@ -557,18 +560,20 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let recovered = state.shouldNotify(
             for: .grok,
             remainingPercent: 50,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(recovered == false)
+        let recrossed = state.shouldNotify(
             for: .grok,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
+        )
+        #expect(recrossed == true)
     }
 
     @Test("Grok notification is independent of Claude and ChatGPT")
@@ -581,30 +586,34 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let claudeCrossed = state.shouldNotify(
             for: .claude,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
-        #expect(state.shouldNotify(
+        )
+        #expect(claudeCrossed == true)
+        let grokHigh = state.shouldNotify(
             for: .grok,
             remainingPercent: 40,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(grokHigh == false)
+        let grokCrossed = state.shouldNotify(
             for: .grok,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
-        #expect(state.shouldNotify(
+        )
+        #expect(grokCrossed == true)
+        let claudeStillLow = state.shouldNotify(
             for: .claude,
             remainingPercent: 10,
             isLoaded: true,
             hasError: false
-        ) == false)
+        )
+        #expect(claudeStillLow == false)
     }
 
     @Test("ServiceSupport.percent clamps and rounds values")
@@ -1051,70 +1060,78 @@ struct AIUsageBarTests {
     func lowUsageNotificationTriggersAtTwentyPercent() {
         var state = UsageNotificationState()
 
-        #expect(state.shouldNotify(
+        let high = state.shouldNotify(
             for: .claude,
             remainingPercent: 30,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(high == false)
+        let crossed = state.shouldNotify(
             for: .claude,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
+        )
+        #expect(crossed == true)
     }
 
     @Test("Low usage notification triggers below the threshold")
     func lowUsageNotificationTriggersBelowTwentyPercent() {
         var state = UsageNotificationState()
 
-        #expect(state.shouldNotify(
+        let high = state.shouldNotify(
             for: .chatGPT,
             remainingPercent: 30,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(high == false)
+        let crossed = state.shouldNotify(
             for: .chatGPT,
             remainingPercent: 19,
             isLoaded: true,
             hasError: false
-        ) == true)
+        )
+        #expect(crossed == true)
     }
 
     @Test("Disabled notifications do not consume a threshold crossing")
     func lowUsageNotificationPreservesCrossingWhileDisabled() {
         var state = UsageNotificationState()
 
-        #expect(state.shouldNotifyIfEnabled(
+        let armed = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: 30,
             isLoaded: true,
             hasError: false,
             notificationsEnabled: true
-        ) == false)
-        #expect(state.shouldNotifyIfEnabled(
+        )
+        #expect(armed == false)
+        let disabledCrossing = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: 15,
             isLoaded: true,
             hasError: false,
             notificationsEnabled: false
-        ) == false)
-        #expect(state.shouldNotifyIfEnabled(
+        )
+        #expect(disabledCrossing == false)
+        let enabledCrossing = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: 15,
             isLoaded: true,
             hasError: false,
             notificationsEnabled: true
-        ) == true)
-        #expect(state.shouldNotifyIfEnabled(
+        )
+        #expect(enabledCrossing == true)
+        let alreadyNotified = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: 15,
             isLoaded: true,
             hasError: false,
             notificationsEnabled: true
-        ) == false)
+        )
+        #expect(alreadyNotified == false)
     }
 
     @Test("Low usage notification does not repeat while usage stays low")
@@ -1127,18 +1144,20 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let crossed = state.shouldNotify(
             for: .claude,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
-        #expect(state.shouldNotify(
+        )
+        #expect(crossed == true)
+        let stillLow = state.shouldNotify(
             for: .claude,
             remainingPercent: 15,
             isLoaded: true,
             hasError: false
-        ) == false)
+        )
+        #expect(stillLow == false)
     }
 
     @Test("Recovery above the threshold resets notification state")
@@ -1157,24 +1176,27 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let stayedLow = state.shouldNotify(
             for: .claude,
             remainingPercent: 10,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(stayedLow == false)
+        let recovered = state.shouldNotify(
             for: .claude,
             remainingPercent: 100,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(recovered == false)
+        let recrossed = state.shouldNotify(
             for: .claude,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
+        )
+        #expect(recrossed == true)
     }
 
     @Test("Unloaded and error states do not trigger notifications")
@@ -1187,18 +1209,20 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let unloaded = state.shouldNotify(
             for: .chatGPT,
             remainingPercent: 10,
             isLoaded: false,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(unloaded == false)
+        let errored = state.shouldNotify(
             for: .chatGPT,
             remainingPercent: 10,
             isLoaded: true,
             hasError: true
-        ) == false)
+        )
+        #expect(errored == false)
     }
 
     @Test("Refresh failure preserves last-known-good usage")

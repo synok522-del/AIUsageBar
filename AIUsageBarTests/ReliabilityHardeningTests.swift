@@ -99,18 +99,22 @@ struct ReliabilityHardeningUnitTests {
     func timeoutClaimBeatsLateSuccess() {
         var book = ProviderRefreshLaneBook()
         let epoch = book.begin(.chatGPT)
-        #expect(book.claim(.chatGPT, epoch: epoch, success: false))
+        let timeoutClaimed = book.claim(.chatGPT, epoch: epoch, success: false)
+        #expect(timeoutClaimed)
         #expect(book.isCurrent(.chatGPT, epoch: epoch) == false)
         #expect(book.isInFlight(.chatGPT) == false)
-        #expect(book.claim(.chatGPT, epoch: epoch, success: true) == false)
+        let lateSuccessClaimed = book.claim(.chatGPT, epoch: epoch, success: true)
+        #expect(lateSuccessClaimed == false)
     }
 
     @Test("Success claim prevents a timeout from overwriting the winner")
     func successClaimBeatsTimeout() {
         var book = ProviderRefreshLaneBook()
         let epoch = book.begin(.chatGPT)
-        #expect(book.claim(.chatGPT, epoch: epoch, success: true))
-        #expect(book.claim(.chatGPT, epoch: epoch, success: false) == false)
+        let successClaimed = book.claim(.chatGPT, epoch: epoch, success: true)
+        #expect(successClaimed)
+        let timeoutClaimed = book.claim(.chatGPT, epoch: epoch, success: false)
+        #expect(timeoutClaimed == false)
         #expect(book.claimedSuccess(.chatGPT, epoch: epoch))
         #expect(book.isInFlight(.chatGPT))
     }
@@ -119,7 +123,8 @@ struct ReliabilityHardeningUnitTests {
     func abortReleasesLaneForNewIdentity() {
         var book = ProviderRefreshLaneBook()
         let first = book.begin(.chatGPT)
-        #expect(book.abort(.chatGPT) == first)
+        let abortedEpoch = book.abort(.chatGPT)
+        #expect(abortedEpoch == first)
         #expect(book.isInFlight(.chatGPT) == false)
         let second = book.begin(.chatGPT)
         #expect(second != first)
@@ -130,12 +135,15 @@ struct ReliabilityHardeningUnitTests {
     func grokRecoveryAbortDoesNotTripCircuit() {
         var coordinator = RecoveryCoordinator()
         let scope = RecoveryScope(provider: .grok, accountKey: "acct-a")
-        #expect(coordinator.beginRecovery(scope: scope))
-        #expect(coordinator.consumeRestoreAttempt())
+        let began = coordinator.beginRecovery(scope: scope)
+        #expect(began)
+        let restored = coordinator.consumeRestoreAttempt()
+        #expect(restored)
         coordinator.abortInFlightRecovery()
         #expect(coordinator.state == .healthy)
         #expect(coordinator.hasActiveScope == false)
-        #expect(coordinator.beginRecovery(scope: scope))
+        let beganAgain = coordinator.beginRecovery(scope: scope)
+        #expect(beganAgain)
         #expect(coordinator.state == .recovering)
         #expect(coordinator.hasActiveScope)
     }
@@ -491,8 +499,7 @@ struct ReliabilityHardeningIntegrationTests {
         await model.refreshAll()
         let accountKey = UsageIdentity.accountKey(from: "token-A")!
         let until = try #require(model.backoffUntil(provider: .chatGPT, accountKey: accountKey))
-        #expect(until != nil)
-        #expect(until!.timeIntervalSinceNow >= 119)
+        #expect(until.timeIntervalSinceNow >= 119)
         #expect(chatGPT.fetchCount == 1)
         #expect(model.chatGPT.errorMessage?.contains("登入已失效") != true)
         #expect(model.chatGPT.errorMessage?.contains("過於頻繁") == true)

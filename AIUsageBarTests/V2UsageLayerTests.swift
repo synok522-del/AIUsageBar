@@ -624,18 +624,19 @@ struct V2UsageLayerTests {
         )
         let accountKey = UsageIdentity.accountKey(from: "tok")
         #expect(snapshot.validity(now: now, expectedAccountKey: accountKey) == .staleButValid)
-        #expect(state.commit(snapshot, now: now) == false)
+        let networkRejected = state.commit(snapshot, now: now)
+        #expect(networkRejected == false)
         #expect(state.lastSnapshots[.chatGPT] == nil)
-        #expect(state.restoreLastGood(snapshot, expectedAccountKey: accountKey, now: now))
+        let restored = state.restoreLastGood(snapshot, expectedAccountKey: accountKey, now: now)
+        #expect(restored)
         #expect(state.lastSnapshots[.chatGPT]?.asOf == asOf)
         #expect(state.restoredFromPersistence.contains(.chatGPT))
-        #expect(
-            state.restoreLastGood(
-                snapshot,
-                expectedAccountKey: UsageIdentity.accountKey(from: "other"),
-                now: now
-            ) == false
+        let otherAccountRejected = state.restoreLastGood(
+            snapshot,
+            expectedAccountKey: UsageIdentity.accountKey(from: "other"),
+            now: now
         )
+        #expect(otherAccountRejected == false)
     }
 
     @Test("restoreLastGood rejects expired and invalid snapshots")
@@ -653,13 +654,12 @@ struct V2UsageLayerTests {
             token: "tok",
             asOf: now.addingTimeInterval(-200)
         )
-        #expect(
-            state.restoreLastGood(
-                expired,
-                expectedAccountKey: UsageIdentity.accountKey(from: "tok"),
-                now: now
-            ) == false
+        let expiredRejected = state.restoreLastGood(
+            expired,
+            expectedAccountKey: UsageIdentity.accountKey(from: "tok"),
+            now: now
         )
+        #expect(expiredRejected == false)
         #expect(state.lastSnapshots[.chatGPT] == nil)
     }
 

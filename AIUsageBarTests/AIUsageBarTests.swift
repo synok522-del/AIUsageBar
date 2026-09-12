@@ -1758,6 +1758,29 @@ struct AIUsageBarTests {
         #expect(gate.generation != generation)
     }
 
+    @Test("Cancelling an in-flight WebKit restore cleans up once")
+    @MainActor
+    func grokWebKitRestoreCancellationCleansUp() async {
+        let restorer = GrokWebKitSessionRestorer.shared
+        restorer.reset()
+
+        let first = Task { @MainActor in
+            await restorer.restoreAfterRecoverableFailure()
+        }
+        await Task.yield()
+        first.cancel()
+        #expect(await first.value == .cancelled)
+
+        let second = Task { @MainActor in
+            await restorer.restoreAfterRecoverableFailure()
+        }
+        await Task.yield()
+        second.cancel()
+        #expect(await second.value == .cancelled)
+
+        restorer.reset()
+    }
+
     @Test("Recoverable Grok WAF permits exactly one restoration retry")
     func grokRecoverableWAFPermitsExactlyOneRetry() {
         let error = AIUsageServiceError.wafBlocked("Grok")

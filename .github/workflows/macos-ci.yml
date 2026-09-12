@@ -1,0 +1,201 @@
+name: AIUsageBar macOS CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - v3/release-candidate
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - main
+      - v3/release-candidate
+      - 'ci/**'
+      - 'release/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build (macOS)
+    runs-on: macos-26
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact commit
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          echo "Expected SHA: ${EXPECTED_SHA}"
+          echo "Checked out SHA: ${actual_sha}"
+          if [[ "${actual_sha}" != "${EXPECTED_SHA}" ]]; then
+            echo "FAIL: checkout is not bound to the event SHA"
+            exit 1
+          fi
+          echo "PASS: exact commit verified"
+
+      - name: Show runner toolchain
+        run: |
+          set -euo pipefail
+          sw_vers -productVersion
+          uname -m
+          xcodebuild -version
+
+      - name: Build AIUsageBar
+        run: |
+          set -euo pipefail
+          derived_data="${RUNNER_TEMP}/AIUsageBar-DerivedData-build"
+          log_file="${RUNNER_TEMP}/AIUsageBar-build.log"
+          mkdir -p "${derived_data}"
+          xcodebuild \
+            -project AIUsageBar.xcodeproj \
+            -scheme AIUsageBar \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "${derived_data}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee "${log_file}"
+          echo "PASS: AIUsageBar Debug build"
+
+  product-tests:
+    name: Product Tests (AIUsageBarTests)
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact commit
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          echo "Expected SHA: ${EXPECTED_SHA}"
+          echo "Checked out SHA: ${actual_sha}"
+          if [[ "${actual_sha}" != "${EXPECTED_SHA}" ]]; then
+            echo "FAIL: checkout is not bound to the event SHA"
+            exit 1
+          fi
+          echo "PASS: exact commit verified"
+
+      - name: Show runner toolchain
+        run: |
+          set -euo pipefail
+          sw_vers -productVersion
+          uname -m
+          xcodebuild -version
+
+      - name: Run non-UI product tests
+        run: |
+          set -euo pipefail
+          derived_data="${RUNNER_TEMP}/AIUsageBar-DerivedData-product-tests"
+          log_file="${RUNNER_TEMP}/AIUsageBar-product-tests.log"
+          mkdir -p "${derived_data}"
+          xcodebuild \
+            -project AIUsageBar.xcodeproj \
+            -scheme AIUsageBar \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "${derived_data}" \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            -only-testing:AIUsageBarTests \
+            test 2>&1 | tee "${log_file}"
+          echo "PASS: AIUsageBarTests product tests"
+
+  ui-launch-tests:
+    name: UI / Launch Tests (AIUsageBarUITests)
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact commit
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          echo "Expected SHA: ${EXPECTED_SHA}"
+          echo "Checked out SHA: ${actual_sha}"
+          if [[ "${actual_sha}" != "${EXPECTED_SHA}" ]]; then
+            echo "FAIL: checkout is not bound to the event SHA"
+            exit 1
+          fi
+          echo "PASS: exact commit verified"
+
+      - name: Show runner toolchain
+        run: |
+          set -euo pipefail
+          sw_vers -productVersion
+          uname -m
+          xcodebuild -version
+
+      - name: Run UI and launch tests with bounded retry
+        run: |
+          set -uo pipefail
+          derived_data="${RUNNER_TEMP}/AIUsageBar-DerivedData-ui-tests"
+          mkdir -p "${derived_data}"
+          last_exit_code=1
+
+          for attempt in 1 2; do
+            log_file="${RUNNER_TEMP}/AIUsageBar-ui-tests-attempt-${attempt}.log"
+            echo "UI/Launch Tests attempt ${attempt}/2"
+            xcodebuild \
+              -project AIUsageBar.xcodeproj \
+              -scheme AIUsageBar \
+              -configuration Debug \
+              -destination 'platform=macOS' \
+              -derivedDataPath "${derived_data}" \
+              -parallel-testing-enabled NO \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              -only-testing:AIUsageBarUITests \
+              test 2>&1 | tee "${log_file}"
+            exit_code=${PIPESTATUS[0]}
+
+            if [[ "${exit_code}" -eq 0 ]]; then
+              echo "PASS: AIUsageBarUITests UI/launch tests on attempt ${attempt}/2"
+              exit 0
+            fi
+
+            last_exit_code="${exit_code}"
+            echo "FAIL: UI/Launch Tests attempt ${attempt}/2 (exit ${exit_code})"
+            if [[ "${attempt}" -lt 2 ]]; then
+              echo "Retrying once; retry budget is bounded at 2 attempts"
+              sleep 5
+            fi
+          done
+
+          echo "FAIL: AIUsageBarUITests after 2 bounded attempts"
+          exit "${last_exit_code}"

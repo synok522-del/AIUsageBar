@@ -1084,6 +1084,40 @@ struct ReliabilityHardeningIntegrationTests {
         #expect(model.chatGPT.errorMessage?.contains(L10n.rateLimited("ChatGPT")) == true)
     }
 
+    @Test("Rate-limited status clears after the same provider succeeds")
+    func rateLimitedStatusClearsAfterSuccessfulProviderRefresh() async {
+        let chatGPT = CountingChatGPTUsageService()
+        let defaults = isolatedDefaults()
+        var currentNow = Date()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            defaults: defaults,
+            now: { currentNow }
+        )
+        model.setChatGPTSessionToken("token-A")
+        chatGPT.enqueue(
+            .failure(AIUsageServiceError.rateLimited("ChatGPT", retryAfter: 1))
+        )
+
+        await model.refreshAll()
+        await model.refreshAll()
+        #expect(chatGPT.fetchCount == 1)
+        #expect(model.statusMessage == L10n.rateLimitedRetry("ChatGPT", 60))
+
+        currentNow = currentNow.addingTimeInterval(61)
+        chatGPT.enqueue(
+            .success(sampleChatGPT(session: 18, resetAt: currentNow.addingTimeInterval(3_600)))
+        )
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(chatGPT.fetchCount == 2)
+        #expect(model.chatGPT.isLoaded)
+        #expect(model.statusMessage.isEmpty)
+    }
+
     @Test("Weekly rate-limited Grok usage records backoff without recovery")
     func grokWeeklyRateLimitedUsageRecordsBackoff() async throws {
         let grok = ControllableGrokUsageService()

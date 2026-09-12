@@ -772,6 +772,21 @@ struct AIUsageBarTests {
                 for: "Claude"
             )
         )
+        var rateLimitedStatus = L10n.rateLimitedRetry("Claude", 30)
+        #expect(!rateLimitedStatus.isEmpty)
+        #expect(
+            UsageRefreshStatePolicy.shouldClearStatusMessage(
+                rateLimitedStatus,
+                for: "Claude"
+            )
+        )
+        if UsageRefreshStatePolicy.shouldClearStatusMessage(
+            rateLimitedStatus,
+            for: "Claude"
+        ) {
+            rateLimitedStatus = ""
+        }
+        #expect(rateLimitedStatus.isEmpty)
         #expect(
             UsageRefreshStatePolicy.shouldClearStatusMessage(
                 L10n.loginSucceeded("ChatGPT"),

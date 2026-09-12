@@ -186,6 +186,7 @@ enum UsageRefreshStatePolicy {
     ) -> Bool {
         message.hasPrefix("\(provider)：") ||
         message.hasPrefix("\(provider):") ||
+        message.hasPrefix(L10n.rateLimitedPrefix(provider)) ||
         message == L10n.loginSucceeded(provider)
     }
 

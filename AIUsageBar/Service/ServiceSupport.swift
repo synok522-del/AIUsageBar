@@ -36,7 +36,8 @@ enum ServiceSupport {
             statusCode: httpResponse.statusCode,
             contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
             data: data,
-            serviceName: serviceName
+            serviceName: serviceName,
+            retryAfter: httpResponse.value(forHTTPHeaderField: "Retry-After")
         )
 
         return data
@@ -46,10 +47,19 @@ enum ServiceSupport {
         statusCode: Int,
         contentType: String?,
         data: Data,
-        serviceName: String
+        serviceName: String,
+        retryAfter: String? = nil,
+        now: Date = Date()
     ) throws {
         if statusCode == 401 {
             throw AIUsageServiceError.httpStatus(serviceName, 401)
+        }
+
+        if statusCode == 429 {
+            throw AIUsageServiceError.rateLimited(
+                serviceName,
+                retryAfter: RetryAfterParser.timeInterval(from: retryAfter, now: now)
+            )
         }
 
         if isNonJSONResponse(contentType: contentType, data: data) {
@@ -126,7 +136,7 @@ enum ServiceSupport {
         return clampedPercent(value)
     }
 
-    static func resetText(_ value: Any?) -> String {
+    static func resetText(_ value: Any?, now: Date = Date()) -> String {
         guard let date = resetDate(value) else {
             return ""
         }
@@ -138,7 +148,7 @@ enum ServiceSupport {
         return L10n.resetsRelative(
             formatter.localizedString(
                 for: date,
-                relativeTo: Date()
+                relativeTo: now
             )
         )
     }
@@ -290,9 +300,28 @@ enum AIUsageServiceError: LocalizedError {
 
     case invalidResponse(String)
     case httpStatus(String, Int)
+    case rateLimited(String, retryAfter: TimeInterval?)
     case invalidPayload(String)
     case missingValue(String)
     case wafBlocked(String)
+
+    var isRateLimited: Bool {
+        switch self {
+        case .rateLimited:
+            return true
+        case .httpStatus(_, let statusCode):
+            return statusCode == 429
+        default:
+            return false
+        }
+    }
+
+    var retryAfter: TimeInterval? {
+        if case .rateLimited(_, let retryAfter) = self {
+            return retryAfter
+        }
+        return nil
+    }
 
     var errorDescription: String? {
 
@@ -321,6 +350,9 @@ enum AIUsageServiceError: LocalizedError {
                 return L10n.httpError(service, statusCode)
             }
 
+        case .rateLimited(let service, _):
+            return L10n.rateLimited(service)
+
         case .invalidPayload(let service):
             return L10n.invalidPayload(service)
 
@@ -330,6 +362,16 @@ enum AIUsageServiceError: LocalizedError {
         case .wafBlocked(let service):
             return L10n.wafBlocked(service)
         }
+    }
+}
+
+extension Error {
+    var isRateLimitedError: Bool {
+        (self as? AIUsageServiceError)?.isRateLimited ?? false
+    }
+
+    var rateLimitedRetryAfter: TimeInterval? {
+        (self as? AIUsageServiceError)?.retryAfter
     }
 }
 

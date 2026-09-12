@@ -18,6 +18,8 @@ struct UsageInfo {
     var sessionWindowSeconds: Int = 0
     var isLoaded: Bool = false
     var errorMessage: String?
+    var isStale: Bool = false
+    var observedAt: Date?
 
     var primaryRemainingPercent: Int {
         weeklyAvailable ? weeklyPercent : sessionPercent
@@ -31,6 +33,13 @@ struct UsageInfo {
             )
         }
         return resetText
+    }
+
+    var staleCaption: String? {
+        guard isStale, let observedAt else {
+            return nil
+        }
+        return StaleUsagePresentation.caption(asOf: observedAt)
     }
 }
 
@@ -180,7 +189,7 @@ enum UsageRefreshStatePolicy {
         message == L10n.loginSucceeded(provider)
     }
 
-    static func state(afterFailure current: UsageInfo, error: Error) -> UsageInfo? {
+    static func state(afterFailure current: UsageInfo, error: Error, now: Date = Date()) -> UsageInfo? {
         guard !isCancellation(error) else {
             return nil
         }
@@ -195,6 +204,10 @@ enum UsageRefreshStatePolicy {
 
         var preserved = current
         preserved.errorMessage = message
+        if let observedAt = current.observedAt,
+           now.timeIntervalSince(observedAt) >= UsageValidityPolicy.freshnessTTL {
+            preserved.isStale = true
+        }
         return preserved
     }
 

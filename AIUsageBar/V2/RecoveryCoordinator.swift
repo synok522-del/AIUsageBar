@@ -111,6 +111,23 @@ struct RecoveryCoordinator {
         activeScope = nil
     }
 
+    /// Unwinds an in-flight restore/retry without treating it as success or a
+    /// circuit failure. Timeout/cancel must not leave `state == .recovering`.
+    mutating func abortInFlightRecovery() {
+        guard state == .recovering else {
+            return
+        }
+        generation += 1
+        activeScope = nil
+        restoresUsed = 0
+        retriesUsed = 0
+        state = .healthy
+    }
+
+    var hasActiveScope: Bool {
+        activeScope != nil
+    }
+
     func shouldCommit(captured: UInt) -> Bool {
         captured == generation
     }

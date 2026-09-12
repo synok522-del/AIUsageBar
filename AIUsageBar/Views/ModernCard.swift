@@ -9,6 +9,7 @@ struct ModernCard: View {
     let weeklyRowLabel: String
     let weeklyAccessibilityLabel: String
     let reset: String
+    var footnote: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -38,6 +39,13 @@ struct ModernCard: View {
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let footnote, !footnote.isEmpty {
+                Text(footnote)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textSecondary.opacity(0.8))
+                    .lineLimit(1)
             }
         }
         .padding(16)

@@ -528,24 +528,27 @@ struct AIUsageBarTests {
     func grokLowUsageNotificationTriggersOnceAtTwentyPercent() {
         var state = UsageNotificationState()
 
-        #expect(state.shouldNotify(
+        let high = state.shouldNotify(
             for: .grok,
             remainingPercent: 40,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(high == false)
+        let crossed = state.shouldNotify(
             for: .grok,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
-        #expect(state.shouldNotify(
+        )
+        #expect(crossed == true)
+        let stillLow = state.shouldNotify(
             for: .grok,
             remainingPercent: 10,
             isLoaded: true,
             hasError: false
-        ) == false)
+        )
+        #expect(stillLow == false)
     }
 
     @Test("Grok notification recovery above 20 percent re-arms")
@@ -564,18 +567,20 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let recovered = state.shouldNotify(
             for: .grok,
             remainingPercent: 50,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(recovered == false)
+        let recrossed = state.shouldNotify(
             for: .grok,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
+        )
+        #expect(recrossed == true)
     }
 
     @Test("Grok notification is independent of Claude and ChatGPT")
@@ -588,30 +593,34 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let claudeCrossed = state.shouldNotify(
             for: .claude,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
-        #expect(state.shouldNotify(
+        )
+        #expect(claudeCrossed == true)
+        let grokHigh = state.shouldNotify(
             for: .grok,
             remainingPercent: 40,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(grokHigh == false)
+        let grokCrossed = state.shouldNotify(
             for: .grok,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
-        #expect(state.shouldNotify(
+        )
+        #expect(grokCrossed == true)
+        let claudeStillLow = state.shouldNotify(
             for: .claude,
             remainingPercent: 10,
             isLoaded: true,
             hasError: false
-        ) == false)
+        )
+        #expect(claudeStillLow == false)
     }
 
     @Test("ServiceSupport.percent clamps and rounds values")
@@ -1070,70 +1079,78 @@ struct AIUsageBarTests {
     func lowUsageNotificationTriggersAtTwentyPercent() {
         var state = UsageNotificationState()
 
-        #expect(state.shouldNotify(
+        let high = state.shouldNotify(
             for: .claude,
             remainingPercent: 30,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(high == false)
+        let crossed = state.shouldNotify(
             for: .claude,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
+        )
+        #expect(crossed == true)
     }
 
     @Test("Low usage notification triggers below the threshold")
     func lowUsageNotificationTriggersBelowTwentyPercent() {
         var state = UsageNotificationState()
 
-        #expect(state.shouldNotify(
+        let high = state.shouldNotify(
             for: .chatGPT,
             remainingPercent: 30,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(high == false)
+        let crossed = state.shouldNotify(
             for: .chatGPT,
             remainingPercent: 19,
             isLoaded: true,
             hasError: false
-        ) == true)
+        )
+        #expect(crossed == true)
     }
 
     @Test("Disabled notifications do not consume a threshold crossing")
     func lowUsageNotificationPreservesCrossingWhileDisabled() {
         var state = UsageNotificationState()
 
-        #expect(state.shouldNotifyIfEnabled(
+        let armed = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: 30,
             isLoaded: true,
             hasError: false,
             notificationsEnabled: true
-        ) == false)
-        #expect(state.shouldNotifyIfEnabled(
+        )
+        #expect(armed == false)
+        let disabledCrossing = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: 15,
             isLoaded: true,
             hasError: false,
             notificationsEnabled: false
-        ) == false)
-        #expect(state.shouldNotifyIfEnabled(
+        )
+        #expect(disabledCrossing == false)
+        let enabledCrossing = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: 15,
             isLoaded: true,
             hasError: false,
             notificationsEnabled: true
-        ) == true)
-        #expect(state.shouldNotifyIfEnabled(
+        )
+        #expect(enabledCrossing == true)
+        let alreadyNotified = state.shouldNotifyIfEnabled(
             for: .claude,
             remainingPercent: 15,
             isLoaded: true,
             hasError: false,
             notificationsEnabled: true
-        ) == false)
+        )
+        #expect(alreadyNotified == false)
     }
 
     @Test("Low usage notification does not repeat while usage stays low")
@@ -1146,18 +1163,20 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let crossed = state.shouldNotify(
             for: .claude,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
-        #expect(state.shouldNotify(
+        )
+        #expect(crossed == true)
+        let stillLow = state.shouldNotify(
             for: .claude,
             remainingPercent: 15,
             isLoaded: true,
             hasError: false
-        ) == false)
+        )
+        #expect(stillLow == false)
     }
 
     @Test("Recovery above the threshold resets notification state")
@@ -1176,24 +1195,27 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let stayedLow = state.shouldNotify(
             for: .claude,
             remainingPercent: 10,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(stayedLow == false)
+        let recovered = state.shouldNotify(
             for: .claude,
             remainingPercent: 100,
             isLoaded: true,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(recovered == false)
+        let recrossed = state.shouldNotify(
             for: .claude,
             remainingPercent: 20,
             isLoaded: true,
             hasError: false
-        ) == true)
+        )
+        #expect(recrossed == true)
     }
 
     @Test("Unloaded and error states do not trigger notifications")
@@ -1206,18 +1228,20 @@ struct AIUsageBarTests {
             isLoaded: true,
             hasError: false
         )
-        #expect(state.shouldNotify(
+        let unloaded = state.shouldNotify(
             for: .chatGPT,
             remainingPercent: 10,
             isLoaded: false,
             hasError: false
-        ) == false)
-        #expect(state.shouldNotify(
+        )
+        #expect(unloaded == false)
+        let errored = state.shouldNotify(
             for: .chatGPT,
             remainingPercent: 10,
             isLoaded: true,
             hasError: true
-        ) == false)
+        )
+        #expect(errored == false)
     }
 
     @Test("Refresh failure preserves last-known-good usage")
@@ -1507,6 +1531,48 @@ struct AIUsageBarTests {
         }
     }
 
+    @Test("HTTP 429 is classified before HTML WAF and is not login expiry")
+    func http429IsClassifiedBeforeHTMLWAF() {
+        let html = Data("<!DOCTYPE html><html><body>Too Many Requests</body></html>".utf8)
+
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 429,
+                contentType: "text/html",
+                data: html,
+                serviceName: "Grok",
+                retryAfter: "120"
+            )
+            Issue.record("expected 429 rate limit error")
+        } catch let error as AIUsageServiceError {
+            #expect(error.isRateLimited)
+            #expect(error.retryAfter == 120)
+            #expect(error.localizedDescription == L10n.rateLimited("Grok"))
+            #expect(error.localizedDescription.contains(L10n.sessionExpiredMarker) == false)
+        } catch {
+            Issue.record("unexpected error type for 429 HTML")
+        }
+    }
+
+    @Test("Retry-After 0 still yields a rate-limited error")
+    func retryAfterZeroStillRateLimited() {
+        do {
+            try ServiceSupport.validateHTTPResponse(
+                statusCode: 429,
+                contentType: "application/json",
+                data: Data("{}".utf8),
+                serviceName: "ChatGPT",
+                retryAfter: "0"
+            )
+            Issue.record("expected 429 rate limit error")
+        } catch let error as AIUsageServiceError {
+            #expect(error.isRateLimited)
+            #expect(error.retryAfter == 0)
+        } catch {
+            Issue.record("unexpected error type for Retry-After 0")
+        }
+    }
+
     @Test("JSON 403 stays a permission error rather than WAF")
     func json403StaysPermissionError() {
         let json = Data("{\"error\":true}".utf8)
@@ -1709,6 +1775,29 @@ struct AIUsageBarTests {
         gate.complete(attemptGeneration: generation, outcome: .success)
         #expect(gate.phase == .unknown)
         #expect(gate.generation != generation)
+    }
+
+    @Test("Cancelling an in-flight WebKit restore cleans up once")
+    @MainActor
+    func grokWebKitRestoreCancellationCleansUp() async {
+        let restorer = GrokWebKitSessionRestorer.shared
+        restorer.reset()
+
+        let first = Task { @MainActor in
+            await restorer.restoreAfterRecoverableFailure()
+        }
+        await Task.yield()
+        first.cancel()
+        #expect(await first.value == .cancelled)
+
+        let second = Task { @MainActor in
+            await restorer.restoreAfterRecoverableFailure()
+        }
+        await Task.yield()
+        second.cancel()
+        #expect(await second.value == .cancelled)
+
+        restorer.reset()
     }
 
     @Test("Recoverable Grok WAF permits exactly one restoration retry")
@@ -2477,11 +2566,12 @@ struct AIUsageBarTests {
         #expect(model.grok.weeklyPercent == 0)
         #expect(model.grok.weeklyAvailable == false)
         #expect(restorer.resetCount >= 1)
+        await service.waitUntilFetchStartedCount(3)
         #expect(service.pending.count == 1)
 
-        service.enqueue(.success(usageB))
-        service.completeNext(usageA)
+        service.completeNext(usageB)
         await inFlight.value
+        await waitUntilRefreshIdle(model)
         #expect(model.grok.sessionPercent == 88)
         #expect(model.grok.weeklyPercent == 12)
         #expect(service.fetchCount(containing: "token-B") == 1)
@@ -2767,16 +2857,22 @@ final class GrokSessionRestorerSpy: GrokSessionRestoring {
 
 final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable {
     struct Pending {
+        let id: UUID
         let cookieHeader: String
         let continuation: CheckedContinuation<GrokUsage, Error>
     }
 
     private let lock = NSLock()
+    private let retainCancelledFetches: Bool
     private var queued: [Result<GrokUsage, Error>] = []
     private var startedCount = 0
     private var startedWaiters: [CheckedContinuation<Void, Never>] = []
     private(set) var pending: [Pending] = []
     private(set) var cookieHeaders: [String] = []
+
+    init(retainCancelledFetches: Bool = false) {
+        self.retainCancelledFetches = retainCancelledFetches
+    }
 
     func enqueue(_ result: Result<GrokUsage, Error>) {
         queued.append(result)
@@ -2807,17 +2903,51 @@ final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable
         cookieHeaders.append(rateLimitsCookieHeader)
         noteFetchStarted()
         if !queued.isEmpty {
-            return try queued.removeFirst().get()
+            let result = queued.removeFirst()
+            return try result.get()
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            pending.append(
-                Pending(cookieHeader: rateLimitsCookieHeader, continuation: continuation)
-            )
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                if Task.isCancelled && !retainCancelledFetches {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    pending.append(
+                        Pending(
+                            id: id,
+                            cookieHeader: rateLimitsCookieHeader,
+                            continuation: continuation
+                        )
+                    )
+                    lock.unlock()
+                }
+            }
+        } onCancel: {
+            lock.lock()
+            if retainCancelledFetches {
+                lock.unlock()
+                return
+            }
+            if let idx = pending.firstIndex(where: { $0.id == id }) {
+                let item = pending.remove(at: idx)
+                lock.unlock()
+                item.continuation.resume(throwing: CancellationError())
+            } else {
+                lock.unlock()
+            }
         }
     }
 
     func completeNext(_ usage: GrokUsage) {
+        lock.lock()
+        guard !pending.isEmpty else {
+            lock.unlock()
+            return
+        }
         let item = pending.removeFirst()
+        lock.unlock()
         item.continuation.resume(returning: usage)
     }
 

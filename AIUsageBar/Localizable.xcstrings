@@ -341,6 +341,91 @@
         }
       }
     },
+    "status.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out. Try again later"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新逾時，請稍後再試"
+          }
+        }
+      }
+    },
+    "status.lastUpdatedPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last updated"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次更新"
+          }
+        }
+      }
+    },
+    "status.lastUpdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last updated %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次更新 %@"
+          }
+        }
+      }
+    },
+    "status.rateLimitedRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is rate limited. Try again in about %d seconds"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 請求過於頻繁，約 %d 秒後可再更新"
+          }
+        }
+      }
+    },
+    "status.rateLimitedPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is rate limited"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 請求過於頻繁"
+          }
+        }
+      }
+    },
     "status.loginSucceeded": {
       "extractionState": "manual",
       "localizations": {

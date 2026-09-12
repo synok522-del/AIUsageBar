@@ -51,6 +51,22 @@ enum L10n {
     static var signInAgain: String { tr("action.signInAgain", "Sign In Again") }
     static var signOut: String { tr("action.signOut", "Sign Out") }
     static var updateFailed: String { tr("status.updateFailed", "Update failed") }
+    static var timeout: String { tr("status.timeout", "Timed out. Try again later") }
+    static var lastUpdatedPrefix: String { tr("status.lastUpdatedPrefix", "Last updated") }
+    static func lastUpdated(_ relative: String) -> String {
+        tr("status.lastUpdated", "Last updated %@", relative)
+    }
+    static func rateLimitedRetry(_ provider: String, _ seconds: Int) -> String {
+        tr(
+            "status.rateLimitedRetry",
+            "%@ is rate limited. Try again in about %d seconds",
+            provider,
+            seconds
+        )
+    }
+    static func rateLimitedPrefix(_ provider: String) -> String {
+        tr("status.rateLimitedPrefix", "%@ is rate limited", provider)
+    }
 
     static func loginSucceeded(_ provider: String) -> String {
         tr("status.loginSucceeded", "%@ signed in", provider)

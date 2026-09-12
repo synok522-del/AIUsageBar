@@ -2524,11 +2524,12 @@ struct AIUsageBarTests {
         #expect(model.grok.weeklyPercent == 0)
         #expect(model.grok.weeklyAvailable == false)
         #expect(restorer.resetCount >= 1)
+        await service.waitUntilFetchStartedCount(3)
         #expect(service.pending.count == 1)
 
-        service.enqueue(.success(usageB))
-        service.completeNext(usageA)
+        service.completeNext(usageB)
         await inFlight.value
+        await waitUntilRefreshIdle(model)
         #expect(model.grok.sessionPercent == 88)
         #expect(model.grok.weeklyPercent == 12)
         #expect(service.fetchCount(containing: "token-B") == 1)
@@ -2820,11 +2821,16 @@ final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable
     }
 
     private let lock = NSLock()
+    private let retainCancelledFetches: Bool
     private var queued: [Result<GrokUsage, Error>] = []
     private var startedCount = 0
     private var startedWaiters: [CheckedContinuation<Void, Never>] = []
     private(set) var pending: [Pending] = []
     private(set) var cookieHeaders: [String] = []
+
+    init(retainCancelledFetches: Bool = false) {
+        self.retainCancelledFetches = retainCancelledFetches
+    }
 
     func enqueue(_ result: Result<GrokUsage, Error>) {
         queued.append(result)
@@ -2855,23 +2861,33 @@ final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable
         cookieHeaders.append(rateLimitsCookieHeader)
         noteFetchStarted()
         if !queued.isEmpty {
-            return try queued.removeFirst().get()
+            let result = queued.removeFirst()
+            return try result.get()
         }
         let id = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 lock.lock()
-                pending.append(
-                    Pending(
-                        id: id,
-                        cookieHeader: rateLimitsCookieHeader,
-                        continuation: continuation
+                if Task.isCancelled && !retainCancelledFetches {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    pending.append(
+                        Pending(
+                            id: id,
+                            cookieHeader: rateLimitsCookieHeader,
+                            continuation: continuation
+                        )
                     )
-                )
-                lock.unlock()
+                    lock.unlock()
+                }
             }
         } onCancel: {
             lock.lock()
+            if retainCancelledFetches {
+                lock.unlock()
+                return
+            }
             if let idx = pending.firstIndex(where: { $0.id == id }) {
                 let item = pending.remove(at: idx)
                 lock.unlock()
@@ -2884,6 +2900,10 @@ final class ControllableGrokUsageService: GrokUsageFetching, @unchecked Sendable
 
     func completeNext(_ usage: GrokUsage) {
         lock.lock()
+        guard !pending.isEmpty else {
+            lock.unlock()
+            return
+        }
         let item = pending.removeFirst()
         lock.unlock()
         item.continuation.resume(returning: usage)

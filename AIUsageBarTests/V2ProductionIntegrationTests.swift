@@ -67,7 +67,7 @@ struct V2ProductionIntegrationTests {
     func staleGenerationCannotCommitAfterAccountSwitch() async {
         let chatGPT = ControllableChatGPTUsageService()
         let claude = ControllableClaudeUsageService()
-        let grok = ControllableGrokUsageService()
+        let grok = ControllableGrokUsageService(retainCancelledFetches: true)
         let model = makeModel(
             chatGPT: chatGPT,
             claude: claude,
@@ -90,9 +90,9 @@ struct V2ProductionIntegrationTests {
             WebCredential(cookieName: "sso", value: "token-B", cookieHeader: "sso=token-B")
         )
         grok.enqueue(.success(sampleGrok(session: 88, weekly: 12)))
+        await grok.waitUntilFetchStartedCount(3)
         grok.completeNext(sampleGrok(session: 11, weekly: 37))
         await inFlight.value
-        await grok.waitUntilFetchStartedCount(3)
         await waitUntilRefreshIdle(model)
 
         #expect(model.grok.weeklyPercent == 12)

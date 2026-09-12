@@ -58,14 +58,22 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
     private func performRestore() async -> GrokSessionRestoreOutcome {
         guard pending == nil else { return .cancelled }
         let attempt = gate.beginRestore()
-        let outcome: GrokSessionRestoreOutcome = await withCheckedContinuation { continuation in
-            pending = (attempt, continuation)
-            startNavigation()
-            timeoutTask = Task { @MainActor [weak self] in
-                do { try await Task.sleep(nanoseconds: 20_000_000_000) } catch { return }
-                self?.finish(.timeout, generation: attempt)
+        let outcome: GrokSessionRestoreOutcome = await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: .cancelled)
+                    return
+                }
+                pending = (attempt, continuation)
+                startNavigation()
+                timeoutTask = Task { @MainActor [weak self] in
+                    do { try await Task.sleep(nanoseconds: 20_000_000_000) } catch { return }
+                    self?.finish(.timeout, generation: attempt)
+                }
             }
-        }
+        }, onCancel: { @MainActor [weak self] in
+            self?.finish(.cancelled, generation: attempt)
+        })
         gate.complete(attemptGeneration: attempt, outcome: outcome)
         return outcome
     }

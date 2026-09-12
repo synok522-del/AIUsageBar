@@ -45,6 +45,7 @@ final class UsageViewModel: ObservableObject {
     private var laneWork: [UsageProviderID: Task<Bool, Never>] = [:]
     private var wakeObserver: WorkspaceWakeObserver?
     private var wakeCoalesceTask: Task<Void, Never>?
+    private var coalescedWakeExclusions: Set<UsageProviderID> = []
     private(set) var wakeTriggeredRefreshCount = 0
 
 
@@ -177,6 +178,7 @@ final class UsageViewModel: ObservableObject {
     deinit {
         refreshTimer?.invalidate()
         resetRefreshTimer?.invalidate()
+        wakeCoalesceTask?.cancel()
     }
 
 
@@ -468,6 +470,10 @@ final class UsageViewModel: ObservableObject {
     }
 
     func handleWake() {
+        let providers = Set([
+            UsageProviderID.chatGPT, .claude, .grok
+        ].filter { lanes.isInFlight($0) })
+        coalescedWakeExclusions.formUnion(providers)
         wakeCoalesceTask?.cancel()
         wakeCoalesceTask = Task { @MainActor [weak self] in
             guard let self else {
@@ -480,8 +486,10 @@ final class UsageViewModel: ObservableObject {
             guard !Task.isCancelled else {
                 return
             }
+            let excluded = self.coalescedWakeExclusions
+            self.coalescedWakeExclusions.removeAll()
             self.wakeTriggeredRefreshCount += 1
-            self.requestRefreshAll()
+            await self.refreshWakeLanes(excluding: excluded)
         }
     }
 
@@ -490,6 +498,7 @@ final class UsageViewModel: ObservableObject {
         wakeObserver = nil
         wakeCoalesceTask?.cancel()
         wakeCoalesceTask = nil
+        coalescedWakeExclusions.removeAll()
     }
 
     func isProviderInFlight(_ provider: UsageProviderID) -> Bool {
@@ -497,11 +506,30 @@ final class UsageViewModel: ObservableObject {
     }
 
     private func requestRefreshAll() {
-        Task { await refreshAll() }
+        isLoading = true
+        Task { @MainActor [weak self] in
+            await self?.refreshAll()
+        }
     }
 
     private func requestRefresh(_ provider: UsageProviderID) {
-        Task { await refreshLane(provider) }
+        isLoading = true
+        Task { @MainActor [weak self] in
+            _ = await self?.refreshLane(provider)
+        }
+    }
+
+    private func refreshWakeLanes(excluding excluded: Set<UsageProviderID>) async {
+        await withTaskGroup(of: Bool.self) { group in
+            for provider in [UsageProviderID.chatGPT, .claude, .grok]
+                where !excluded.contains(provider) {
+                group.addTask { @MainActor [weak self] in
+                    guard let self else { return false }
+                    return await self.refreshLane(provider)
+                }
+            }
+            for await _ in group { }
+        }
     }
 
     private func refreshLane(_ provider: UsageProviderID) async -> Bool {
@@ -781,29 +809,15 @@ final class UsageViewModel: ObservableObject {
 
     private func grokCookiesBounded() async -> [HTTPCookie] {
         let timeout = refreshDeadlines.cookieStore
-        return await withCheckedContinuation { continuation in
-            let lock = NSLock()
-            var resumed = false
-            func resumeOnce(_ cookies: [HTTPCookie]) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !resumed else {
-                    return
-                }
-                resumed = true
-                continuation.resume(returning: cookies)
-            }
-
-            Task { @MainActor in
-                let cookies = await self.grokCookieSource.grokCookies()
-                resumeOnce(cookies)
-            }
-            Task {
-                try? await Task.sleep(
-                    nanoseconds: BoundedAsyncWait.nanoseconds(for: timeout)
-                )
-                resumeOnce([])
-            }
+        let source = grokCookieSource
+        let work = Task { @MainActor in
+            await source.grokCookies()
+        }
+        switch await BoundedAsyncWait.race(timeout: timeout, work: work) {
+        case .finished(let cookies):
+            return cookies
+        case .timedOut:
+            return []
         }
     }
 
@@ -904,6 +918,7 @@ final class UsageViewModel: ObservableObject {
                 return false
             }
             guard commitV2Snapshot(snapshot, now: now()) else { throw AIUsageServiceError.invalidPayload("Claude") }
+            finishLane(.claude, epoch: epoch)
             applyClaude(usage, observedAt: snapshot.asOf)
             clearBackoff(provider: .claude, accountKey: expectedAccountKey)
             evaluateNotifications()
@@ -999,6 +1014,7 @@ final class UsageViewModel: ObservableObject {
                 return false
             }
             guard commitV2Snapshot(snapshot, now: now()) else { throw AIUsageServiceError.invalidPayload("ChatGPT") }
+            finishLane(.chatGPT, epoch: epoch)
             applyChatGPT(usage, observedAt: snapshot.asOf)
             clearBackoff(provider: .chatGPT, accountKey: expectedAccountKey)
             evaluateNotifications()
@@ -1156,6 +1172,7 @@ final class UsageViewModel: ObservableObject {
                 v2.grokRecovery.markSuccess()
             }
             guard commitV2Snapshot(snapshot, now: now()) else { throw AIUsageServiceError.invalidPayload("Grok") }
+            finishLane(.grok, epoch: epoch)
             applyGrok(usage, observedAt: snapshot.asOf)
             if usage.weeklyRateLimited {
                 recordWeeklyRateLimit(

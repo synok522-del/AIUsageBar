@@ -256,6 +256,7 @@ struct ReliabilityHardeningIntegrationTests {
         await grok.waitUntilFetchStartedCount(grokAfterLogin + 1)
         model.handleWake()
         let second = Task { await model.refreshAll() }
+        await Task.yield()
         chatGPT.complete(sampleChatGPT(session: 41))
         claude.complete(sampleClaude(session: 41))
         grok.completeNext(sampleGrok(session: 41, weekly: nil))
@@ -1122,7 +1123,6 @@ struct ReliabilityHardeningIntegrationTests {
         #expect(model.v2GrokRecoveryState() != .requiresUserAction)
         let until = try #require(model.backoffUntil(provider: .grok, accountKey: accountKey))
         #expect(until.timeIntervalSinceNow >= 119)
-        grok.enqueue(.success(sampleGrok(session: 81, weekly: nil)))
         await model.refreshAll()
         await waitUntilRefreshIdle(model)
         #expect(grok.cookieHeaders.count == 1)
@@ -1537,8 +1537,24 @@ final class CountingGrokUsageService: GrokUsageFetching {
 
 @MainActor
 final class HangingGrokCookieSource: GrokRefreshCookieSource {
+    private var pending: CheckedContinuation<[HTTPCookie], Never>?
+
     func grokCookies() async -> [HTTPCookie] {
-        await withCheckedContinuation { _ in }
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: [])
+                } else {
+                    pending = continuation
+                }
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, let pending = self.pending else { return }
+                self.pending = nil
+                pending.resume(returning: [])
+            }
+        })
     }
 }
 
@@ -1575,6 +1591,7 @@ final class NeverReleasedChatGPTUsageService: ChatGPTUsageFetching {
 final class OnceHangingGrokRestorer: GrokSessionRestoring {
     private(set) var restoreAfterCount = 0
     private var shouldHang = true
+    private var pending: CheckedContinuation<GrokSessionRestoreOutcome, Never>?
 
     func restoreIfNeeded() async -> GrokSessionRestoreOutcome {
         .success
@@ -1584,8 +1601,21 @@ final class OnceHangingGrokRestorer: GrokSessionRestoring {
         restoreAfterCount += 1
         if shouldHang {
             shouldHang = false
-            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
-            return .cancelled
+            return await withTaskCancellationHandler(operation: {
+                await withCheckedContinuation { continuation in
+                    if Task.isCancelled {
+                        continuation.resume(returning: .cancelled)
+                    } else {
+                        pending = continuation
+                    }
+                }
+            }, onCancel: {
+                Task { @MainActor [weak self] in
+                    guard let self, let pending = self.pending else { return }
+                    self.pending = nil
+                    pending.resume(returning: .cancelled)
+                }
+            })
         }
         return .success
     }

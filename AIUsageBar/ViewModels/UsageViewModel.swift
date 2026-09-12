@@ -520,16 +520,31 @@ final class UsageViewModel: ObservableObject {
     }
 
     private func refreshWakeLanes(excluding excluded: Set<UsageProviderID>) async {
-        await withTaskGroup(of: Bool.self) { group in
-            for provider in [UsageProviderID.chatGPT, .claude, .grok]
-                where !excluded.contains(provider) {
-                group.addTask { @MainActor [weak self] in
-                    guard let self else { return false }
-                    return await self.refreshLane(provider)
-                }
-            }
-            for await _ in group { }
+        async let chatGPTRefresh = refreshWakeLane(.chatGPT, excluding: excluded)
+        async let claudeRefresh = refreshWakeLane(.claude, excluding: excluded)
+
+        let grokSucceeded: Bool
+        if excluded.contains(.grok) {
+            grokSucceeded = false
+        } else {
+            grokSucceeded = await refreshLane(.grok)
         }
+
+        let (chatGPTSucceeded, claudeSucceeded) = await (
+            chatGPTRefresh,
+            claudeRefresh
+        )
+        _ = (chatGPTSucceeded, claudeSucceeded, grokSucceeded)
+    }
+
+    private func refreshWakeLane(
+        _ provider: UsageProviderID,
+        excluding excluded: Set<UsageProviderID>
+    ) async -> Bool {
+        guard !excluded.contains(provider) else {
+            return false
+        }
+        return await refreshLane(provider)
     }
 
     private func refreshLane(_ provider: UsageProviderID) async -> Bool {

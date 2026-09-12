@@ -71,8 +71,10 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
                     self?.finish(.timeout, generation: attempt)
                 }
             }
-        }, onCancel: { @MainActor [weak self] in
-            self?.finish(.cancelled, generation: attempt)
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finish(.cancelled, generation: attempt)
+            }
         })
         gate.complete(attemptGeneration: attempt, outcome: outcome)
         return outcome

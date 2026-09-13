@@ -46,9 +46,9 @@ The designated final artifact is **`AIUsageBar-1.0.0-build4.dmg`**, version **1.
 
 The later release documentation commit `ee62a668dc32f2a46cd6c0ec3ff9f7f311809546` is documentation-only and is not the binary's build source, so the DMG was not built from that documentation HEAD. Subsequent test and audit cleanup commits leave the production source unchanged.
 
-**Download pending publication:** as of September 13, 2026, this exact DMG is not yet publicly available on GitHub Releases. The existing `v1.0.0` asset has a different filename and checksum and is not this designated artifact.
+**Download:** The exact DMG is publicly available in [GitHub Release v1.0.0](https://github.com/synok522-del/AIUsageBar/releases/tag/v1.0.0) as the canonical current Build 4 installer.
 
-When published, download the exact file, verify the [SHA-256 in the README](../README.md#download-and-install), open the DMG, and drag AIUsageBar to Applications. Launch it and connect your providers in Settings. Requires macOS 13.0 or later and the corresponding provider accounts.
+Download [`AIUsageBar-1.0.0-build4.dmg`](https://github.com/synok522-del/AIUsageBar/releases/download/v1.0.0/AIUsageBar-1.0.0-build4.dmg), verify the [SHA-256 in the README](../README.md#download-and-install), open the DMG, and drag AIUsageBar to Applications. Launch it and connect your providers in Settings. Requires macOS 13.0 or later and the corresponding provider accounts.
 
 [View GitHub Releases](https://github.com/synok522-del/AIUsageBar/releases)
 
@@ -60,7 +60,7 @@ Credentials and session tokens are stored in macOS Keychain; website cookies rem
 
 在 macOS 選單列隨時查看 **ChatGPT、Claude、Grok 剩餘用量**。支援英文與繁體中文，搭配自動更新、低用量通知與登入時啟動。
 
-v3 穩定性改善包含 last-good、stale 標示、429 退避重試、睡眠喚醒更新、各服務獨立 single-flight／deadline、切換帳號保護與 Grok 復原。正式安裝檔 `AIUsageBar-1.0.0-build4.dmg` 已簽署並通過 Apple 公證、staple 與 Gatekeeper 驗證，**目前仍待公開下載**。
+v3 穩定性改善包含 last-good、stale 標示、429 退避重試、睡眠喚醒更新、各服務獨立 single-flight／deadline、切換帳號保護與 Grok 復原。正式安裝檔 `AIUsageBar-1.0.0-build4.dmg` 已簽署並通過 Apple 公證、staple 與 Gatekeeper 驗證，**目前已於 GitHub Releases 公開下載**，請從 [此處下載](https://github.com/synok522-del/AIUsageBar/releases/download/v1.0.0/AIUsageBar-1.0.0-build4.dmg) 並核對 SHA-256。
 
 ---
 

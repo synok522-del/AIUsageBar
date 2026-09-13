@@ -67,7 +67,7 @@ struct AstraTakeoverTests {
         #expect(vm.chatGPT.isLoaded)
         #expect(vm.chatGPT.sessionPercent == 100)
         #expect(vm.chatGPT.errorMessage == nil)
-        #expect(!vm.statusMessage.contains("格式錯誤"))
+        #expect(!vm.statusMessage.contains(L10n.invalidPayloadMarker))
     }
 
     @Test func chatGPTAccountSwitchRejectsSuspendedCompletion() async {

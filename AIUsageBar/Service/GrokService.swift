@@ -33,26 +33,49 @@ struct GrokService: GrokUsageFetching {
         let rateLimits = try await fetchRateLimits(cookieHeader: rateLimitsCookieHeader)
         let session = try Self.parseRateLimits(rateLimits)
 
-        let weekly = await fetchWeeklyQuota(cookieHeader: weeklyCookieHeader)
+        let weekly = try await fetchWeeklyQuota(cookieHeader: weeklyCookieHeader)
 
-        return GrokUsage(
-            sessionRemainingPercent: session.remainingPercent,
-            resetText: session.resetText,
-            sessionWindowSeconds: session.windowSeconds,
-            weeklyRemainingPercent: weekly?.remainingPercent,
-            weeklyResetText: weekly.map {
-                ServiceSupport.absoluteResetText(
-                    NSNumber(value: $0.resetAt.timeIntervalSince1970)
-                )
-            },
-            weeklyRelativeResetText: weekly.map {
-                ServiceSupport.resetText(
-                    NSNumber(value: $0.resetAt.timeIntervalSince1970)
-                )
-            },
-            sessionResetAt: session.resetAt,
-            weeklyResetAt: weekly?.resetAt
-        )
+        switch weekly {
+        case .quota(let quota):
+            return GrokUsage(
+                sessionRemainingPercent: session.remainingPercent,
+                resetText: session.resetText,
+                sessionWindowSeconds: session.windowSeconds,
+                weeklyRemainingPercent: quota.remainingPercent,
+                weeklyResetText: ServiceSupport.absoluteResetText(
+                    NSNumber(value: quota.resetAt.timeIntervalSince1970)
+                ),
+                weeklyRelativeResetText: ServiceSupport.resetText(
+                    NSNumber(value: quota.resetAt.timeIntervalSince1970)
+                ),
+                sessionResetAt: session.resetAt,
+                weeklyResetAt: quota.resetAt
+            )
+        case .omitted:
+            return GrokUsage(
+                sessionRemainingPercent: session.remainingPercent,
+                resetText: session.resetText,
+                sessionWindowSeconds: session.windowSeconds,
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                weeklyRelativeResetText: nil,
+                sessionResetAt: session.resetAt,
+                weeklyResetAt: nil
+            )
+        case .rateLimited(let retryAfter):
+            return GrokUsage(
+                sessionRemainingPercent: session.remainingPercent,
+                resetText: session.resetText,
+                sessionWindowSeconds: session.windowSeconds,
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                weeklyRelativeResetText: nil,
+                sessionResetAt: session.resetAt,
+                weeklyResetAt: nil,
+                weeklyRateLimited: true,
+                weeklyRateLimitRetryAfter: retryAfter
+            )
+        }
     }
 
     static func parseRateLimits(_ usage: [String: Any]) throws -> (
@@ -90,7 +113,7 @@ struct GrokService: GrokUsageFetching {
 
     static func sessionRowLabel(windowSeconds: Int) -> String {
         guard windowSeconds > 0 else {
-            return "短窗"
+            return L10n.shortWindow
         }
 
         let hours = windowSeconds / 3600
@@ -99,19 +122,19 @@ struct GrokService: GrokUsageFetching {
 
         if hours > 0 {
             if minutes == 0 {
-                return "\(hours) 小時"
+                return L10n.hours(hours)
             }
-            return "\(hours) 小時 \(minutes) 分鐘"
+            return L10n.hoursMinutes(hours: hours, minutes: minutes)
         }
 
         if minutes > 0 {
             if seconds == 0 {
-                return "\(minutes) 分鐘"
+                return L10n.minutes(minutes)
             }
-            return "\(minutes) 分鐘 \(seconds) 秒"
+            return L10n.minutesSeconds(minutes: minutes, seconds: seconds)
         }
 
-        return "\(seconds) 秒"
+        return L10n.seconds(seconds)
     }
 
     static func ssoToken(from cookieHeader: String) -> String? {
@@ -187,7 +210,7 @@ struct GrokService: GrokUsageFetching {
         return try ServiceSupport.jsonObject(from: data, serviceName: "Grok")
     }
 
-    private func fetchWeeklyQuota(cookieHeader: String) async -> GrokWeeklyQuota? {
+    private func fetchWeeklyQuota(cookieHeader: String) async throws -> GrokWeeklyFetchOutcome {
         var request = GrokCreditsConfigDecoder.makeRequest(
             cookieHeader: cookieHeader,
             baseURL: webBaseURL
@@ -196,15 +219,48 @@ struct GrokService: GrokUsageFetching {
 
         do {
             let (data, response) = try await session.data(for: request)
-            let http = response as? HTTPURLResponse
-            return GrokCreditsConfigDecoder.weeklyQuota(
-                httpStatus: http?.statusCode ?? 0,
-                contentType: http?.value(forHTTPHeaderField: "Content-Type"),
+            guard let http = response as? HTTPURLResponse else {
+                return .omitted
+            }
+
+            if http.statusCode == 429 {
+                do {
+                    try ServiceSupport.validateHTTPResponse(
+                        statusCode: http.statusCode,
+                        contentType: http.value(forHTTPHeaderField: "Content-Type"),
+                        data: data,
+                        serviceName: "Grok",
+                        retryAfter: http.value(forHTTPHeaderField: "Retry-After")
+                    )
+                } catch {
+                    if error.isRateLimitedError {
+                        return .rateLimited(retryAfter: error.rateLimitedRetryAfter)
+                    }
+                    return .omitted
+                }
+                return .omitted
+            }
+
+            guard let quota = GrokCreditsConfigDecoder.weeklyQuota(
+                httpStatus: http.statusCode,
+                contentType: http.value(forHTTPHeaderField: "Content-Type"),
                 body: data,
-                grpcStatusHeader: http?.value(forHTTPHeaderField: "Grpc-Status")
-            )
+                grpcStatusHeader: http.value(forHTTPHeaderField: "Grpc-Status")
+            ) else {
+                return .omitted
+            }
+            return .quota(quota)
         } catch {
-            return nil
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                throw error
+            }
+            return .omitted
         }
     }
+}
+
+enum GrokWeeklyFetchOutcome: Equatable, Sendable {
+    case quota(GrokWeeklyQuota)
+    case omitted
+    case rateLimited(retryAfter: TimeInterval?)
 }

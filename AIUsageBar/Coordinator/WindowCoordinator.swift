@@ -78,7 +78,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         present(
             id: .settings,
-            title: "AI 用量設定",
+            title: L10n.settingsWindowTitle,
             size: nil,
             styleMask: [.titled, .closable]
         ) {
@@ -101,7 +101,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         present(
             id: .claudeLogin,
-            title: "登入 Claude",
+            title: L10n.loginWindowTitle("Claude"),
             size: NSSize(width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable]
         ) { [weak self] in
@@ -125,7 +125,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         present(
             id: .chatGPTLogin,
-            title: "登入 ChatGPT",
+            title: L10n.loginWindowTitle("ChatGPT"),
             size: NSSize(width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable]
         ) { [weak self] in
@@ -149,7 +149,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
         present(
             id: .grokLogin,
-            title: "登入 Grok",
+            title: L10n.loginWindowTitle("Grok"),
             size: NSSize(width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable]
         ) { [weak self] in

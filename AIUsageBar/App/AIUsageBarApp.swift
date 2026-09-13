@@ -33,7 +33,7 @@ struct AIUsageBarApp: App {
             onLoginClaude: { [weak coordinator] in
                 coordinator?.showClaudeLogin { credential in
                     model.setClaudeSessionKey(credential.value)
-                    model.statusMessage = "Claude 登入成功"
+                    model.statusMessage = L10n.loginSucceeded("Claude")
 
                     Task {
                         await model.refreshAll()
@@ -43,7 +43,7 @@ struct AIUsageBarApp: App {
             onLoginChatGPT: { [weak coordinator] in
                 coordinator?.showChatGPTLogin { credential in
                     model.setChatGPTCredential(credential)
-                    model.statusMessage = "ChatGPT 登入成功"
+                    model.statusMessage = L10n.loginSucceeded("ChatGPT")
 
                     Task {
                         await model.refreshAll()
@@ -53,7 +53,7 @@ struct AIUsageBarApp: App {
             onLoginGrok: { [weak coordinator] in
                 coordinator?.showGrokLogin { credential in
                     model.setGrokCredential(credential)
-                    model.statusMessage = "Grok 登入成功"
+                    model.statusMessage = L10n.loginSucceeded("Grok")
                 }
             }
         )

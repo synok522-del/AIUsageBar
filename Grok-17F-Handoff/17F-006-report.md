@@ -43,7 +43,7 @@ Release: NOT RUN
 
 ## Problems encountered
 - No registered Mac, so `xcodebuild` Debug/Release/test could not run.
-- Desktop working tree at `/Users/kennyhung/Desktop/06_個人檔案/PROJECT/AIUsageBar/AIUsageBar` was not inspectable (no connected computer). Work started from origin/main.
+- Desktop working tree at `<developer-local-worktree>/AIUsageBar` was not inspectable (no connected computer). Work started from origin/main.
 
 ## Problems fixed
 - Grok notification behavior is locked in tests.

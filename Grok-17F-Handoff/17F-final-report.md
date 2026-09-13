@@ -145,7 +145,7 @@ NOT RUN
 - Real 20% notification
 - Logout isolation against live ChatGPT/Claude sessions
 - `xcodebuild` Debug test + Release on:
-  `/Users/kennyhung/Desktop/06_個人檔案/PROJECT/AIUsageBar/AIUsageBar`
+  `<developer-local-worktree>/AIUsageBar`
 
 ## Known risks
 - Desktop working tree was not inspected; branches start from origin/main `b1fcda95`.

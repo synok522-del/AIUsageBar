@@ -4,6 +4,7 @@
 //
 //
 
+import AppKit
 import Combine
 import Foundation
 
@@ -39,7 +40,13 @@ final class UsageViewModel: ObservableObject {
     private var chatGPTCookieHeader = ""
     private var grokCookieHeader = ""
     private var grokHTTPAuthGeneration = GrokHTTPAuthGeneration()
-    private var pendingRefreshAll = false
+    private var lanes = ProviderRefreshLaneBook()
+    private var laneWaiters: [UsageProviderID: LaneWaiterBox] = [:]
+    private var laneWork: [UsageProviderID: Task<Bool, Never>] = [:]
+    private var wakeObserver: WorkspaceWakeObserver?
+    private var wakeCoalesceTask: Task<Void, Never>?
+    private var coalescedWakeExclusions: Set<UsageProviderID> = []
+    private(set) var wakeTriggeredRefreshCount = 0
 
 
     private let claudeService: any ClaudeUsageFetching
@@ -48,7 +55,23 @@ final class UsageViewModel: ObservableObject {
     private let grokSessionRestorer: GrokSessionRestoring
     private let grokCookieSource: GrokRefreshCookieSource
     private let usageNotificationManager: UsageNotificationManager
+    private let lastGoodStore: LastGoodUsageStoring
+    private let backoffStore: HTTPRateLimitBackoffStoring
+    private let refreshDeadlines: ProviderRefreshDeadlines
+    private let now: () -> Date
+    private let wakeCoalesce: TimeInterval
     private var v2 = V2RuntimeState()
+
+    private struct LaneWaiterBox {
+        var epoch: UInt
+        var waiters: [CheckedContinuation<Bool, Never>]
+    }
+
+    /// Claude last-good may be persisted, but cold-launch restore stays off
+    /// until P0-5 org pinning can bind the snapshot to a stable organization.
+    private static let coldLaunchRestoreProviders: Set<UsageProviderID> = [
+        .chatGPT, .grok
+    ]
 
 
     private var refreshTimer: Timer?
@@ -64,7 +87,15 @@ final class UsageViewModel: ObservableObject {
         grokSessionRestorer: GrokSessionRestoring? = nil,
         grokCookieSource: GrokRefreshCookieSource? = nil,
         usageNotificationManager: UsageNotificationManager? = nil,
-        credentialStore: KeychainManager? = nil
+        credentialStore: KeychainManager? = nil,
+        persistenceDefaults: UserDefaults? = nil,
+        lastGoodStore: LastGoodUsageStoring? = nil,
+        backoffStore: HTTPRateLimitBackoffStoring? = nil,
+        refreshDeadlines: ProviderRefreshDeadlines = .production,
+        observesWorkspaceWake: Bool? = nil,
+        wakeNotificationCenter: NotificationCenter? = nil,
+        wakeCoalesce: TimeInterval = 0.02,
+        now: @escaping () -> Date = Date.init
     ) {
 
         self.credentialStore = credentialStore ?? KeychainManager(inMemory: KeychainManager.isTestProcess)
@@ -77,6 +108,17 @@ final class UsageViewModel: ObservableObject {
             grokCookieSource ?? WebSessionManager.shared
         self.usageNotificationManager =
             usageNotificationManager ?? UsageNotificationManager()
+        let defaults = persistenceDefaults ?? {
+            if KeychainManager.isTestProcess {
+                return UserDefaults(suiteName: "aiusgbar.tests.\(UUID().uuidString)") ?? .standard
+            }
+            return .standard
+        }()
+        self.lastGoodStore = lastGoodStore ?? LastGoodUsageStore(defaults: defaults)
+        self.backoffStore = backoffStore ?? HTTPRateLimitBackoffStore(defaults: defaults)
+        self.refreshDeadlines = refreshDeadlines
+        self.now = now
+        self.wakeCoalesce = max(0, wakeCoalesce)
 
         if !KeychainManager.isTestProcess { migrateToKeychain() }
 
@@ -119,6 +161,16 @@ final class UsageViewModel: ObservableObject {
                 return "sso=\(savedGrokToken)"
             }()
 
+        restorePersistedLastGoodIfNeeded(now: now())
+
+        if observesWorkspaceWake ?? !KeychainManager.isTestProcess {
+            wakeObserver = WorkspaceWakeObserver(
+                center: wakeNotificationCenter ?? NSWorkspace.shared.notificationCenter
+            ) { [weak self] in
+                self?.handleWake()
+            }
+        }
+
         if !KeychainManager.isTestProcess { startAutoRefresh() }
     }
 
@@ -126,6 +178,7 @@ final class UsageViewModel: ObservableObject {
     deinit {
         refreshTimer?.invalidate()
         resetRefreshTimer?.invalidate()
+        wakeCoalesceTask?.cancel()
     }
 
 
@@ -204,18 +257,37 @@ final class UsageViewModel: ObservableObject {
     func setClaudeSessionKey(_ value: String) {
         let identityChanged = claudeSessionKey != value
         if identityChanged {
+            let hadFlight = lanes.isInFlight(.claude)
+            abortProviderLane(.claude)
             claude = UsageInfo()
             usageNotificationManager.resetTracking(for: .claude)
+            let previousAccountKey = UsageIdentity.accountKey(from: claudeSessionKey)
             v2.invalidateProvider(
                 .claude,
-                accountKey: UsageIdentity.accountKey(from: claudeSessionKey)
+                accountKey: previousAccountKey
             )
+            if let previousAccountKey {
+                lastGoodStore.remove(provider: .claude, accountKey: previousAccountKey)
+                backoffStore.clear(provider: .claude, accountKey: previousAccountKey)
+            }
             resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != .claude })
             scheduleNextResetRefresh()
+            claudeSessionKey = value
+            persistClaudeSessionKey(value)
+            if hadFlight, !value.isEmpty {
+                requestRefresh(.claude)
+            }
+            return
         }
 
         claudeSessionKey = value
+        persistClaudeSessionKey(value)
+        if !value.isEmpty {
+            surfaceBackoffStatus(provider: .claude, providerName: "Claude")
+        }
+    }
 
+    private func persistClaudeSessionKey(_ value: String) {
         if value.isEmpty {
 
             self.credentialStore.delete(
@@ -249,16 +321,35 @@ final class UsageViewModel: ObservableObject {
             chatGPTSessionToken != credential.value
             || chatGPTCookieHeader != credential.cookieHeader
         if identityChanged {
+            let hadFlight = lanes.isInFlight(.chatGPT)
+            abortProviderLane(.chatGPT)
             chatGPT = UsageInfo()
             usageNotificationManager.resetTracking(for: .chatGPT)
+            let previousAccountKey = UsageIdentity.accountKey(from: chatGPTSessionToken)
             v2.invalidateProvider(
                 .chatGPT,
-                accountKey: UsageIdentity.accountKey(from: chatGPTSessionToken)
+                accountKey: previousAccountKey
             )
+            if let previousAccountKey {
+                lastGoodStore.remove(provider: .chatGPT, accountKey: previousAccountKey)
+                backoffStore.clear(provider: .chatGPT, accountKey: previousAccountKey)
+            }
             resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != .chatGPT })
             scheduleNextResetRefresh()
+            persistChatGPTCredential(credential)
+            if hadFlight, !credential.value.isEmpty {
+                requestRefresh(.chatGPT)
+            }
+            return
         }
 
+        persistChatGPTCredential(credential)
+        if !credential.value.isEmpty {
+            surfaceBackoffStatus(provider: .chatGPT, providerName: "ChatGPT")
+        }
+    }
+
+    private func persistChatGPTCredential(_ credential: WebCredential) {
         chatGPTSessionToken = credential.value
         chatGPTCookieHeader = credential.cookieHeader
 
@@ -306,14 +397,29 @@ final class UsageViewModel: ObservableObject {
             previousToken != credential.value || previousHeader != credential.cookieHeader
 
         if !identityChanged {
+            if !credential.value.isEmpty {
+                surfaceBackoffStatus(provider: .grok, providerName: "Grok")
+                if skipDueToBackoff(
+                    provider: .grok,
+                    accountKey: UsageIdentity.accountKey(from: credential.value)
+                ) {
+                    requestRefresh(.grok)
+                }
+            }
             return
         }
 
+        abortProviderLane(.grok)
         grokHTTPAuthGeneration.invalidate()
+        let previousAccountKey = UsageIdentity.accountKey(from: previousToken)
         v2.invalidateProvider(
             .grok,
-            accountKey: UsageIdentity.accountKey(from: previousToken)
+            accountKey: previousAccountKey
         )
+        if let previousAccountKey {
+            lastGoodStore.remove(provider: .grok, accountKey: previousAccountKey)
+            backoffStore.clear(provider: .grok, accountKey: previousAccountKey)
+        }
         resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != .grok })
         scheduleNextResetRefresh()
 
@@ -353,68 +459,380 @@ final class UsageViewModel: ObservableObject {
     // MARK: - Refresh
 
     func refreshAll() async {
-        if isLoading {
-            pendingRefreshAll = true
-            return
+        async let chatGPTRefresh: Bool = refreshLane(.chatGPT)
+        async let claudeRefresh: Bool = refreshLane(.claude)
+        // Keep Grok on this MainActor task so WKWebsiteDataStore.default()
+        // first-touch cannot start on a child executor. ChatGPT/Claude remain
+        // independently coalesced and can complete while Grok is in flight.
+        let grokSucceeded = await refreshLane(.grok)
+        let (chatGPTSucceeded, claudeSucceeded) = await (chatGPTRefresh, claudeRefresh)
+        _ = (claudeSucceeded, chatGPTSucceeded, grokSucceeded)
+    }
+
+    func handleWake() {
+        let providers = Set([
+            UsageProviderID.chatGPT, .claude, .grok
+        ].filter { lanes.isInFlight($0) })
+        coalescedWakeExclusions.formUnion(providers)
+        wakeCoalesceTask?.cancel()
+        wakeCoalesceTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let delay = BoundedAsyncWait.nanoseconds(for: self.wakeCoalesce)
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            let excluded = self.coalescedWakeExclusions
+            self.coalescedWakeExclusions.removeAll()
+            self.wakeTriggeredRefreshCount += 1
+            await self.refreshWakeLanes(excluding: excluded)
+        }
+    }
+
+    func invalidateWakeObserver() {
+        wakeObserver?.invalidate()
+        wakeObserver = nil
+        wakeCoalesceTask?.cancel()
+        wakeCoalesceTask = nil
+        coalescedWakeExclusions.removeAll()
+    }
+
+    func isProviderInFlight(_ provider: UsageProviderID) -> Bool {
+        lanes.isInFlight(provider)
+    }
+
+    private func requestRefreshAll() {
+        isLoading = true
+        Task { @MainActor [weak self] in
+            await self?.refreshAll()
+        }
+    }
+
+    private func requestRefresh(_ provider: UsageProviderID) {
+        isLoading = true
+        Task { @MainActor [weak self] in
+            _ = await self?.refreshLane(provider)
+        }
+    }
+
+    private func refreshWakeLanes(excluding excluded: Set<UsageProviderID>) async {
+        async let chatGPTRefresh = refreshWakeLane(.chatGPT, excluding: excluded)
+        async let claudeRefresh = refreshWakeLane(.claude, excluding: excluded)
+
+        let grokSucceeded: Bool
+        if excluded.contains(.grok) {
+            grokSucceeded = false
+        } else {
+            grokSucceeded = await refreshLane(.grok)
         }
 
+        let (chatGPTSucceeded, claudeSucceeded) = await (
+            chatGPTRefresh,
+            claudeRefresh
+        )
+        _ = (chatGPTSucceeded, claudeSucceeded, grokSucceeded)
+    }
+
+    private func refreshWakeLane(
+        _ provider: UsageProviderID,
+        excluding excluded: Set<UsageProviderID>
+    ) async -> Bool {
+        guard !excluded.contains(provider) else {
+            return false
+        }
+        return await refreshLane(provider)
+    }
+
+    private func refreshLane(_ provider: UsageProviderID) async -> Bool {
+        if lanes.isInFlight(provider) {
+            return await withCheckedContinuation { continuation in
+                let epoch = lanes.currentEpoch(provider)
+                if var box = laneWaiters[provider], box.epoch == epoch {
+                    box.waiters.append(continuation)
+                    laneWaiters[provider] = box
+                } else {
+                    laneWaiters[provider] = LaneWaiterBox(epoch: epoch, waiters: [continuation])
+                }
+            }
+        }
+
+        let epoch = lanes.begin(provider)
         isLoading = true
-        while true {
-            pendingRefreshAll = false
-            await performRefreshCycle()
-            if pendingRefreshAll {
-                continue
+        let result = await executeLane(provider, epoch: epoch)
+        finishLane(provider, epoch: epoch)
+        resumeLaneWaiters(provider, epoch: epoch, result: result)
+        return result
+    }
+
+    private func finishLane(_ provider: UsageProviderID, epoch: UInt) {
+        lanes.finish(provider, epoch: epoch)
+        isLoading = lanes.anyInFlight
+    }
+
+    private func resumeLaneWaiters(
+        _ provider: UsageProviderID,
+        epoch: UInt,
+        result: Bool
+    ) {
+        guard let box = laneWaiters[provider], box.epoch == epoch else {
+            return
+        }
+        laneWaiters[provider] = nil
+        for waiter in box.waiters {
+            waiter.resume(returning: result)
+        }
+    }
+
+    private func abortProviderLane(_ provider: UsageProviderID) {
+        let epoch = lanes.currentEpoch(provider)
+        lanes.abort(provider)
+        laneWork[provider]?.cancel()
+        laneWork[provider] = nil
+        resumeLaneWaiters(provider, epoch: epoch, result: false)
+        if provider == .grok {
+            v2.grokRecovery.abortInFlightRecovery()
+        }
+        isLoading = lanes.anyInFlight
+    }
+
+    private func executeLane(_ provider: UsageProviderID, epoch: UInt) async -> Bool {
+        let timeout = refreshDeadlines.timeout(for: provider)
+        let work = Task { @MainActor in
+            await self.performLane(provider, epoch: epoch)
+        }
+        laneWork[provider] = work
+        defer {
+            if laneWork[provider] == work {
+                laneWork[provider] = nil
             }
-            isLoading = false
-            if pendingRefreshAll {
-                isLoading = true
-                continue
+        }
+
+        let winner = await BoundedAsyncWait.race(timeout: timeout, work: work)
+        switch winner {
+        case .finished(let succeeded):
+            return succeeded
+        case .timedOut:
+            work.cancel()
+            if lanes.claim(provider, epoch: epoch, success: false) {
+                if provider == .grok {
+                    v2.grokRecovery.abortInFlightRecovery()
+                }
+                applyDeadlineOutcome(provider)
+                return false
             }
+            return lanes.claimedSuccess(provider, epoch: epoch)
+        }
+    }
+
+    private func performLane(_ provider: UsageProviderID, epoch: UInt) async -> Bool {
+        switch provider {
+        case .chatGPT:
+            return await refreshChatGPT(epoch: epoch)
+        case .claude:
+            return await refreshClaude(epoch: epoch)
+        case .grok:
+            return await refreshGrok(epoch: epoch)
+        default:
+            return false
+        }
+    }
+
+    private func applyDeadlineOutcome(_ provider: UsageProviderID) {
+        let error = ProviderRefreshTimeoutError.timedOut
+        switch provider {
+        case .chatGPT:
+            applyFailureState(&chatGPT, providerName: "ChatGPT", error: error)
+        case .claude:
+            applyFailureState(&claude, providerName: "Claude", error: error)
+        case .grok:
+            applyFailureState(&grok, providerName: "Grok", error: error)
+        default:
             break
         }
     }
 
-    private func requestRefreshAll() {
-        if isLoading {
-            pendingRefreshAll = true
-            return
+    private func applyFailureState(
+        _ info: inout UsageInfo,
+        providerName: String,
+        error: Error
+    ) {
+        if let nextState = UsageRefreshStatePolicy.state(afterFailure: info, error: error, now: now()) {
+            info = nextState
+            let message = nextState.errorMessage ?? L10n.updateFailed
+            statusMessage = L10n.providerError(providerName, message)
         }
-        Task { await refreshAll() }
     }
 
-    private func performRefreshCycle() async {
-        async let claudeRefresh: Bool =
-            refreshClaude()
+    private func currentAccountKey(for provider: UsageProviderID) -> String? {
+        switch provider {
+        case .chatGPT:
+            return UsageIdentity.accountKey(from: chatGPTSessionToken)
+        case .claude:
+            return UsageIdentity.accountKey(from: claudeSessionKey)
+        case .grok:
+            return UsageIdentity.accountKey(from: grokSessionToken)
+        default:
+            return nil
+        }
+    }
 
+    private func canCommit(
+        provider: UsageProviderID,
+        epoch: UInt,
+        capturedGeneration: UInt,
+        expectedAccountKey: String?
+    ) -> Bool {
+        guard lanes.isCurrent(provider, epoch: epoch) else {
+            return false
+        }
+        let generationMatches: Bool
+        switch provider {
+        case .chatGPT:
+            generationMatches = v2.chatGPTRecovery.shouldCommit(captured: capturedGeneration)
+        case .claude:
+            generationMatches = v2.claudeRecovery.shouldCommit(captured: capturedGeneration)
+        case .grok:
+            generationMatches = true
+        default:
+            generationMatches = false
+        }
+        guard generationMatches else {
+            return false
+        }
+        return currentAccountKey(for: provider) == expectedAccountKey
+    }
 
-        async let chatGPTRefresh: Bool =
-            refreshChatGPT()
-
-        // Keep Grok cookie-store access on this MainActor task. `async let`
-        // would still hop to MainActor for refreshGrok, but the WebKit
-        // default-store first-touch must not start on a child executor.
-        let grokSucceeded = await refreshGrok()
-
-
-        let (claudeSucceeded, chatGPTSucceeded) = await (
-            claudeRefresh,
-            chatGPTRefresh
+    private func skipDueToBackoff(provider: UsageProviderID, accountKey: String?) -> Bool {
+        guard let accountKey else {
+            return false
+        }
+        return backoffStore.isBackingOff(
+            provider: provider,
+            accountKey: accountKey,
+            now: now()
         )
+    }
 
+    private func recordRateLimitIfNeeded(
+        provider: UsageProviderID,
+        accountKey: String?,
+        error: Error
+    ) {
+        guard error.isRateLimitedError, let accountKey else {
+            return
+        }
+        backoffStore.record(
+            provider: provider,
+            accountKey: accountKey,
+            retryAfter: error.rateLimitedRetryAfter,
+            now: now()
+        )
+    }
+
+    private func recordWeeklyRateLimit(
+        provider: UsageProviderID,
+        accountKey: String?,
+        retryAfter: TimeInterval?
+    ) {
+        guard let accountKey else {
+            return
+        }
+        backoffStore.record(
+            provider: provider,
+            accountKey: accountKey,
+            retryAfter: retryAfter,
+            now: now()
+        )
+    }
+
+    private func forgetResetRefresh(for provider: UsageProviderID) {
+        resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != provider })
+    }
+
+    private func surfaceBackoffStatus(
+        provider: UsageProviderID,
+        providerName: String,
+        accountKey: String? = nil
+    ) {
+        let key = accountKey ?? currentAccountKey(for: provider)
+        guard let key,
+              let until = backoffStore.backoffUntil(provider: provider, accountKey: key, now: now()) else {
+            return
+        }
+        let seconds = max(1, Int(ceil(until.timeIntervalSince(now()))))
+        statusMessage = L10n.rateLimitedRetry(providerName, seconds)
+    }
+
+    private func clearBackoff(provider: UsageProviderID, accountKey: String?) {
+        guard let accountKey else {
+            return
+        }
+        backoffStore.clear(provider: provider, accountKey: accountKey)
+    }
+
+    private func evaluateNotifications() {
+        let snapshots = v2.lastSnapshots.filter {
+            !v2.restoredFromPersistence.contains($0.key)
+        }
         usageNotificationManager.evaluate(
             claude: claude,
             chatGPT: chatGPT,
             grok: grok,
-            snapshots: v2.lastSnapshots
+            snapshots: snapshots
         )
+    }
 
+    private func restorePersistedLastGoodIfNeeded(now: Date = Date()) {
+        restorePersistedLastGood(for: .chatGPT, now: now)
+        restorePersistedLastGood(for: .grok, now: now)
+        // Claude disk restore is intentionally skipped until P0-5 org pinning
+        // can bind usage to a stable organization. Persistence still runs after
+        // a verified network commit so the data is ready once org pin lands.
+    }
 
-        if UsageRefreshStatePolicy.shouldUpdateLastUpdated(
-            claudeSucceeded: claudeSucceeded,
-            chatGPTSucceeded: chatGPTSucceeded,
-            grokSucceeded: grokSucceeded
-        ) {
-            lastUpdated = Date()
+    private func restorePersistedLastGood(for provider: UsageProviderID, now: Date) {
+        guard Self.coldLaunchRestoreProviders.contains(provider) else {
+            return
+        }
+        guard let accountKey = currentAccountKey(for: provider),
+              let snapshot = lastGoodStore.load(provider: provider, accountKey: accountKey) else {
+            return
+        }
+        guard v2.restoreLastGood(snapshot, expectedAccountKey: accountKey, now: now) else {
+            return
+        }
+        guard let info = UsageInfoFromSnapshot.make(snapshot, stale: true, now: now) else {
+            v2.invalidateProvider(provider, accountKey: accountKey)
+            return
+        }
+        switch provider {
+        case .chatGPT:
+            chatGPT = info
+        case .claude:
+            claude = info
+        case .grok:
+            grok = info
+        default:
+            break
+        }
+        scheduleNextResetRefresh(now: now)
+    }
+
+    private func grokCookiesBounded() async -> [HTTPCookie] {
+        let timeout = refreshDeadlines.cookieStore
+        let source = grokCookieSource
+        let work = Task { @MainActor in
+            await source.grokCookies()
+        }
+        switch await BoundedAsyncWait.race(timeout: timeout, work: work) {
+        case .finished(let cookies):
+            return cookies
+        case .timedOut:
+            return []
         }
     }
 
@@ -452,7 +870,7 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - Claude
 
-    private func refreshClaude() async -> Bool {
+    private func refreshClaude(epoch: UInt) async -> Bool {
 
         let key =
         claudeSessionKey
@@ -464,9 +882,20 @@ final class UsageViewModel: ObservableObject {
         guard !key.isEmpty else {
 
             claude = UsageInfo(
-                errorMessage: "尚未登入"
+                errorMessage: L10n.notSignedIn
             )
 
+            return false
+        }
+
+        let expectedAccountKey = UsageIdentity.accountKey(from: key)
+        if skipDueToBackoff(provider: .claude, accountKey: expectedAccountKey) {
+            forgetResetRefresh(for: .claude)
+            surfaceBackoffStatus(
+                provider: .claude,
+                providerName: "Claude",
+                accountKey: expectedAccountKey
+            )
             return false
         }
 
@@ -479,7 +908,12 @@ final class UsageViewModel: ObservableObject {
 
         do {
             let snapshot = try await source.fetchSnapshot()
-            guard v2.claudeRecovery.shouldCommit(captured: captured) else {
+            guard canCommit(
+                provider: .claude,
+                epoch: epoch,
+                capturedGeneration: captured,
+                expectedAccountKey: expectedAccountKey
+            ) else {
                 return false
             }
             guard let usage = source.lastUsage else {
@@ -487,22 +921,40 @@ final class UsageViewModel: ObservableObject {
             }
 
             try Task.checkCancellation()
-            guard commitV2Snapshot(snapshot) else { throw AIUsageServiceError.invalidPayload("Claude") }
-            applyClaude(usage)
-            return true
-        } catch {
-            guard v2.claudeRecovery.shouldCommit(captured: captured) else {
+            guard canCommit(
+                provider: .claude,
+                epoch: epoch,
+                capturedGeneration: captured,
+                expectedAccountKey: expectedAccountKey
+            ) else {
                 return false
             }
-            if let nextState = UsageRefreshStatePolicy.state(
-                afterFailure: claude,
-                error: error
-            ) {
-                claude = nextState
-                let message = nextState.errorMessage ?? "更新失敗"
-                statusMessage = "Claude：\(message)"
+            guard lanes.claim(.claude, epoch: epoch, success: true) else {
+                return false
             }
-
+            guard commitV2Snapshot(snapshot, now: now()) else { throw AIUsageServiceError.invalidPayload("Claude") }
+            finishLane(.claude, epoch: epoch)
+            applyClaude(usage, observedAt: snapshot.asOf)
+            clearBackoff(provider: .claude, accountKey: expectedAccountKey)
+            evaluateNotifications()
+            lastUpdated = now()
+            return true
+        } catch {
+            guard canCommit(
+                provider: .claude,
+                epoch: epoch,
+                capturedGeneration: captured,
+                expectedAccountKey: expectedAccountKey
+            ) else {
+                return false
+            }
+            recordRateLimitIfNeeded(
+                provider: .claude,
+                accountKey: expectedAccountKey,
+                error: error
+            )
+            applyFailureState(&claude, providerName: "Claude", error: error)
+            evaluateNotifications()
             return false
         }
     }
@@ -511,7 +963,7 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - ChatGPT
 
-    private func refreshChatGPT() async -> Bool {
+    private func refreshChatGPT(epoch: UInt) async -> Bool {
 
         let token =
         chatGPTSessionToken
@@ -523,9 +975,20 @@ final class UsageViewModel: ObservableObject {
         guard !token.isEmpty else {
 
             chatGPT = UsageInfo(
-                errorMessage: "尚未登入"
+                errorMessage: L10n.notSignedIn
             )
 
+            return false
+        }
+
+        let expectedAccountKey = UsageIdentity.accountKey(from: token)
+        if skipDueToBackoff(provider: .chatGPT, accountKey: expectedAccountKey) {
+            forgetResetRefresh(for: .chatGPT)
+            surfaceBackoffStatus(
+                provider: .chatGPT,
+                providerName: "ChatGPT",
+                accountKey: expectedAccountKey
+            )
             return false
         }
 
@@ -541,7 +1004,12 @@ final class UsageViewModel: ObservableObject {
 
         do {
             let snapshot = try await source.fetchSnapshot()
-            guard v2.chatGPTRecovery.shouldCommit(captured: captured) else {
+            guard canCommit(
+                provider: .chatGPT,
+                epoch: epoch,
+                capturedGeneration: captured,
+                expectedAccountKey: expectedAccountKey
+            ) else {
                 return false
             }
             guard let usage = source.lastUsage else {
@@ -549,22 +1017,40 @@ final class UsageViewModel: ObservableObject {
             }
 
             try Task.checkCancellation()
-            guard commitV2Snapshot(snapshot) else { throw AIUsageServiceError.invalidPayload("ChatGPT") }
-            applyChatGPT(usage)
-            return true
-        } catch {
-            guard v2.chatGPTRecovery.shouldCommit(captured: captured) else {
+            guard canCommit(
+                provider: .chatGPT,
+                epoch: epoch,
+                capturedGeneration: captured,
+                expectedAccountKey: expectedAccountKey
+            ) else {
                 return false
             }
-            if let nextState = UsageRefreshStatePolicy.state(
-                afterFailure: chatGPT,
-                error: error
-            ) {
-                chatGPT = nextState
-                let message = nextState.errorMessage ?? "更新失敗"
-                statusMessage = "ChatGPT：\(message)"
+            guard lanes.claim(.chatGPT, epoch: epoch, success: true) else {
+                return false
             }
-
+            guard commitV2Snapshot(snapshot, now: now()) else { throw AIUsageServiceError.invalidPayload("ChatGPT") }
+            finishLane(.chatGPT, epoch: epoch)
+            applyChatGPT(usage, observedAt: snapshot.asOf)
+            clearBackoff(provider: .chatGPT, accountKey: expectedAccountKey)
+            evaluateNotifications()
+            lastUpdated = now()
+            return true
+        } catch {
+            guard canCommit(
+                provider: .chatGPT,
+                epoch: epoch,
+                capturedGeneration: captured,
+                expectedAccountKey: expectedAccountKey
+            ) else {
+                return false
+            }
+            recordRateLimitIfNeeded(
+                provider: .chatGPT,
+                accountKey: expectedAccountKey,
+                error: error
+            )
+            applyFailureState(&chatGPT, providerName: "ChatGPT", error: error)
+            evaluateNotifications()
             return false
         }
     }
@@ -573,7 +1059,7 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - Grok
 
-    private func refreshGrok() async -> Bool {
+    private func refreshGrok(epoch: UInt) async -> Bool {
 
         let token =
         grokSessionToken
@@ -585,9 +1071,20 @@ final class UsageViewModel: ObservableObject {
         guard !token.isEmpty else {
 
             grok = UsageInfo(
-                errorMessage: "尚未登入"
+                errorMessage: L10n.notSignedIn
             )
 
+            return false
+        }
+
+        let expectedAccountKey = UsageIdentity.accountKey(from: token)
+        if skipDueToBackoff(provider: .grok, accountKey: expectedAccountKey) {
+            forgetResetRefresh(for: .grok)
+            surfaceBackoffStatus(
+                provider: .grok,
+                providerName: "Grok",
+                accountKey: expectedAccountKey
+            )
             return false
         }
 
@@ -600,28 +1097,26 @@ final class UsageViewModel: ObservableObject {
         return await fetchGrokUsage(
             fallbackHeader: fallbackHeader,
             allowRecovery: true,
-            authGeneration: authGeneration
+            authGeneration: authGeneration,
+            epoch: epoch,
+            expectedAccountKey: expectedAccountKey
         )
     }
 
     private func fetchGrokUsage(
         fallbackHeader: String,
         allowRecovery: Bool,
-        authGeneration: UInt
+        authGeneration: UInt,
+        epoch: UInt,
+        expectedAccountKey: String?
     ) async -> Bool {
         let recoveryLatched = v2.grokRecovery.state == .requiresUserAction
-        guard GrokHTTPRefreshAuthPolicy.shouldCommit(
-            captured: authGeneration,
-            current: grokHTTPAuthGeneration.value
-        ) else {
+        guard canCommitGrok(epoch: epoch, authGeneration: authGeneration, expectedAccountKey: expectedAccountKey) else {
             return false
         }
 
-        let webKitCookies = await grokCookieSource.grokCookies()
-        guard GrokHTTPRefreshAuthPolicy.shouldCommit(
-            captured: authGeneration,
-            current: grokHTTPAuthGeneration.value
-        ) else {
+        let webKitCookies = await grokCookiesBounded()
+        guard canCommitGrok(epoch: epoch, authGeneration: authGeneration, expectedAccountKey: expectedAccountKey) else {
             return false
         }
 
@@ -638,7 +1133,6 @@ final class UsageViewModel: ObservableObject {
         let accountCredential = grokSessionToken.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        let expectedAccountKey = UsageIdentity.accountKey(from: accountCredential)
         let webKitCredentialsMatch =
             GrokService.ssoToken(from: webKitRateLimitsCookieHeader) == accountCredential &&
             GrokService.ssoToken(from: webKitWeeklyCookieHeader) == accountCredential
@@ -658,10 +1152,7 @@ final class UsageViewModel: ObservableObject {
 
         do {
             let snapshot = try await source.fetchSnapshot()
-            guard GrokHTTPRefreshAuthPolicy.shouldCommit(
-                captured: authGeneration,
-                current: grokHTTPAuthGeneration.value
-            ) else {
+            guard canCommitGrok(epoch: epoch, authGeneration: authGeneration, expectedAccountKey: expectedAccountKey) else {
                 return false
             }
             guard let usage = source.lastUsage else {
@@ -680,27 +1171,70 @@ final class UsageViewModel: ObservableObject {
                     v2.grokRecovery.markRequiresUserAction()
                     applyGrokFailure(
                         AIUsageServiceError.invalidPayload("Grok recovery identity"),
-                        authGeneration: authGeneration
+                        authGeneration: authGeneration,
+                        epoch: epoch,
+                        expectedAccountKey: expectedAccountKey
                     )
                     return false
                 }
-                v2.grokRecovery.markSuccess()
             }
 
             try Task.checkCancellation()
-            guard commitV2Snapshot(snapshot) else { throw AIUsageServiceError.invalidPayload("Grok") }
-            applyGrok(usage)
+            guard lanes.claim(.grok, epoch: epoch, success: true) else {
+                return false
+            }
+            if v2.grokRecovery.state == .recovering {
+                v2.grokRecovery.markSuccess()
+            }
+            guard commitV2Snapshot(snapshot, now: now()) else { throw AIUsageServiceError.invalidPayload("Grok") }
+            finishLane(.grok, epoch: epoch)
+            applyGrok(usage, observedAt: snapshot.asOf)
+            if usage.weeklyRateLimited {
+                recordWeeklyRateLimit(
+                    provider: .grok,
+                    accountKey: expectedAccountKey,
+                    retryAfter: usage.weeklyRateLimitRetryAfter
+                )
+                surfaceBackoffStatus(
+                    provider: .grok,
+                    providerName: "Grok",
+                    accountKey: expectedAccountKey
+                )
+            } else {
+                clearBackoff(provider: .grok, accountKey: expectedAccountKey)
+            }
+            evaluateNotifications()
+            lastUpdated = now()
             return true
         } catch {
-            guard GrokHTTPRefreshAuthPolicy.shouldCommit(
-                captured: authGeneration,
-                current: grokHTTPAuthGeneration.value
-            ) else {
+            guard canCommitGrok(epoch: epoch, authGeneration: authGeneration, expectedAccountKey: expectedAccountKey) else {
+                return false
+            }
+
+            if error.isRateLimitedError {
+                recordRateLimitIfNeeded(
+                    provider: .grok,
+                    accountKey: expectedAccountKey,
+                    error: error
+                )
+                applyGrokFailure(
+                    error,
+                    authGeneration: authGeneration,
+                    epoch: epoch,
+                    expectedAccountKey: expectedAccountKey
+                )
+                evaluateNotifications()
                 return false
             }
 
             if recoveryLatched {
-                applyGrokFailure(error, authGeneration: authGeneration)
+                applyGrokFailure(
+                    error,
+                    authGeneration: authGeneration,
+                    epoch: epoch,
+                    expectedAccountKey: expectedAccountKey
+                )
+                evaluateNotifications()
                 return false
             }
 
@@ -712,7 +1246,12 @@ final class UsageViewModel: ObservableObject {
                 error: error
             ) {
                 guard let expectedAccountKey else {
-                    applyGrokFailure(error, authGeneration: authGeneration)
+                    applyGrokFailure(
+                        error,
+                        authGeneration: authGeneration,
+                        epoch: epoch,
+                        expectedAccountKey: expectedAccountKey
+                    )
                     return false
                 }
                 let scope = RecoveryScope(
@@ -720,31 +1259,45 @@ final class UsageViewModel: ObservableObject {
                     accountKey: expectedAccountKey
                 )
                 guard v2.grokRecovery.beginRecovery(scope: scope) else {
-                    applyGrokFailure(error, authGeneration: authGeneration)
+                    applyGrokFailure(
+                        error,
+                        authGeneration: authGeneration,
+                        epoch: epoch,
+                        expectedAccountKey: expectedAccountKey
+                    )
                     return false
                 }
                 guard v2.grokRecovery.consumeRestoreAttempt() else {
                     v2.grokRecovery.markRequiresUserAction()
-                    applyGrokFailure(error, authGeneration: authGeneration)
+                    applyGrokFailure(
+                        error,
+                        authGeneration: authGeneration,
+                        epoch: epoch,
+                        expectedAccountKey: expectedAccountKey
+                    )
                     return false
                 }
 
                 _ = await grokSessionRestorer.restoreAfterRecoverableFailure()
-                guard GrokHTTPRefreshAuthPolicy.shouldCommit(
-                    captured: authGeneration,
-                    current: grokHTTPAuthGeneration.value
-                ) else {
+                guard canCommitGrok(epoch: epoch, authGeneration: authGeneration, expectedAccountKey: expectedAccountKey) else {
                     return false
                 }
                 guard v2.grokRecovery.consumeRetryFetch() else {
                     v2.grokRecovery.markRequiresUserAction()
-                    applyGrokFailure(error, authGeneration: authGeneration)
+                    applyGrokFailure(
+                        error,
+                        authGeneration: authGeneration,
+                        epoch: epoch,
+                        expectedAccountKey: expectedAccountKey
+                    )
                     return false
                 }
                 return await fetchGrokUsage(
                     fallbackHeader: fallbackHeader,
                     allowRecovery: false,
-                    authGeneration: authGeneration
+                    authGeneration: authGeneration,
+                    epoch: epoch,
+                    expectedAccountKey: expectedAccountKey
                 )
             }
 
@@ -760,12 +1313,34 @@ final class UsageViewModel: ObservableObject {
                 v2.grokRecovery.markFailure()
             }
 
-            applyGrokFailure(error, authGeneration: authGeneration)
+            applyGrokFailure(
+                error,
+                authGeneration: authGeneration,
+                epoch: epoch,
+                expectedAccountKey: expectedAccountKey
+            )
+            evaluateNotifications()
             return false
         }
     }
 
-    private func applyClaude(_ usage: ClaudeUsage) {
+    private func canCommitGrok(
+        epoch: UInt,
+        authGeneration: UInt,
+        expectedAccountKey: String?
+    ) -> Bool {
+        GrokHTTPRefreshAuthPolicy.shouldCommit(
+            captured: authGeneration,
+            current: grokHTTPAuthGeneration.value
+        ) && canCommit(
+            provider: .grok,
+            epoch: epoch,
+            capturedGeneration: 0,
+            expectedAccountKey: expectedAccountKey
+        )
+    }
+
+    private func applyClaude(_ usage: ClaudeUsage, observedAt: Date) {
         claude = UsageInfo(
             sessionPercent: usage.sessionRemainingPercent,
             weeklyPercent: usage.weeklyRemainingPercent,
@@ -773,12 +1348,14 @@ final class UsageViewModel: ObservableObject {
             resetText: usage.resetText,
             weeklyResetText: usage.weeklyResetText,
             isLoaded: true,
-            errorMessage: nil
+            errorMessage: nil,
+            isStale: false,
+            observedAt: observedAt
         )
         clearStatusMessage(for: "Claude")
     }
 
-    private func applyChatGPT(_ usage: ChatGPTUsage) {
+    private func applyChatGPT(_ usage: ChatGPTUsage, observedAt: Date) {
         chatGPT = UsageInfo(
             sessionPercent: usage.sessionRemainingPercent,
             weeklyPercent: usage.weeklyRemainingPercent ?? 0,
@@ -786,12 +1363,14 @@ final class UsageViewModel: ObservableObject {
             resetText: usage.resetText,
             weeklyResetText: usage.weeklyResetText ?? "",
             isLoaded: true,
-            errorMessage: nil
+            errorMessage: nil,
+            isStale: false,
+            observedAt: observedAt
         )
         clearStatusMessage(for: "ChatGPT")
     }
 
-    private func applyGrok(_ usage: GrokUsage) {
+    private func applyGrok(_ usage: GrokUsage, observedAt: Date) {
         grok = UsageInfo(
             sessionPercent: usage.sessionRemainingPercent,
             weeklyPercent: usage.weeklyRemainingPercent ?? 0,
@@ -802,26 +1381,27 @@ final class UsageViewModel: ObservableObject {
             weeklyResetText: usage.weeklyResetText ?? "",
             sessionWindowSeconds: usage.sessionWindowSeconds,
             isLoaded: true,
-            errorMessage: nil
+            errorMessage: nil,
+            isStale: false,
+            observedAt: observedAt
         )
         clearStatusMessage(for: "Grok")
     }
 
-    private func applyGrokFailure(_ error: Error, authGeneration: UInt) {
-        guard GrokHTTPRefreshAuthPolicy.shouldCommit(
-            captured: authGeneration,
-            current: grokHTTPAuthGeneration.value
+    private func applyGrokFailure(
+        _ error: Error,
+        authGeneration: UInt,
+        epoch: UInt,
+        expectedAccountKey: String?
+    ) {
+        guard canCommitGrok(
+            epoch: epoch,
+            authGeneration: authGeneration,
+            expectedAccountKey: expectedAccountKey
         ) else {
             return
         }
-        if let nextState = UsageRefreshStatePolicy.state(
-            afterFailure: grok,
-            error: error
-        ) {
-            grok = nextState
-            let message = nextState.errorMessage ?? "更新失敗"
-            statusMessage = "Grok：\(message)"
-        }
+        applyFailureState(&grok, providerName: "Grok", error: error)
     }
 
     @discardableResult
@@ -834,6 +1414,7 @@ final class UsageViewModel: ObservableObject {
             resetRefreshRequests = Set(resetRefreshRequests.filter {
                 $0.provider != snapshot.provider || $0.accountKey != snapshot.accountKey
             })
+            lastGoodStore.save(snapshot)
         }
         scheduleNextResetRefresh(now: now)
         return true
@@ -893,6 +1474,10 @@ final class UsageViewModel: ObservableObject {
         v2.grokRecovery.state
     }
 
+    func v2GrokRecoveryHasActiveScope() -> Bool {
+        v2.grokRecovery.hasActiveScope
+    }
+
     func v2GrokRestoresUsed() -> Int {
         v2.grokRecovery.restoresUsed
     }
@@ -910,6 +1495,14 @@ final class UsageViewModel: ObservableObject {
             return nil
         }
         return snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey)
+    }
+
+    func v2RestoredFromPersistence(_ provider: UsageProviderID) -> Bool {
+        v2.restoredFromPersistence.contains(provider)
+    }
+
+    func backoffUntil(provider: UsageProviderID, accountKey: String, now: Date? = nil) -> Date? {
+        backoffStore.backoffUntil(provider: provider, accountKey: accountKey, now: now ?? self.now())
     }
 
     func expireInvalidUsage(now: Date = Date()) {

@@ -18,6 +18,8 @@ struct UsageInfo {
     var sessionWindowSeconds: Int = 0
     var isLoaded: Bool = false
     var errorMessage: String?
+    var isStale: Bool = false
+    var observedAt: Date?
 
     var primaryRemainingPercent: Int {
         weeklyAvailable ? weeklyPercent : sessionPercent
@@ -31,6 +33,13 @@ struct UsageInfo {
             )
         }
         return resetText
+    }
+
+    var staleCaption: String? {
+        guard isStale, let observedAt else {
+            return nil
+        }
+        return StaleUsagePresentation.caption(asOf: observedAt)
     }
 }
 
@@ -134,14 +143,13 @@ struct ProviderVisibilityPolicy {
 
         switch names.count {
         case 0:
-            return "AIUsageBar"
+            return L10n.appName
         case 1:
-            return "\(names[0]) 剩餘用量"
+            return L10n.remainingUsageOne(names[0])
         case 2:
-            return "\(names[0]) 與 \(names[1]) 剩餘用量"
+            return L10n.remainingUsageTwo(names[0], names[1])
         default:
-            let leading = names.dropLast().joined(separator: "、")
-            return "\(leading) 與 \(names.last!) 剩餘用量"
+            return L10n.remainingUsageThree(names[0], names[1], names[2])
         }
     }
 
@@ -177,16 +185,18 @@ enum UsageRefreshStatePolicy {
         for provider: String
     ) -> Bool {
         message.hasPrefix("\(provider)：") ||
-        message.hasPrefix("\(provider) 登入")
+        message.hasPrefix("\(provider):") ||
+        message.hasPrefix(L10n.rateLimitedPrefix(provider)) ||
+        message == L10n.loginSucceeded(provider)
     }
 
-    static func state(afterFailure current: UsageInfo, error: Error) -> UsageInfo? {
+    static func state(afterFailure current: UsageInfo, error: Error, now: Date = Date()) -> UsageInfo? {
         guard !isCancellation(error) else {
             return nil
         }
 
         let message = error.localizedDescription.isEmpty
-            ? "更新失敗"
+            ? L10n.updateFailed
             : error.localizedDescription
 
         guard current.isLoaded else {
@@ -195,6 +205,10 @@ enum UsageRefreshStatePolicy {
 
         var preserved = current
         preserved.errorMessage = message
+        if let observedAt = current.observedAt,
+           now.timeIntervalSince(observedAt) >= UsageValidityPolicy.freshnessTTL {
+            preserved.isStale = true
+        }
         return preserved
     }
 

@@ -10,7 +10,7 @@ struct GrokLoginView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            LoginHeaderView(title: "請在下方登入 Grok")
+            LoginHeaderView(title: L10n.loginHeader("Grok"))
 
             WebLoginView(provider: .grok, onCredentialFound: onSuccess)
         }

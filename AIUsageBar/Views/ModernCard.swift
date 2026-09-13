@@ -9,6 +9,7 @@ struct ModernCard: View {
     let weeklyRowLabel: String
     let weeklyAccessibilityLabel: String
     let reset: String
+    var footnote: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -36,6 +37,14 @@ struct ModernCard: View {
                 Text(reset)
                     .font(.system(size: 10.5))
                     .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let footnote, !footnote.isEmpty {
+                Text(footnote)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textSecondary.opacity(0.8))
                     .lineLimit(1)
             }
         }
@@ -80,11 +89,14 @@ private struct ProgressLine: View {
                 Text(rowLabel)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.textSecondary)
-                    .frame(width: 42, alignment: .leading)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .multilineTextAlignment(.leading)
+                    .frame(width: 64, alignment: .leading)
                     .accessibilityHidden(true)
             } else {
                 Color.clear
-                    .frame(width: 42)
+                    .frame(width: 64)
                     .accessibilityHidden(true)
             }
 
@@ -121,6 +133,6 @@ private struct ProgressLine: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue("剩餘 \(percent)%")
+        .accessibilityValue(L10n.remainingPercent(percent))
     }
 }

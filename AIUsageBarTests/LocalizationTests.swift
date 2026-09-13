@@ -83,6 +83,32 @@ struct LocalizationTests {
         #expect(!L10n.remainingPercent(20).isEmpty)
     }
 
+    @Test("Rate-limit retry copy starts with its prefix in every supported locale")
+    func rateLimitedRetryPreservesPrefixAcrossLocalesAndProviders() throws {
+        let catalog = try CatalogFile.load()
+        let prefixTemplate = try #require(catalog.strings["status.rateLimitedPrefix"])
+        let retryTemplate = try #require(catalog.strings["status.rateLimitedRetry"])
+        let providers = ["ChatGPT", "Claude", "Grok"]
+
+        for locale in SupportedCatalogLocale.allCases {
+            let prefix = try #require(prefixTemplate.value(for: locale))
+            let retry = try #require(retryTemplate.value(for: locale))
+
+            for provider in providers {
+                let renderedPrefix = prefix.replacingOccurrences(of: "%@", with: provider)
+                let renderedRetry = retry
+                    .replacingOccurrences(of: "%@", with: provider)
+                    .replacingOccurrences(of: "%d", with: "60")
+
+                #expect(!renderedPrefix.isEmpty)
+                #expect(
+                    renderedRetry.hasPrefix(renderedPrefix),
+                    Comment(rawValue: "rate-limit prefix mismatch for \(locale.rawValue)/\(provider)")
+                )
+            }
+        }
+    }
+
     @Test("Provider and product names stay untranslated")
     func providerNamesRemainCorrect() throws {
         #expect(L10n.appName == "AIUsageBar")
@@ -251,6 +277,20 @@ private struct CatalogFile {
 private struct CatalogEntry {
     let en: String?
     let zhHant: String?
+
+    func value(for locale: SupportedCatalogLocale) -> String? {
+        switch locale {
+        case .en:
+            return en
+        case .zhHant:
+            return zhHant
+        }
+    }
+}
+
+private enum SupportedCatalogLocale: String, CaseIterable {
+    case en
+    case zhHant = "zh-Hant"
 }
 
 private enum FormatSpecifiers {

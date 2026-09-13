@@ -114,8 +114,8 @@ Environment: macOS 26.5.2 (25F84), arm64; Xcode 26.6 (17F113). App deployment ta
 Reproduce from a clean exact checkout (use absolute paths outside the repository for logs/DerivedData):
 
 ```sh
-xcodebuild -project AIUsageBar.xcodeproj -scheme AIUsageBar -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/astra-v21-build -only-testing:AIUsageBarTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
-xcodebuild -project AIUsageBar.xcodeproj -scheme AIUsageBar -configuration Release -derivedDataPath /tmp/astra-v21-release CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project AIUsageBar.xcodeproj -scheme AIUsageBar -configuration Debug -destination 'platform=macOS' -derivedDataPath "$TMPDIR/astra-v21-build" -only-testing:AIUsageBarTests -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+xcodebuild -project AIUsageBar.xcodeproj -scheme AIUsageBar -configuration Release -derivedDataPath "$TMPDIR/astra-v21-release" CODE_SIGNING_ALLOWED=NO build
 ```
 
 Test ViewModels use isolated in-memory credentials. The test-host path suppresses Keychain migration, automatic timers and notification authorization/delivery; pure notification decisions are still exercised. This isolation intentionally does not claim a real Keychain, auto-timer, notification-center or WebKit recovery test.

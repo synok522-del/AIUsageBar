@@ -38,6 +38,8 @@ Use AIUsageBar in **English or Traditional Chinese** through macOS language pref
 
 The designated final artifact is **`AIUsageBar-1.0.0-build4.dmg`**, version **1.0.0 (4)**: **Developer ID signed, Apple notarized, stapled, and Gatekeeper accepted**. “v3” refers to the reliability work, not the app’s version number.
 
+**Artifact provenance:** this DMG was built from product source SHA `df65e6b9541721eefc7b18fb4365c12f7a2aa10a`. The later release documentation commit `ee62a668dc32f2a46cd6c0ec3ff9f7f311809546` is documentation-only and is not the binary's build source, so the DMG was not built from that documentation HEAD. Subsequent test and audit cleanup commits leave the production source unchanged.
+
 **Download pending publication:** as of September 13, 2026, this exact DMG is not yet publicly available on GitHub Releases. The existing `v1.0.0` asset has a different filename and checksum and is not this designated artifact.
 
 When published, download the exact file, verify the [SHA-256 in the README](../README.md#download-and-install), open the DMG, and drag AIUsageBar to Applications. Launch it and connect your providers in Settings. Requires macOS 13.0 or later and the corresponding provider accounts.

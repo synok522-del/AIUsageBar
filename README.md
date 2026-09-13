@@ -38,6 +38,8 @@ These safeguards improve recovery from temporary failures. Available readings st
 
 **Designated final release artifact:** `AIUsageBar-1.0.0-build4.dmg` — version **1.0.0 (4)**, **Developer ID signed, Apple notarized, stapled, and Gatekeeper accepted**.
 
+**Artifact provenance:** `AIUsageBar-1.0.0-build4.dmg` was built from product source SHA `df65e6b9541721eefc7b18fb4365c12f7a2aa10a`. The later release documentation commit `ee62a668dc32f2a46cd6c0ec3ff9f7f311809546` is documentation-only and is not the binary's build source; the DMG was not built from that documentation HEAD. Subsequent test and audit cleanup commits leave the production source unchanged.
+
 **Publication status (checked September 13, 2026):** this exact artifact is not yet available among the public GitHub Release assets. The existing `v1.0.0` release contains an older, differently named DMG (`AIUsageBar-1.0.0-build4-main-0cf9989-notarized.dmg`) with a different checksum. It is not the designated artifact described here.
 
 [Check GitHub Releases for availability](https://github.com/synok522-del/AIUsageBar/releases). A direct download link will be added when the exact final artifact is published.

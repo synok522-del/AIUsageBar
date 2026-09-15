@@ -20,6 +20,7 @@ for key in ('SUAutomaticallyUpdate', 'SUAllowsAutomaticUpdates', 'SUEnableJavaSc
 assert str(info['SUSignedFeedFailureExpirationInterval']) == '0'
 assert info['SUFeedURL'] == 'https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml'
 assert re.fullmatch(r'[A-Za-z0-9+/]{43}=', info['SUPublicEDKey'])
+assert info['SUPublicEDKey'] == pathlib.Path(__file__).with_name('public-key.txt').read_text().strip()
 
 def run(*args):
     p = subprocess.run(args, capture_output=True, text=True, check=True)

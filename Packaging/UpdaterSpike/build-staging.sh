@@ -24,7 +24,7 @@ out=$(cd "$2" && pwd)
 }
 xcodebuild -project "$root/AIUsageBar.xcodeproj" -scheme AIUsageBar \
   -configuration Release -xcconfig "$root/Packaging/UpdaterSpike/Staging.xcconfig" \
-  -clonedSourcePackagesDirPath "$root/../u1-packages" \
+  -clonedSourcePackagesDirPath "$out/SourcePackages" \
   -derivedDataPath "$out/DerivedData-$1" -archivePath "$out/$1.xcarchive" \
   -disableAutomaticPackageResolution \
   U1_PUBLIC_ED_KEY="$3" MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build" \

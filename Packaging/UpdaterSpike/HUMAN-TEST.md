@@ -2,6 +2,10 @@
 
 **Do not run this procedure on Kenny's production Mac.** Its installed Build 4 and provider data must stay untouched. Use a disposable macOS VM or a separate test Mac, with snapshots/backups and no production install at `/Applications/AIUsageBar.app`. Changing a filename or setting a different TMPDIR is not isolation: this spike deliberately retains the real bundle, Keychain and WebKit identities. Sparkle relaunch does not preserve arbitrary launch environment variables.
 
+## Build workspace
+
+Release build, SourcePackages, archive and exported app directories must be outside File Provider/iCloud-synced Documents. Use a dedicated `/private/tmp/AIUsageBar-U1-20260915` workspace on the release machine. The initial Documents build acquired Finder metadata and was rejected by codesign; no provenance removal is used as a workaround.
+
 ## Prepare
 
 1. Read `tasks/UPDATER-U1.md` and its exact staging URLs/hashes. Use host 0.0.1 (9001), candidate 0.0.2 (9002), and Sparkle 2.10.0. Do not use production versions/builds 4, 5 or 6.

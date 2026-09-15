@@ -1,0 +1,20 @@
+// U1 only. Use on an isolated Mac/VM; the bundle identity intentionally matches production.
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) AIUSAGEBAR_UPDATER_SPIKE
+MARKETING_VERSION = 0.0.1
+CURRENT_PROJECT_VERSION = 9001
+ARCHS = arm64 x86_64
+ONLY_ACTIVE_ARCH = NO
+MACOSX_DEPLOYMENT_TARGET = 13.0
+DEVELOPMENT_TEAM = S898B9KBWN
+ENABLE_HARDENED_RUNTIME = YES
+INFOPLIST_KEY_SUFeedURL = https:/$()/synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml
+INFOPLIST_KEY_SUPublicEDKey = $(U1_PUBLIC_ED_KEY)
+INFOPLIST_KEY_SURequireSignedFeed = YES
+INFOPLIST_KEY_SUVerifyUpdateBeforeExtraction = YES
+// Spike-only strict behavior. Production expiration remains an explicit security gate.
+INFOPLIST_KEY_SUSignedFeedFailureExpirationInterval = 0
+INFOPLIST_KEY_SUEnableAutomaticChecks = YES
+INFOPLIST_KEY_SUAutomaticallyUpdate = NO
+INFOPLIST_KEY_SUAllowsAutomaticUpdates = NO
+INFOPLIST_KEY_SUEnableSystemProfiling = NO
+INFOPLIST_KEY_SUEnableJavaScript = NO

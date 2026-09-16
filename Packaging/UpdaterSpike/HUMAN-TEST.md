@@ -6,6 +6,24 @@
 
 Release build, SourcePackages, archive and exported app directories must be outside File Provider/iCloud-synced Documents. Use a dedicated `/private/tmp/AIUsageBar-U1-20260915` workspace on the release machine. The initial Documents build acquired Finder metadata and was rejected by codesign; no provenance removal is used as a workaround.
 
+## Published staging locations
+
+- Feed: https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml
+- Host: https://github.com/synok522-del/AIUsageBar/releases/download/u1-staging-20260915/AIUsageBar-0.0.1-u1-9001.dmg
+- Candidate: https://github.com/synok522-del/AIUsageBar/releases/download/u1-staging-20260915/AIUsageBar-0.0.2-u1-9002.dmg
+- Manifest: https://github.com/synok522-del/AIUsageBar/releases/download/u1-staging-20260915/u1-artifact-manifest.json
+
+From an isolated machine's checkout of the U1 branch, prepare a fresh evidence directory and run:
+
+```sh
+mkdir -p u1-evidence
+python3 Packaging/UpdaterSpike/fetch-public.py https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml u1-evidence/appcast.xml
+swiftc Packaging/UpdaterSpike/verify-signature.swift -o u1-evidence/verify-signature
+u1-evidence/verify-signature UIXKYCVs01bngJO5Ot4tgSO3IU4wYSj6Se2h4GMQIF0= u1-evidence/appcast.xml --feed
+```
+
+Fetch each DMG with `fetch-public.py`, compare SHA-256 and size to the manifest, then pass its `edSignature` to `verify-signature PUBLIC_KEY DMG SIGNATURE`. Run `python3 Packaging/UpdaterSpike/verify-dmg.py DMG` to verify the image and contained app without launching. No signing private key is needed for these checks.
+
 ## Prepare
 
 1. Read `tasks/UPDATER-U1.md` and its exact staging URLs/hashes. Use host 0.0.1 (9001), candidate 0.0.2 (9002), and Sparkle 2.10.0. Do not use production versions/builds 4, 5 or 6.

@@ -1,0 +1,5 @@
+{
+  "host_tampered_dmg": "REJECT",
+  "candidate_tampered_dmg": "REJECT",
+  "scope": "public-key cryptographic verification only; no app runtime"
+}

@@ -1,0 +1,66 @@
+{
+  "image": "AIUsageBar-0.0.1-u1-9001.dmg",
+  "sha256": "5fa1da43179c54b597e1c15255417dbf395ecc047e0e03b383961c8b1cb2a3fd",
+  "size": 4054775,
+  "app": {
+    "version": "0.0.1",
+    "build": "9001",
+    "bundle_id": "synok522.AIUsageBar",
+    "feed": "https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml",
+    "public_key": "UIXKYCVs01bngJO5Ot4tgSO3IU4wYSj6Se2h4GMQIF0=",
+    "code": [
+      {
+        "path": "Contents/MacOS/AIUsageBar",
+        "architectures": "x86_64 arm64",
+        "team": "S898B9KBWN",
+        "signature": "PASS",
+        "hardened_runtime": "PASS"
+      },
+      {
+        "path": "Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate",
+        "architectures": "x86_64 arm64",
+        "team": "S898B9KBWN",
+        "signature": "PASS",
+        "hardened_runtime": "PASS"
+      },
+      {
+        "path": "Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle",
+        "architectures": "x86_64 arm64",
+        "team": "S898B9KBWN",
+        "signature": "PASS",
+        "hardened_runtime": "PASS"
+      },
+      {
+        "path": "Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer",
+        "architectures": "x86_64 arm64",
+        "team": "S898B9KBWN",
+        "signature": "PASS",
+        "hardened_runtime": "PASS"
+      },
+      {
+        "path": "Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader",
+        "architectures": "x86_64 arm64",
+        "team": "S898B9KBWN",
+        "signature": "PASS",
+        "hardened_runtime": "PASS"
+      },
+      {
+        "path": "Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
+        "architectures": "x86_64 arm64",
+        "team": "S898B9KBWN",
+        "signature": "PASS",
+        "hardened_runtime": "PASS"
+      }
+    ],
+    "symlinks": [
+      "Contents/Frameworks/Sparkle.framework/Autoupdate",
+      "Contents/Frameworks/Sparkle.framework/Resources",
+      "Contents/Frameworks/Sparkle.framework/Sparkle",
+      "Contents/Frameworks/Sparkle.framework/Updater.app",
+      "Contents/Frameworks/Sparkle.framework/XPCServices",
+      "Contents/Frameworks/Sparkle.framework/Versions/Current"
+    ]
+  },
+  "canonical_comparison": "PASS",
+  "detach": "PASS"
+}

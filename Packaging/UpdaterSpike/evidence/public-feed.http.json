@@ -1,0 +1,15 @@
+{
+  "url": "https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml",
+  "status": 200,
+  "final_host": "synok522-del.github.io",
+  "headers": {
+    "Content-Type": "application/xml",
+    "Content-Length": "2351",
+    "Cache-Control": "max-age=600",
+    "ETag": "\"6aaa64fa-92f\"",
+    "Last-Modified": "Wed, 16 Sep 2026 09:44:26 GMT",
+    "Age": "0"
+  },
+  "size": 2351,
+  "sha256": "1f8cf8bb27203853544a46dc13af500ab39a2cf88f025251f49fc62c3a8be48c"
+}

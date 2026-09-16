@@ -9,7 +9,7 @@ build=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app/Contents/Info.p
 case "$version:$build" in 0.0.1:9001|0.0.2:9002) ;; *) echo 'Not a U1 staging app.' >&2; exit 2;; esac
 [[ $(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist") == synok522.AIUsageBar ]] || exit 2
 codesign --verify --deep --strict "$app"
-codesign -dv "$app" 2>&1 | grep -q 'TeamIdentifier=S898B9KBWN'
+codesign -dv "$app" 2>&1 | grep 'TeamIdentifier=S898B9KBWN' > /dev/null
 mkdir -p "$2"
 out=$(cd "$2" && pwd)
 dmg="$out/AIUsageBar-$version-u1-$build.dmg"

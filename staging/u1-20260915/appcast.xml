@@ -1,0 +1,28 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>AIUsageBar</title>
+        <item>
+            <title>0.0.2</title>
+            <pubDate>Wed, 16 Sep 2026 12:16:32 +0800</pubDate>
+            <sparkle:version>9002</sparkle:version>
+            <sparkle:shortVersionString>0.0.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>U1 staging only. Use a disposable isolated Mac or VM. Full replacement, relaunch, MenuBarExtra and session preservation remain HUMAN_GATE_REQUIRED. Do not install on the production Mac.</p>]]></description>
+            <enclosure url="https://github.com/synok522-del/AIUsageBar/releases/download/u1-staging-20260915/AIUsageBar-0.0.2-u1-9002.dmg" length="4054794" type="application/octet-stream" sparkle:edSignature="7U3iPQFmBknaCqktp+eK7boWCmFJH5slAmtUiZkzr3bJNGmgt3qVeNfIifmGKgOq48GtCKgRhPFoGmHXns2eAw=="></enclosure>
+        </item>
+        <item>
+            <title>0.0.1</title>
+            <pubDate>Wed, 16 Sep 2026 12:16:32 +0800</pubDate>
+            <sparkle:version>9001</sparkle:version>
+            <sparkle:shortVersionString>0.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>U1 staging only. Use a disposable isolated Mac or VM. Full replacement, relaunch, MenuBarExtra and session preservation remain HUMAN_GATE_REQUIRED. Do not install on the production Mac.</p>]]></description>
+            <enclosure url="https://github.com/synok522-del/AIUsageBar/releases/download/u1-staging-20260915/AIUsageBar-0.0.1-u1-9001.dmg" length="4054775" type="application/octet-stream" sparkle:edSignature="of9e4Vb5huURoPYwdZF8yMSSwAMt2QYARj4yPN4O1lWmySotlGdNP1TyMAXu8IYaC+je+MLUuAt5X+EFqiOrDg=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: bqXB9H5ZKNstfc3ctwF+ljS61i3cdB+ehvhUn3N2odDjyfL+rJNupTCdRN4LIBMGxOnn49X0mW6UzEThMNC1CA==
+length: 2207
+-->

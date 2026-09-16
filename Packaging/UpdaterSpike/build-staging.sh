@@ -32,3 +32,7 @@ xcodebuild -project "$root/AIUsageBar.xcodeproj" -scheme AIUsageBar \
 xcodebuild -exportArchive -archivePath "$out/$1.xcarchive" \
   -exportPath "$out/$1-export" \
   -exportOptionsPlist "$root/Packaging/UpdaterSpike/ExportOptions.plist"
+
+# Verify the actual exported version; xcconfig values can override command-line settings.
+[[ $(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$out/$1-export/AIUsageBar.app/Contents/Info.plist") == "$version" ]]
+[[ $(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$out/$1-export/AIUsageBar.app/Contents/Info.plist") == "$build" ]]

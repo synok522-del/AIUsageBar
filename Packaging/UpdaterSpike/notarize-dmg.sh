@@ -1,18 +1,22 @@
 #!/bin/bash
 set -euo pipefail
-# No installs or app launches. Input must be a U1 staging app, never Build 4.
+# No installs or app launches. Input must be a staging app, never Build 4/5/6.
 [[ $# == 3 ]] || { echo "Usage: $0 STAGING_APP OUTPUT_DIRECTORY NOTARY_PROFILE" >&2; exit 2; }
 app=$(cd "$1" && pwd)
 [[ "$app" != /Applications/* && "$app" != */Downloads/* ]] || exit 2
 version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")
 build=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app/Contents/Info.plist")
-case "$version:$build" in 0.0.1:9001|0.0.2:9002) ;; *) echo 'Not a U1 staging app.' >&2; exit 2;; esac
+case "$version:$build" in
+  0.0.1:9001|0.0.2:9002) label=u1 ;;
+  0.0.3:9003|0.0.4:9004) label=final ;;
+  *) echo 'Not a staging app.' >&2; exit 2;;
+esac
 [[ $(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist") == synok522.AIUsageBar ]] || exit 2
 codesign --verify --deep --strict "$app"
 codesign -dv "$app" 2>&1 | grep 'TeamIdentifier=S898B9KBWN' > /dev/null
 mkdir -p "$2"
 out=$(cd "$2" && pwd)
-dmg="$out/AIUsageBar-$version-u1-$build.dmg"
+dmg="$out/AIUsageBar-$version-$label-$build.dmg"
 [[ ! -e "$dmg" ]] || { echo 'Refusing to replace an existing installer.' >&2; exit 1; }
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 submission="$out/app-$build-notary.zip"

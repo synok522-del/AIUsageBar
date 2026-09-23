@@ -1,18 +1,23 @@
 #!/bin/bash
 set -euo pipefail
 # Builds staging only. Never installs or launches the result.
-if [[ $# != 3 ]]; then
-  echo "Usage: $0 host|candidate OUTPUT_DIRECTORY PUBLIC_ED_KEY" >&2; exit 2
+# Staging versions never use production identities 1.0.0 (4), 1.1.0 (5) or 1.1.1 (6).
+if [[ $# != 4 ]]; then
+  echo "Usage: $0 host|candidate|final-host|final-candidate OUTPUT_DIRECTORY PUBLIC_ED_KEY EXPECTED_SOURCE_SHA" >&2; exit 2
 fi
+u1_feed=https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml
+final_feed=https://synok522-del.github.io/AIUsageBar/staging/final-20260924/appcast.xml
 case "$1" in
-  host) version=0.0.1; build=9001 ;;
-  candidate) version=0.0.2; build=9002 ;;
-  *) echo 'Only host/candidate staging builds are permitted.' >&2; exit 2 ;;
+  host) version=0.0.1; build=9001; feed=$u1_feed ;;
+  candidate) version=0.0.2; build=9002; feed=$u1_feed ;;
+  final-host) version=0.0.3; build=9003; feed=$final_feed ;;
+  final-candidate) version=0.0.4; build=9004; feed=$final_feed ;;
+  *) echo 'Only staging host/candidate builds are permitted.' >&2; exit 2 ;;
 esac
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-branch=$(git -C "$root" branch --show-current)
-[[ "$branch" == feature/in-app-updater-u0-u1 || "$branch" == feature/in-app-updater-u2-u5 ]] || {
-  echo 'Refusing to build outside the isolated updater branches.' >&2; exit 1;
+# Provenance, not branch name: the checkout must be exactly the reviewed commit.
+[[ "$4" =~ ^[0-9a-f]{40}$ && $(git -C "$root" rev-parse HEAD) == "$4" ]] || {
+  echo 'HEAD is not the expected reviewed source SHA.' >&2; exit 1;
 }
 [[ -z $(git -C "$root" status --porcelain) ]] || {
   echo 'Commit all source changes before recording binary provenance.' >&2; exit 1;
@@ -28,7 +33,7 @@ xcodebuild -project "$root/AIUsageBar.xcodeproj" -scheme AIUsageBar \
   -clonedSourcePackagesDirPath "$out/SourcePackages" \
   -derivedDataPath "$out/DerivedData-$1" -archivePath "$out/$1.xcarchive" \
   -disableAutomaticPackageResolution \
-  U1_PUBLIC_ED_KEY="$3" MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build" \
+  U1_PUBLIC_ED_KEY="$3" STAGING_FEED_URL="$feed" MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Developer ID Application' archive
 xcodebuild -exportArchive -archivePath "$out/$1.xcarchive" \
   -exportPath "$out/$1-export" \
@@ -37,3 +42,5 @@ xcodebuild -exportArchive -archivePath "$out/$1.xcarchive" \
 # Verify the actual exported version; xcconfig values can override command-line settings.
 [[ $(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$out/$1-export/AIUsageBar.app/Contents/Info.plist") == "$version" ]]
 [[ $(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$out/$1-export/AIUsageBar.app/Contents/Info.plist") == "$build" ]]
+[[ $(/usr/libexec/PlistBuddy -c "Print SUFeedURL" "$out/$1-export/AIUsageBar.app/Contents/Info.plist") == "$feed" ]]
+[[ $(/usr/libexec/PlistBuddy -c "Print SUPublicEDKey" "$out/$1-export/AIUsageBar.app/Contents/Info.plist") == "$3" ]]

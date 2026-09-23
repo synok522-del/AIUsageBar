@@ -85,6 +85,7 @@ stage="$output_root/build-$build"
   echo 'Build evidence is write-once; choose a fresh output directory.' >&2; exit 1;
 }
 mkdir -p "$stage"
+git -C "$root" rev-parse HEAD > "$stage/source-sha.txt"
 plist="$stage/Production-Info.plist"
 python3 "$script_dir/generate-production-info.py" \
   --public-ed-key "$public_ed_key" \

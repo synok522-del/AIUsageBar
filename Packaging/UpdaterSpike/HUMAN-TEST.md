@@ -2,6 +2,8 @@
 
 This procedure and its artifacts are historical U1 evidence only. Do not use them as proof for the remediated updater code. The final test procedure is [`tasks/UPDATER-FINAL-HUMAN-TEST.md`](../../tasks/UPDATER-FINAL-HUMAN-TEST.md), which names the new staging release and source SHA.
 
+> **Superseded** as the final Human Gate by `tasks/UPDATER-FINAL-HUMAN-TEST.md`. The U1 binaries built from this procedure do not contain the current updater code.
+
 **Do not run this procedure on Kenny's production Mac.** Its installed Build 4 and provider data must stay untouched. Use a disposable macOS VM or a separate test Mac, with snapshots/backups and no production install at `/Applications/AIUsageBar.app`. Changing a filename or setting a different TMPDIR is not isolation: this spike deliberately retains the real bundle, Keychain and WebKit identities. Sparkle relaunch does not preserve arbitrary launch environment variables.
 
 ## Build workspace

@@ -13,7 +13,7 @@
 	<key>SUEnableSystemProfiling</key>
 	<false/>
 	<key>SUFeedURL</key>
-	<string>https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml</string>
+	<string>$(STAGING_FEED_URL)</string>
 	<key>SUPublicEDKey</key>
 	<string>$(U1_PUBLIC_ED_KEY)</string>
 	<key>SURequireSignedFeed</key>

@@ -9,7 +9,15 @@ import sys
 
 app = pathlib.Path(sys.argv[1]).resolve()
 info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
-assert (info['CFBundleShortVersionString'], info['CFBundleVersion']) in {('0.0.1', '9001'), ('0.0.2', '9002')}
+staging_feed_by_identity = {
+    ('0.0.1', '9001'): 'https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml',
+    ('0.0.2', '9002'): 'https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml',
+    ('0.0.3', '9003'): 'https://synok522-del.github.io/AIUsageBar/staging/final-20260924/appcast.xml',
+    ('0.0.4', '9004'): 'https://synok522-del.github.io/AIUsageBar/staging/final-20260924/appcast.xml',
+}
+identity = (info.get('CFBundleShortVersionString'), info.get('CFBundleVersion'))
+if identity not in staging_feed_by_identity:
+    raise SystemExit(f'refusing non-staging version/build: {identity!r}')
 assert info['CFBundleIdentifier'] == 'synok522.AIUsageBar'
 assert info['LSMinimumSystemVersion'] == '13.0'
 assert info['LSUIElement'] in (True, 'YES')
@@ -18,7 +26,7 @@ for key in ('SURequireSignedFeed', 'SUVerifyUpdateBeforeExtraction', 'SUEnableAu
 for key in ('SUAutomaticallyUpdate', 'SUAllowsAutomaticUpdates', 'SUEnableJavaScript', 'SUEnableSystemProfiling'):
     assert info[key] in (False, 'NO'), key
 assert str(info['SUSignedFeedFailureExpirationInterval']) == '0'
-assert info['SUFeedURL'] == 'https://synok522-del.github.io/AIUsageBar/staging/u1-20260915/appcast.xml'
+assert info['SUFeedURL'] == staging_feed_by_identity[identity]
 assert re.fullmatch(r'[A-Za-z0-9+/]{43}=', info['SUPublicEDKey'])
 assert info['SUPublicEDKey'] == pathlib.Path(__file__).with_name('public-key.txt').read_text().strip()
 

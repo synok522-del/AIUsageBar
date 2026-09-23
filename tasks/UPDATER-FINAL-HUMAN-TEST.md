@@ -1,97 +1,91 @@
-# AIUsageBar updater — final isolated Mac Human Gate
+# AIUsageBar Updater — Final Human Test (isolated Mac only)
 
-**USE AN ISOLATED MAC / VM ONLY.** This procedure replaces the historical U1-only procedure. It must use the new artifacts listed below, built from the exact remediated source SHA. The old U1 artifacts from `0df57e6` and `4fb083d` are not evidence for this implementation.
+This replaces `Packaging/UpdaterSpike/HUMAN-TEST.md` as the final updater Human Gate. The historical U1 binaries (source `0df57e6` / `4fb083d`, versions 0.0.1 / 0.0.2) do **not** contain the current `AppUpdater` or Settings updater UI, so this procedure never uses them as evidence.
 
-**Do not run replacement testing against Kenny's production Build 4 installation. If the isolated Mac currently has production Build 4 at `/Applications/AIUsageBar.app`, stop and confirm the backup/isolation strategy before replacing it.** A renamed copy or alternate `TMPDIR` is not isolation because the app retains the real bundle, Keychain, WebKit, and UserDefaults identities.
+## Safety (read first)
 
-## Artifact identity
+- **USE AN ISOLATED MAC / VM ONLY.**
+- **DO NOT run the replacement test against Kenny's production Build 4 installation.**
+- If the isolated Mac already has production Build 4 (`1.0.0 (4)`) at `/Applications/AIUsageBar.app`, **stop**. Confirm a verified backup/snapshot and an explicit isolation plan before anything replaces it. Staging builds intentionally use the real bundle ID, Keychain and WebKit identities, so they will read and write the same data as production.
+- Use test provider accounts where possible. Never record cookies, tokens, Keychain values or full UserDefaults.
+- Production feed `https://synok522-del.github.io/AIUsageBar/appcast.xml` is not created or modified. Build 5/6 numbers are not used.
 
-| Item | Identity |
+## Staging identities and release evidence
+
+| Item | Value |
 | --- | --- |
-| Remediated source SHA | `19531d53aa0b99a0442beea1783c1999293be9f8` |
-| Sparkle | `2.10.0` (`eef1a539a373c1f1a320624b1130fc5de7b2e100`) |
-| Staging host | `0.0.3` / build `9031` |
-| Host DMG | Not produced: app notarization is blocked because the `AIUsageBar-Notary` profile is absent from the current login keychain |
-| Staging candidate | `0.0.4` / build `9032` |
-| Candidate DMG | Not produced: app notarization is blocked because the `AIUsageBar-Notary` profile is absent from the current login keychain |
-| Signed staging feed | `https://synok522-del.github.io/AIUsageBar/staging/u2-remediated-20260923/appcast.xml` |
-| Staging GitHub Release | Not published; waiting for notarized and stapled host/candidate DMGs |
-| Feed SHA-256 | Not produced; the signed feed is not published until its enclosure is verified |
-| Artifact manifest | Not published; waiting for final DMG hashes and signatures |
+| Source SHA (both builds) | `5ec435fb5f93422228e49a3fc7f57cec6982e32c` |
+| Staging host | `0.0.3 (9003)` — `AIUsageBar-0.0.3-final-9003.dmg` |
+| Host artifact URL | `https://github.com/synok522-del/AIUsageBar/releases/download/final-staging-20260924/AIUsageBar-0.0.3-final-9003.dmg` |
+| Host SHA-256 / size | `dd3cba548f30f2f5fe93e598c61b7b9e047007989fb4621d777347ac3fa7edcc` / `4,074,231` bytes |
+| Staging candidate | `0.0.4 (9004)` — `AIUsageBar-0.0.4-final-9004.dmg` |
+| Candidate artifact URL | `https://github.com/synok522-del/AIUsageBar/releases/download/final-staging-20260924/AIUsageBar-0.0.4-final-9004.dmg` |
+| Candidate SHA-256 / size | `e7c650818677d11fd810a1dbacdeece6ec6447b49d973068298fcbd4001c8528` / `4,074,241` bytes |
+| Staging feed | `https://synok522-del.github.io/AIUsageBar/staging/final-20260924/appcast.xml` |
+| Staging release | `https://github.com/synok522-del/AIUsageBar/releases/tag/final-staging-20260924` (pre-release, staging only) |
+| Artifact manifest | `https://github.com/synok522-del/AIUsageBar/releases/download/final-staging-20260924/final-staging-artifact-manifest.json`; SHA-256 `c709475823a5b0d392af7dc74c58f4d69c45fa8d44f62c0a9daeb2b6e9ee0705` |
+| Staging EdDSA public key | `Packaging/UpdaterSpike/public-key.txt` (the existing U1 staging key) |
+| Feed expiration interval | `0` (staging only; the production value is still a human decision) |
+| App notarization | Host `8f57703d-d8e2-44b3-bda3-08ba09795f89`: Accepted; candidate `c4389b97-b0a8-47af-8c8d-0279bd060895`: Accepted |
+| DMG notarization | Host `a1c57b17-f8b0-4546-9291-9bfba3d017a9`: Accepted; candidate `2945da18-5ad3-4bb2-b1e5-2df1f39f62bd`: Accepted |
+| Staple and Gatekeeper | Both apps and DMGs stapled and validated; app Gatekeeper assessment reported Notarized Developer ID; both DMGs were accepted by Gatekeeper |
+| Signing identity | Developer ID Application, Team ID `S898B9KBWN`; Hardened Runtime and arm64 + x86_64 verified, including nested Sparkle code |
+| EdDSA order | PASS — each DMG was stapled and validated, then frozen and SHA-256 recorded, then signed with the existing staging key; hashes stayed unchanged |
+| Remote artifacts | PASS — public HTTPS downloads returned 200; both DMGs matched the frozen hashes and sizes, and both detached EdDSA signatures verified |
+| Public feed verification | PASS — HTTP 200; feed SHA-256 `0859b7529d6c054d572e06bef0d4065d4daac05bb529c910b223b1f4adf7cdce`; byte-identical to the locally signed feed; feed signature verified |
+| Enclosure in public feed | Only candidate `0.0.4 (9004)`; URL, length `4,074,241`, and EdDSA signature match the remotely verified candidate artifact |
+| Human Gate | **NOT RUN** — installed-host, replacement, relaunch, session, and Tahoe observations remain open |
 
-## Preparation evidence (2026-09-23)
+The U1 feed `staging/u1-20260915` and release `u1-staging-20260915` are left untouched.
 
-- The exact source SHA above passed all three PR #35 GitHub checks: macOS build, `AIUsageBarTests`, and UI/launch tests.
-- Local serial execution passed all 260 `AIUsageBarTests` in 9 suites. A separate full-scheme run also executed the product tests, but one timing-sensitive integration test failed under parallel load and the UI runner could not initialize while macOS authentication was active. The failure did not reproduce in the serial product run; exact-SHA remote CI passed both product and UI jobs.
-- Signed Developer ID Release archives and exports were produced for both staging identities. Each passed bundle/version/build, Sparkle staging configuration, Team ID, Hardened Runtime, code-signature, and universal architecture checks. They are local preparation outputs only and are not installers.
-- `xcrun notarytool history --keychain-profile AIUsageBar-Notary` reports that no Keychain password item exists for that profile. No app or DMG was submitted, no staging release/feed was created, and the existing U1 staging fixture was left untouched.
-- The public `v1.0.0` Build 4 release still lists `AIUsageBar-1.0.0-build4.dmg` with SHA-256 `49d4ecc16ea149d8d05e780cd9512ecaba2bbd49a6c118dfc1250c55ff4e3415`. The original `u1-staging-20260915` prerelease remains separate and unchanged.
+## Release preparation (completed on the release Mac)
 
-Before continuing, configure the already-approved Apple notary credentials locally under the `AIUsageBar-Notary` profile (do not put credentials in the repository or paste them into this report). Then notarize and staple both staging apps and DMGs, verify their final hashes and EdDSA signatures, publish the new staging release assets, and publish the signed feed last. The Human Gate below cannot start before those steps pass.
+Both staging apps were built from the exact source SHA above on the release Mac using the existing `AIUsageBar-Notary` profile and staging EdDSA Keychain identity. No private key or credential was added to Git or written to the report. Build 4, production signing keys, and production release assets were not modified.
 
-The staging host and candidate use a staging-only signed-feed configuration and the existing U1 staging key. The feed contains the candidate; it is not the production appcast. Builds `0.0.3/9031` and `0.0.4/9032` are distinct from Build 4 and reserved production Builds 5 and 6. The production feed and production signing key are not used.
+The exact-source Release archives and exports passed bundle/version/build, feed URL, public key, Team ID, Hardened Runtime, nested Sparkle signing, and universal architecture checks. The app and DMG notarization submissions were all Accepted. Stapling and validation completed before the final DMG hashes and detached EdDSA signatures were produced. The two final DMGs were then uploaded to the new staging prerelease and fetched back over public HTTPS; remote bytes and signatures matched.
 
-## Before starting
+The signed candidate-only feed was published **last** at the URL above, after verifying both release assets. It advertises only candidate `0.0.4 (9004)`; host `0.0.3 (9003)` can discover it, and candidate `0.0.4 (9004)` must not be offered as a newer version. The public feed was fetched over HTTPS and its feed signature, enclosure URL, size, and signature were verified. Do not modify or republish the release assets or appcast during the Human Gate.
 
-Use a disposable VM or separate test Mac with a restorable snapshot. Record macOS version/build, CPU architecture, test account, current app path/version, and mounted-image baseline. Verify the downloaded host DMG SHA-256, size, notarization staple, Developer ID signature, Team ID `S898B9KBWN`, Bundle ID `synok522.AIUsageBar`, and both architecture slices against the manifest. Verify the candidate DMG and its EdDSA signature too. Do not launch either app from Downloads or a mounted image.
-
-Use test accounts where safe. Record only whether each provider is signed in and a masked account identity. Never copy cookies, tokens, Keychain values, or full UserDefaults contents into the report.
+The public Build 4 DMG was independently downloaded and its SHA-256 remained `49d4ecc16ea149d8d05e780cd9512ecaba2bbd49a6c118dfc1250c55ff4e3415`. Its `1.0.0 (4)` app bundle has no `SUFeedURL` or `SUPublicEDKey` updater configuration, so it is not configured to read this staging feed. The production appcast was not changed.
 
 ## Mandatory release gates
 
-1. Install the verified staging HOST into `/Applications/AIUsageBar.app` on the isolated Mac. Eject the DMG after copying the app.
-2. Launch it normally and confirm the menu bar app appears without an unexpected Dock icon or duplicate process.
-3. Open Settings.
-4. Confirm Settings shows host `0.0.3 (9031)` and the Software Updates controls are available.
-5. Disconnect the network, manually check for updates, and confirm the status reports failure. It must not report no-update/latest. Restore the network afterward.
-6. With the candidate feed reachable, manually check again and confirm the status transitions through checking to an available update `0.0.4` / `9032`.
-7. Confirm no candidate download began before the user chose to update.
-8. Start the update from Sparkle's stock UI.
-9. Confirm the stock UI reports download progress and completion.
-10. Confirm Sparkle verifies the signed feed and candidate before extraction; record the exact artifact URL and safe diagnostic evidence.
-11. Approve installation and confirm install/replacement of the bundle at `/Applications/AIUsageBar.app`.
-12. Confirm the old process exits and the new process relaunches automatically from `/Applications/AIUsageBar.app`.
-13. Confirm the MenuBarExtra returns and Settings opens.
-14. Confirm Settings shows candidate `0.0.4 (9032)`. Manually re-check: the current feed must yield a truthful no-eligible-update result, not failure and not a claim broader than the checked feed.
-15. Confirm ChatGPT, Claude, and Grok test sessions remain signed in and usable.
-16. Confirm preferences, selected language, Launch at Login, and last-good usage remain where observable.
-17. Quit the app, relaunch it normally, and confirm it operates correctly.
-18. Reboot the isolated Mac if required by the existing gate plan; confirm the app and Launch at Login behavior afterward.
-19. Confirm no Sparkle DMG mount remains, and repeat signature, Gatekeeper, staple, process-path, and version/build checks on the installed candidate.
-20. Record PASS or FAIL for every gate below. Do not mark an unobserved result PASS.
+Record PASS / FAIL for every row. A row passes only if it was actually observed.
 
-| Gate | Result: PASS / FAIL / NOT RUN | Evidence or short note |
+| # | Gate | Expected |
 | --- | --- | --- |
-| Host install and launch |  |  |
-| Menu bar / Dock / single process |  |  |
-| Settings host version/build |  |  |
-| Offline check reports failure |  |  |
-| Host finds candidate |  |  |
-| No download before consent |  |  |
-| Download and signature verification |  |  |
-| Install and replacement |  |  |
-| Automatic relaunch and process path |  |  |
-| MenuBarExtra returns |  |  |
-| Candidate version/build in Settings |  |  |
-| Candidate re-check reports no eligible update |  |  |
-| ChatGPT session |  |  |
-| Claude session |  |  |
-| Grok session |  |  |
-| Preferences and language |  |  |
-| Launch at Login |  |  |
-| Last-good usage where observable |  |  |
-| Quit/relaunch and reboot if required |  |  |
-| Signatures, Gatekeeper, mounts, and final identity |  |  |
+| 1 | Install host | Mount the verified host DMG, copy the app to `/Applications/AIUsageBar.app`, eject. Don't launch from the DMG or Downloads. |
+| 2 | Launch | Menu bar icon appears, no Dock icon, exactly one AIUsageBar process. |
+| 3 | Settings opens | Settings window shows the **Software Updates** section. |
+| 4 | Host identity | Settings shows **Version 0.0.3 (9003)**. |
+| 5 | Candidate discovery | With networking enabled and the published candidate-only feed reachable, **Check for Updates…** shows checking then offers `0.0.4 (9004)`. Settings shows “Update 0.0.4 is available.” Dismiss once: status leaves “available” and the app remains at 9003. |
+| 6 | Failure result | Turn networking off, then check again. Status must read **“Update operation failed. Try again later.”**, not retain stale availability or report no update. Restore networking. |
+| 7 | No download before consent | Confirm no candidate download begins before the user chooses to install. |
+| 8 | Start update | Check again and choose install in Sparkle's stock UI. |
+| 9 | Download → verify → install → replace | Status passes through downloading, verifying/preparing and installing, with no Sparkle error. |
+| 10 | Relaunch | The old process exits. A new PID starts from `/Applications/AIUsageBar.app` with no manual launch. |
+| 11 | MenuBarExtra returns | The menu bar icon is back and the panel opens; no Dock icon. |
+| 12 | Candidate identity | Settings shows **Version 0.0.4 (9004)**. `codesign --verify --deep --strict /Applications/AIUsageBar.app` and `spctl --assess --type execute` both pass. |
+| 13 | Re-check on candidate | **Check for Updates…** reports “No eligible update was found in the checked feed,” not failure, and 9004 is not offered as newer. |
+| 14 | Sessions | ChatGPT, Claude and Grok each remain signed in, and usage refresh works. Genuine server-side expiry is recorded separately and does not count as a pass. |
+| 15 | Preferences | Language, notification preference, the automatic-checks toggle, Launch at Login state, and last-good usage (where observable) are unchanged. |
+| 16 | Quit / relaunch | Quit from the app and relaunch manually; gates 11, 12 and 14 still hold. |
+| 17 | Reboot | Reboot. If Launch at Login was on, the app starts by itself; gates 11, 12 and 14 still hold. |
+| 18 | Operates | A final usage refresh succeeds and no updater error appears. |
+| 19 | Record | Record PASS / FAIL / NOT RUN for every gate with sanitized evidence. Do not mark an unobserved result PASS. |
 
-## Optional diagnostics
+**Human Gate result: NOT RUN.** The rows above remain untested until performed on an isolated Mac / VM.
 
-- Capture sanitized Sparkle/Autoupdate logs around the check, replacement, and relaunch; remove account identifiers and all credentials.
-- Record before/after process IDs, bundle paths, mounted-image lists, appcast response metadata, and provider refresh results.
-- Investigate Tahoe/macOS 26 installation-cache or App Management errors without removing quarantine/provenance data or weakening OS protections.
-- Run negative feed/download fixtures only on a restorable isolated snapshot. Do not modify the canonical staging DMGs or feed to create a failure case.
+Any FAIL stops the gate. Don't delete or recreate provider data to hide a failure. Recover by reinstalling the verified host DMG.
 
-## Stop conditions and decision
+## Optional diagnostics (not release gates)
 
-Stop immediately if the test machine is not isolated, if production Build 4 is the installed app being replaced, if an artifact hash/signature differs, or if the app loses recoverability. Preserve the old host and snapshot; do not delete provider data to hide a failure.
+- Mount list before and after the update, including UUID-named Sparkle mounts: nothing from the update should stay mounted.
+- Safe Sparkle/Autoupdate log excerpts on Tahoe (EPERM, App Management prompts).
+- Negative fixtures on a snapshot: tampered enclosure, unsigned or modified feed, same or lower build. Each must reject without installing.
+- A second architecture (arm64 / x86_64) or macOS 13.
 
-**U1 remains `INCONCLUSIVE` until this gate is completed and reviewed. `DMG_ONLY` remains `CONDITIONAL_PENDING_HUMAN_GATE`.** This procedure does not authorize merging PR #35 or releasing Build 5/6. Production release tooling remains a MEDIUM gap: Build 5 still needs a human-approved expiration value and production-key custody/restore evidence, plus production notarization/stapling, final DMG and EdDSA signing, appcast publication/remote verification, exact-SHA CI, and the installed-host gates. `SUSignedFeedFailureExpirationInterval` for production remains `HUMAN_DECISION_REQUIRED`.
+## Result handling
+
+- U1 stays **INCONCLUSIVE** and DMG_ONLY stays **CONDITIONAL** until every mandatory row passes on these exact bytes.
+- Passing this gate does not release Build 5 and does not settle production key custody or `SUSignedFeedFailureExpirationInterval`.

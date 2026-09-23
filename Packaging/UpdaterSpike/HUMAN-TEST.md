@@ -39,7 +39,7 @@ Use test accounts where safe. Sign into ChatGPT, Claude and Grok manually; recor
 ## End-to-end stock-driver proof
 
 1. Fetch the public HTTPS staging appcast and enclosure independently. Verify exact remote hash, byte length and signatures with the supplied tools. Record response/cache headers.
-2. Open **U1 Staging: Check for Updates…** in the menu-bar panel. The stock Sparkle UI must offer 0.0.2 / 9002. Record discovery. Merely showing an update does not prove installation.
+2. Open Settings → **Software Updates** → **Check for Updates…**. The stock Sparkle UI must offer 0.0.2 / 9002. Record discovery. Merely showing an update does not prove installation.
 3. Before consenting, verify no candidate artifact has downloaded automatically. Decline once and confirm the app remains at 9001 and operates. Check again, explicitly choose download/install, and observe the stock progress UI.
 4. Record download completion, signed-feed acceptance and enclosure validation from safe Sparkle diagnostics. Observe the old process terminate, bundle replacement, and a new process with a new PID launched from `/Applications/AIUsageBar.app`.
 5. Verify MenuBarExtra returns, Settings opens and shows **0.0.2 (9002)**, no unexpected Dock icon appears, and usage refresh remains functional. Mark each separately. A copied bundle or launch request alone is not PASS.

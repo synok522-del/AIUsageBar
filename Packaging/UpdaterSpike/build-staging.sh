@@ -10,11 +10,12 @@ case "$1" in
   *) echo 'Only host/candidate staging builds are permitted.' >&2; exit 2 ;;
 esac
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-[[ $(git -C "$root" branch --show-current) == feature/in-app-updater-u0-u1 ]] || {
-  echo 'Refusing to build outside the isolated U1 branch.' >&2; exit 1;
+branch=$(git -C "$root" branch --show-current)
+[[ "$branch" == feature/in-app-updater-u0-u1 || "$branch" == feature/in-app-updater-u2-u5 ]] || {
+  echo 'Refusing to build outside the isolated updater branches.' >&2; exit 1;
 }
-[[ -z $(git -C "$root" status --porcelain --untracked-files=no) ]] || {
-  echo 'Commit tracked source changes before recording binary provenance.' >&2; exit 1;
+[[ -z $(git -C "$root" status --porcelain) ]] || {
+  echo 'Commit all source changes before recording binary provenance.' >&2; exit 1;
 }
 [[ "$3" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo 'Expected a public Ed25519 key.' >&2; exit 2; }
 mkdir -p "$2"

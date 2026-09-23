@@ -3,21 +3,13 @@ import SwiftUI
 @main
 struct AIUsageBarApp: App {
     @StateObject private var viewModel = UsageViewModel()
+    @StateObject private var updater = AppUpdater()
     @StateObject private var windowCoordinator = WindowCoordinator()
     @State private var didEvaluateWelcome = false
-#if AIUSAGEBAR_UPDATER_SPIKE
-    @StateObject private var spikeUpdater = UpdaterSpike()
-#endif
 
     var body: some Scene {
         MenuBarExtra {
-            UsagePanelView(viewModel: viewModel)
-#if AIUSAGEBAR_UPDATER_SPIKE
-            Button("U1 Staging: Check for Updates…") {
-                spikeUpdater.checkForUpdates()
-            }
-            .disabled(!spikeUpdater.canCheckForUpdates)
-#endif
+            UsagePanelView(viewModel: viewModel, updater: updater)
         } label: {
             MenuBarStatusView(viewModel: viewModel)
                 .task {

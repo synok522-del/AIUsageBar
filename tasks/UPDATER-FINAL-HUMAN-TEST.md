@@ -8,16 +8,26 @@
 
 | Item | Identity |
 | --- | --- |
-| Remediated source SHA | `PENDING_SOURCE_SHA` |
+| Remediated source SHA | `19531d53aa0b99a0442beea1783c1999293be9f8` |
 | Sparkle | `2.10.0` (`eef1a539a373c1f1a320624b1130fc5de7b2e100`) |
 | Staging host | `0.0.3` / build `9031` |
-| Host DMG | `AIUsageBar-0.0.3-u2-remediated-9031.dmg` — SHA-256 `PENDING_HOST_SHA256` |
+| Host DMG | Not produced: app notarization is blocked because the `AIUsageBar-Notary` profile is absent from the current login keychain |
 | Staging candidate | `0.0.4` / build `9032` |
-| Candidate DMG | `AIUsageBar-0.0.4-u2-remediated-9032.dmg` — SHA-256 `PENDING_CANDIDATE_SHA256` |
+| Candidate DMG | Not produced: app notarization is blocked because the `AIUsageBar-Notary` profile is absent from the current login keychain |
 | Signed staging feed | `https://synok522-del.github.io/AIUsageBar/staging/u2-remediated-20260923/appcast.xml` |
-| Staging GitHub Release | `https://github.com/synok522-del/AIUsageBar/releases/tag/u2-remediated-20260923` |
-| Feed SHA-256 | `PENDING_FEED_SHA256` |
-| Artifact manifest | `https://github.com/synok522-del/AIUsageBar/releases/download/u2-remediated-20260923/u2-remediated-artifact-manifest.json` |
+| Staging GitHub Release | Not published; waiting for notarized and stapled host/candidate DMGs |
+| Feed SHA-256 | Not produced; the signed feed is not published until its enclosure is verified |
+| Artifact manifest | Not published; waiting for final DMG hashes and signatures |
+
+## Preparation evidence (2026-09-23)
+
+- The exact source SHA above passed all three PR #35 GitHub checks: macOS build, `AIUsageBarTests`, and UI/launch tests.
+- Local serial execution passed all 260 `AIUsageBarTests` in 9 suites. A separate full-scheme run also executed the product tests, but one timing-sensitive integration test failed under parallel load and the UI runner could not initialize while macOS authentication was active. The failure did not reproduce in the serial product run; exact-SHA remote CI passed both product and UI jobs.
+- Signed Developer ID Release archives and exports were produced for both staging identities. Each passed bundle/version/build, Sparkle staging configuration, Team ID, Hardened Runtime, code-signature, and universal architecture checks. They are local preparation outputs only and are not installers.
+- `xcrun notarytool history --keychain-profile AIUsageBar-Notary` reports that no Keychain password item exists for that profile. No app or DMG was submitted, no staging release/feed was created, and the existing U1 staging fixture was left untouched.
+- The public `v1.0.0` Build 4 release still lists `AIUsageBar-1.0.0-build4.dmg` with SHA-256 `49d4ecc16ea149d8d05e780cd9512ecaba2bbd49a6c118dfc1250c55ff4e3415`. The original `u1-staging-20260915` prerelease remains separate and unchanged.
+
+Before continuing, configure the already-approved Apple notary credentials locally under the `AIUsageBar-Notary` profile (do not put credentials in the repository or paste them into this report). Then notarize and staple both staging apps and DMGs, verify their final hashes and EdDSA signatures, publish the new staging release assets, and publish the signed feed last. The Human Gate below cannot start before those steps pass.
 
 The staging host and candidate use a staging-only signed-feed configuration and the existing U1 staging key. The feed contains the candidate; it is not the production appcast. Builds `0.0.3/9031` and `0.0.4/9032` are distinct from Build 4 and reserved production Builds 5 and 6. The production feed and production signing key are not used.
 

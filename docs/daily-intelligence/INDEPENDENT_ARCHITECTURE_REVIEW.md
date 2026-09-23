@@ -56,31 +56,45 @@ Fallbacks if POC-0 fails (listed so the decision is fast, not chosen yet):
 - F3: Move the whole 06:00 run to a platform with native tool writes. Violates
   "don't redesign the workflow"; last resort only.
 
-### 2.2 Task identity cannot be delegated to the LLM
+### 2.2 Task identity cannot be delegated to the LLM (revised)
 
-"Stable task_id" is listed as a field but not as a mechanism. An LLM re-deriving state
-every morning will not reproduce the same free-form ID or title. Without a deterministic
-key the idempotency story collapses into fuzzy title matching, which is where duplicate
-Reminders come from.
+An LLM re-deriving state every morning will not reproduce the same free-form ID or
+title. Identity is therefore resolved by the Outbox, in this precedence order, and
+**not every task is required to have an external source_ref**:
 
-Proposal: `task_key = <project_slug>:<source_kind>:<source_ref>:<action_kind>`, e.g.
-`aiusagebar:gh_pr:42:review`, `sales:email:<Message-ID>:reply`. Every source in §3 of
-the brief already has a natural stable reference (PR number, Message-ID, order/PI number).
-The Outbox — not the LLM — assigns the internal `task_id` (UUID) on first sight of a key,
-and a `revision` that increments only when a *delivered field* (title, due, notes,
-priority) changes, detected by content hash. Tasks without a natural source ref get
-`manual:<slug>` keys and must be flagged; they are the duplicate risk surface.
+1. **Preserved canonical ID** — tasks that already exist in the 「每日工作清單」
+   conversation with an established ID keep it. The publisher passes it as
+   `canonical_id`; the Outbox never re-keys it.
+2. **Deterministic source key** — for source-backed tasks:
+   `<project_slug>:<source_kind>:<source_ref>:<action_kind>`
+   (e.g. `aiusagebar:gh_pr:42:review`, `sales:email:<Message-ID>:reply`).
+3. **Persistent assigned ID** — for tasks with no immutable external source and no prior
+   ID, the Outbox assigns an ID on first publish (e.g. `T-2026-0142`) and returns it; the
+   publisher must echo it on later runs. It is stored so it survives across runs even if the
+   title is reworded.
 
-### 2.3 Missing state transitions: retraction
+The Outbox assigns the internal `task_id` (UUID) and a `revision` that increments only
+when a *delivered* field changes (content hash). Risk surface: tier 3 depends on the
+publisher echoing the assigned ID; a new task that should have matched an existing tier-3
+task is a duplicate. Mitigation (to design at freeze): the publisher is shown the list of
+open tier-3 IDs each run, and unmatched new tier-3 tasks are flagged in the report.
 
-The brief defines create/update but not **what happens to a Reminder when Intelligence
-later CLOSES or demotes the task** (e.g. becomes WAITING). Without it the Reminders list
-silently diverges from the report — the exact "second place to maintain" the user rejects.
+### 2.3 Missing state transitions: withdrawal (revised)
 
-Proposal: a task that was delivered and is no longer in today's SEND set produces a
-`RETRACT` delivery. Applied as: mark the Reminder completed with a one-line note
-("closed by Daily Intelligence: <evidence ref>") — never delete. Only Reminders carrying
-our marker in our dedicated list are ever touched.
+Canonical task states stay distinct and are **never collapsed** into Apple's single
+"completed" bit:
+
+- `COMPLETED` — evidence says the work was done.
+- `CANCELLED` — no longer needed.
+- `WAITING` / `HUMAN_GATE` — still real, but not executable now.
+- `WITHDRAWN` — removed from the executable set for any other reason.
+
+How each is **projected** onto an Apple Reminder (mark completed, move to another list,
+delete, or annotate) is an *Apple projection policy* and is **not frozen**. Marking a
+withdrawn/waiting Reminder as completed would feed false completion evidence into the V2
+loop, so it is explicitly not assumed. The policy will be chosen after testing it in the
+**Apple Entry POC** list. Invariant regardless of policy: only Reminders carrying our
+marker in our dedicated list are ever touched, and deletion is never the default.
 
 ### 2.4 "Already-delivered unchanged" requires a desired-state model, not an event queue
 
@@ -119,12 +133,13 @@ relevant to §2.1 F2, which is a different role.)
 | Maintenance | Shortcut edits by hand, brittle | App Store/TestFlight or 7-day re-sign | One signed CLI + plist | Prompt drift |
 | Device dependency | iPhone on + unlocked-ish | iPhone | Mac awake + logged in | Mac + Claude Desktop running |
 
-**Recommendation: C** as primary. The iPhone is carried and usually online, which is A's
+**Leading hypothesis: C** (not a frozen choice — it stays a hypothesis until POC-1..POC-3
+produce real-device evidence). The iPhone is carried and usually online, which is A's
 real advantage, but A cannot do the reconciliation logic reliably and B cannot be
 scheduled. C's dependency (Mac logged in; delivery may be delayed until the Mac wakes)
 is explicit and recoverable: pending deltas simply wait, and iCloud fans out to
 iPhone/Watch once applied. A stays as a documented fallback if the user's Mac is not
-reliably on. This is a recommendation pending POC-1/POC-3, not a freeze.
+reliably on. If POC-1..3 fail, the bridge choice is reopened.
 
 ### 2.8 Security
 
@@ -179,7 +194,9 @@ Apple Reminders ──iCloud──▶ iPhone / Watch
 
 Delivery state machine:
 `PENDING → CLAIMED(lease) → APPLIED → ACKED`; `CLAIMED --lease expiry--> PENDING`;
-`PENDING|CLAIMED --newer revision--> SUPERSEDED`; any failure → `PENDING` with
+`PENDING|CLAIMED --newer revision--> SUPERSEDED`;
+withdrawal deltas carry the canonical state (COMPLETED/CANCELLED/WAITING/WITHDRAWN) and
+the projection is decided by the (not yet frozen) Apple projection policy; any failure → `PENDING` with
 `attempts++`; `attempts > N` or permission error → `FAILED_NEEDS_HUMAN`.
 "Applied but ACK lost" is safe: re-apply finds the marker and becomes a no-op, then ACKs.
 
@@ -187,4 +204,5 @@ Delivery state machine:
 
 See the summary returned to the user and `POC_PLAN.md`. Short form: **not ready to freeze**;
 POC-0 (ChatGPT unattended structured publish) is blocking; POC-1/2/3 (Mac EventKit
-unattended, marker round-trip, sleep/wake recovery) are required to confirm C.
+unattended, marker round-trip, sleep/wake recovery) are required before C can move from
+leading hypothesis to chosen bridge.

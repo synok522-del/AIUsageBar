@@ -6,7 +6,7 @@ The default project build does not contain a production updater key or failure-e
 
 Before archive preparation, a release operator must supply the **public** EdDSA key and explicitly choose `SUSignedFeedFailureExpirationInterval`. The production private key is never an input to Xcode or these scripts. `tasks/UPDATER-SECURITY-DECISIONS.md` records the current recommendation and the unresolved decision.
 
-From a clean committed `feature/in-app-updater-u2-u5` checkout:
+From a clean committed checkout of `main`, a `release/*` branch, or `feature/in-app-updater-u2-u5` (the script records the source SHA in the output directory):
 
 ```sh
 Packaging/UpdaterProduction/prepare-build5-rc.sh \

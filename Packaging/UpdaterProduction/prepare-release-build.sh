@@ -29,9 +29,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 root=$(git -C "$script_dir/../.." rev-parse --show-toplevel)
 root=$(cd "$root" && pwd -P)
 branch=$(git -C "$root" branch --show-current)
-[[ "$branch" == feature/in-app-updater-u2-u5 ]] || {
-  echo 'Refusing release archive preparation outside feature/in-app-updater-u2-u5.' >&2; exit 1;
-}
+case "$branch" in
+  main|release/*|feature/in-app-updater-u2-u5) ;;
+  *) echo "Refusing release archive preparation on branch '$branch'." >&2; exit 1 ;;
+esac
 [[ -z $(git -C "$root" status --porcelain) ]] || {
   echo 'Commit all source changes before producing release build evidence.' >&2; exit 1;
 }
@@ -76,6 +77,7 @@ stage="$output_root/build-$build"
   echo 'Build evidence is write-once; choose a fresh output directory.' >&2; exit 1;
 }
 mkdir -p "$stage"
+git -C "$root" rev-parse HEAD > "$stage/source-sha.txt"
 plist="$stage/Production-Info.plist"
 python3 "$script_dir/generate-production-info.py" \
   --public-ed-key "$public_ed_key" \

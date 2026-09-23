@@ -46,6 +46,67 @@ enum AppUpdaterStatus: Equatable {
     }
 }
 
+/// Maps Sparkle 2.10.0's documented delegate outcomes to user-visible state.
+/// Sparkle 2.10.0's public Swift module exports the error domain but not the
+/// `SUError` enum cases, so these values match `Sparkle/SUErrors.h` at the
+/// pinned revision eef1a539a373c1f1a320624b1130fc5de7b2e100:
+/// SUNoUpdateError = 1001, SUInstallationCanceledError = 4007.
+enum AppUpdaterStatusTransitions {
+    private static let noUpdateErrorCode = 1001
+    private static let installationCanceledErrorCode = 4007
+
+    static func checkStarted() -> AppUpdaterStatus { .checking }
+
+    static func didNotFindUpdate(error: Error?) -> AppUpdaterStatus {
+        guard let error else { return .noEligibleUpdate }
+        return state(for: error)
+    }
+
+    static func didAbortWithError(_ error: Error) -> AppUpdaterStatus {
+        state(for: error)
+    }
+
+    static func didFinishUpdateCycle(
+        current: AppUpdaterStatus,
+        error: Error?
+    ) -> AppUpdaterStatus {
+        guard let error else {
+            switch current {
+            case .checking, .updateAvailable:
+                // A completed cycle with no error can mean the user dismissed
+                // or skipped the offered update. Do not leave stale availability.
+                return .ready
+            default:
+                return current
+            }
+        }
+        return state(for: error)
+    }
+
+    static func failedToDownloadUpdate(_ error: Error) -> AppUpdaterStatus {
+        state(for: error)
+    }
+
+    private static func state(for error: Error) -> AppUpdaterStatus {
+        let error = error as NSError
+        if error.domain == SUSparkleErrorDomain {
+            switch error.code {
+            case noUpdateErrorCode:
+                return .noEligibleUpdate
+            case installationCanceledErrorCode:
+                return .cancelled
+            default:
+                return .failed
+            }
+        }
+        if (error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled)
+            || (error.domain == NSCocoaErrorDomain && error.code == NSUserCancelledError) {
+            return .cancelled
+        }
+        return .failed
+    }
+}
+
 /// App-lifetime adapter around Sparkle's stock controller and user interface.
 /// It does not own a downloader, installer, retry scheduler, or session storage.
 @MainActor
@@ -89,7 +150,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     func checkForUpdates() {
         guard isConfigured, controller.updater.canCheckForUpdates else { return }
-        status = .checking
+        status = AppUpdaterStatusTransitions.checkStarted()
         controller.checkForUpdates(nil)
     }
 
@@ -100,17 +161,15 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
-        // Sparkle may report that no eligible update exists for several reasons;
-        // do not call this "latest" or infer that the feed is universally current.
-        status = .noEligibleUpdate
+        status = AppUpdaterStatusTransitions.didNotFindUpdate(error: error)
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
-        status = .noEligibleUpdate
+        status = AppUpdaterStatusTransitions.didNotFindUpdate(error: nil)
     }
 
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
-        status = Self.isCancellation(error) ? .cancelled : .failed
+        status = AppUpdaterStatusTransitions.didAbortWithError(error)
     }
 
     func updater(
@@ -118,13 +177,10 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
         error: Error?
     ) {
-        if let error {
-            status = Self.isCancellation(error) ? .cancelled : .failed
-        } else if status == .checking {
-            // A nil error can also mean the user dismissed an update. Keep this
-            // neutral and never turn it into a "latest" claim.
-            status = .ready
-        }
+        status = AppUpdaterStatusTransitions.didFinishUpdateCycle(
+            current: status,
+            error: error
+        )
     }
 
     func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem, with request: NSMutableURLRequest) {
@@ -136,7 +192,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: Error) {
-        status = Self.isCancellation(error) ? .cancelled : .failed
+        status = AppUpdaterStatusTransitions.failedToDownloadUpdate(error)
     }
 
     func userDidCancelDownload(_ updater: SPUUpdater) {
@@ -155,9 +211,4 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         status = .relaunching
     }
 
-    private static func isCancellation(_ error: Error) -> Bool {
-        let error = error as NSError
-        return (error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled)
-            || (error.domain == NSCocoaErrorDomain && error.code == NSUserCancelledError)
-    }
 }

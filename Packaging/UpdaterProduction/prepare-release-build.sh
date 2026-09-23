@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: prepare-release-build.sh 5|6 OUTPUT_ROOT PUBLIC_ED_KEY EXPIRATION_INTERVAL
+Usage: prepare-release-build.sh 5|6 OUTPUT_ROOT PUBLIC_ED_KEY EXPIRATION_INTERVAL EXPECTED_SOURCE_SHA
 
 Creates a signed Developer ID Xcode archive and export for Build 5 or Build 6.
 The public key and expiration policy are mandatory explicit inputs. This script
@@ -11,11 +11,12 @@ does not notarize, package a DMG, generate EdDSA artifact signatures, or publish
 EOF
 }
 
-if [[ $# != 4 ]]; then usage; exit 2; fi
+if [[ $# != 5 ]]; then usage; exit 2; fi
 build=$1
 output_root_input=$2
 public_ed_key=$3
 expiration_interval=$4
+expected_source_sha=$5
 case "$build" in
   5) version=1.1.0 ;;
   6) version=1.1.1 ;;
@@ -24,13 +25,21 @@ esac
 [[ "$expiration_interval" =~ ^[0-9]+$ ]] || {
   echo 'The production expiration decision must be an explicit non-negative integer.' >&2; exit 2;
 }
+[[ "$expected_source_sha" =~ ^[0-9a-f]{40}$ ]] || {
+  echo 'Expected a full, lowercase 40-character source SHA.' >&2; exit 2;
+}
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 root=$(git -C "$script_dir/../.." rev-parse --show-toplevel)
 root=$(cd "$root" && pwd -P)
 branch=$(git -C "$root" branch --show-current)
-[[ "$branch" == feature/in-app-updater-u2-u5 ]] || {
-  echo 'Refusing release archive preparation outside feature/in-app-updater-u2-u5.' >&2; exit 1;
+case "$branch" in
+  feature/in-app-updater-u2-u5|v3/release-candidate) ;;
+  *) echo 'Refusing release archive preparation outside an updater release context.' >&2; exit 1 ;;
+esac
+actual_source_sha=$(git -C "$root" rev-parse HEAD)
+[[ "$actual_source_sha" == "$expected_source_sha" ]] || {
+  echo "Source SHA mismatch: expected $expected_source_sha, found $actual_source_sha." >&2; exit 1;
 }
 [[ -z $(git -C "$root" status --porcelain) ]] || {
   echo 'Commit all source changes before producing release build evidence.' >&2; exit 1;

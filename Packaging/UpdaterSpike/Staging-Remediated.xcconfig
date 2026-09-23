@@ -1,0 +1,7 @@
+// Remediated U2 staging only. Never use for production or on the production Mac.
+ARCHS = arm64 x86_64
+ONLY_ACTIVE_ARCH = NO
+MACOSX_DEPLOYMENT_TARGET = 13.0
+DEVELOPMENT_TEAM = S898B9KBWN
+ENABLE_HARDENED_RUNTIME = YES
+INFOPLIST_FILE = $(SRCROOT)/Packaging/UpdaterSpike/Staging-Remediated-Info.plist

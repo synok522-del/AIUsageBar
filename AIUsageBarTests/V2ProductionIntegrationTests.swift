@@ -160,6 +160,240 @@ struct V2ProductionIntegrationTests {
         #expect(grok.cookieHeaders.count == 2)
     }
 
+    @Test("ChatGPT reconciles a different WebKit credential after provider 401 and retries once")
+    @MainActor
+    func chatGPTReconcilesNewWebKitCredentialAfter401() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let webKit = MutableChatGPTRefreshCookieSource(cookies: [chatGPTCookie("new-token")])
+        let keychain = KeychainManager(inMemory: true)
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy(),
+            chatGPTCookieSource: webKit,
+            credentialStore: keychain
+        )
+        model.setChatGPTCredential(chatGPTCredential("old-token"))
+        chatGPT.enqueue(.failure(AIUsageServiceError.httpStatus("ChatGPT", 401)))
+        chatGPT.enqueue(.success(sampleChatGPT(session: 73, weekly: 61)))
+
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(chatGPT.cookieHeaders == [chatGPTCredential("old-token").cookieHeader, chatGPTCredential("new-token").cookieHeader])
+        #expect(webKit.readCount == 1)
+        #expect(keychain.read("chatGPTSessionToken") == "new-token")
+        #expect(keychain.read("chatGPTCookieHeader") == chatGPTCredential("new-token").cookieHeader)
+        #expect(model.chatGPT.sessionPercent == 73)
+        #expect(model.v2Snapshot(for: .chatGPT)?.accountKey == UsageIdentity.accountKey(from: "new-token"))
+    }
+
+    @Test("ChatGPT 401 without a matching WebKit credential preserves login-expired behavior")
+    @MainActor
+    func chatGPT401WithoutWebKitCredentialExpiresLogin() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let webKit = MutableChatGPTRefreshCookieSource(cookies: [])
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy(),
+            chatGPTCookieSource: webKit
+        )
+        model.setChatGPTCredential(chatGPTCredential("old-token"))
+        chatGPT.enqueue(.failure(AIUsageServiceError.httpStatus("ChatGPT", 401)))
+
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(chatGPT.cookieHeaders.count == 1)
+        #expect(webKit.readCount == 1)
+        #expect(model.chatGPT.errorMessage?.contains(L10n.sessionExpiredMarker) == true)
+    }
+
+    @Test("ChatGPT does not retry a 401 when WebKit and canonical credentials match")
+    @MainActor
+    func chatGPTIdenticalWebKitCredentialDoesNotRetry() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let credential = chatGPTCredential("same-token")
+        let webKit = MutableChatGPTRefreshCookieSource(cookies: [chatGPTCookie("same-token")])
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy(),
+            chatGPTCookieSource: webKit
+        )
+        model.setChatGPTCredential(credential)
+        chatGPT.enqueue(.failure(AIUsageServiceError.httpStatus("ChatGPT", 401)))
+
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(chatGPT.cookieHeaders == [credential.cookieHeader])
+        #expect(webKit.readCount == 1)
+        #expect(model.chatGPT.errorMessage?.contains(L10n.sessionExpiredMarker) == true)
+    }
+
+    @Test("ChatGPT stops after one retry when the reconciled credential also gets 401")
+    @MainActor
+    func chatGPTRetryUnauthorizedStopsAfterOneRetry() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let webKit = MutableChatGPTRefreshCookieSource(cookies: [chatGPTCookie("new-token")])
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy(),
+            chatGPTCookieSource: webKit
+        )
+        model.setChatGPTCredential(chatGPTCredential("old-token"))
+        chatGPT.enqueue(.failure(AIUsageServiceError.httpStatus("ChatGPT", 401)))
+        chatGPT.enqueue(.failure(AIUsageServiceError.httpStatus("ChatGPT", 401)))
+
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(chatGPT.cookieHeaders.count == 2)
+        #expect(webKit.readCount == 1)
+        #expect(model.chatGPT.errorMessage?.contains(L10n.sessionExpiredMarker) == true)
+    }
+
+    @Test("ChatGPT normal success does not read WebKit cookies")
+    @MainActor
+    func chatGPTSuccessSkipsWebKitReconciliation() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let webKit = MutableChatGPTRefreshCookieSource(cookies: [chatGPTCookie("new-token")])
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy(),
+            chatGPTCookieSource: webKit
+        )
+        model.setChatGPTCredential(chatGPTCredential("old-token"))
+        chatGPT.enqueue(.success(sampleChatGPT(session: 90, weekly: 80)))
+
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(chatGPT.cookieHeaders.count == 1)
+        #expect(webKit.readCount == 0)
+        #expect(model.chatGPT.sessionPercent == 90)
+    }
+
+    @Test("Local ChatGPT credential mismatch does not trigger WebKit recovery")
+    @MainActor
+    func chatGPTLocalCredentialMismatchIsNotReconciled() async {
+        let chatGPT = ControllableChatGPTUsageService()
+        let webKit = MutableChatGPTRefreshCookieSource(cookies: [chatGPTCookie("new-token")])
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy(),
+            chatGPTCookieSource: webKit
+        )
+        model.setChatGPTCredential(
+            WebCredential(
+                cookieName: "__Secure-next-auth.session-token",
+                value: "old-token",
+                cookieHeader: "__Secure-next-auth.session-token=different-local-token"
+            )
+        )
+
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(chatGPT.cookieHeaders.isEmpty)
+        #expect(webKit.readCount == 0)
+        #expect(model.chatGPT.errorMessage?.contains(L10n.sessionExpiredMarker) != true)
+    }
+
+    @Test("Manual refresh clears the Grok user-action latch and can recover")
+    @MainActor
+    func manualRefreshClearsGrokLatchOnceAndRecovers() async {
+        let grok = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: grok,
+            restorer: restorer
+        )
+        grok.enqueue(.failure(AIUsageServiceError.httpStatus("Grok", 401)))
+        grok.enqueue(.failure(AIUsageServiceError.httpStatus("Grok", 401)))
+        model.setGrokCredential(WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A"))
+        await grok.waitUntilFetchStartedCount(2)
+        await waitUntilRefreshIdle(model)
+        #expect(model.v2GrokRecoveryState() == .requiresUserAction)
+
+        grok.enqueue(.success(sampleGrok(session: 82, weekly: 64)))
+        await model.refreshAll(trigger: .userInitiated)
+        await waitUntilRefreshIdle(model)
+
+        #expect(grok.cookieHeaders.count == 3)
+        #expect(model.v2GrokRecoveryState() == .healthy)
+        #expect(model.grok.weeklyPercent == 64)
+        #expect(restorer.restoreAfterCount == 1)
+    }
+
+    @Test("Manual Grok retry keeps repeated WAF classified and bounded")
+    @MainActor
+    func manualGrokRetryKeepsRepeatedWAFBounded() async {
+        let grok = ControllableGrokUsageService()
+        let restorer = GrokSessionRestorerSpy()
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: grok,
+            restorer: restorer
+        )
+        grok.enqueue(.failure(AIUsageServiceError.httpStatus("Grok", 401)))
+        grok.enqueue(.failure(AIUsageServiceError.httpStatus("Grok", 401)))
+        model.setGrokCredential(WebCredential(cookieName: "sso", value: "token-A", cookieHeader: "sso=token-A"))
+        await grok.waitUntilFetchStartedCount(2)
+        await waitUntilRefreshIdle(model)
+        #expect(model.v2GrokRecoveryState() == .requiresUserAction)
+
+        grok.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        grok.enqueue(.failure(AIUsageServiceError.wafBlocked("Grok")))
+        await model.refreshAll(trigger: .userInitiated)
+        await waitUntilRefreshIdle(model)
+
+        #expect(grok.cookieHeaders.count == 4)
+        #expect(restorer.restoreAfterCount == 2)
+        #expect(model.grok.errorMessage == L10n.wafBlocked("Grok"))
+        #expect(model.grok.errorMessage?.contains(L10n.sessionExpiredMarker) != true)
+        #expect(model.grok.isLoaded == false)
+        #expect(model.v2GrokRecoveryState() == .backoff)
+    }
+
+    @Test("Provider diagnostic formatter contains only safe structured fields")
+    func providerDiagnosticsDoNotExposeSecrets() {
+        let event = ProviderSessionDiagnosticEvent(
+            provider: .chatGPT,
+            stage: .credentialReconciliation,
+            httpStatus: 401,
+            storedCredentialPresent: true,
+            webKitCredentialPresent: true,
+            credentialDiffers: true,
+            reconciliationAttempted: true,
+            recoveryState: .healthy,
+            manualLatchReset: nil,
+            retryCount: 1,
+            responseClass: .unauthorized,
+            finalClass: .credentialReconciled
+        )
+
+        #expect(event.message.contains("httpStatus=401"))
+        #expect(event.message.contains("credentialDiffers=true"))
+        for secret in ["sentinel-token", "sentinel-cookie", "Bearer secret", "person@example.com", "account-123", "private response body"] {
+            #expect(event.message.contains(secret) == false)
+        }
+    }
+
     @Test("One restore and one retry bound is enforced on the production recovery path")
     @MainActor
     func oneRestoreAndOneRetryBoundIsEnforced() async {
@@ -649,16 +883,39 @@ struct V2ProductionIntegrationTests {
         chatGPT: any ChatGPTUsageFetching,
         claude: any ClaudeUsageFetching,
         grok: GrokUsageFetching,
-        restorer: GrokSessionRestorerSpy
+        restorer: GrokSessionRestorerSpy,
+        chatGPTCookieSource: (any ChatGPTRefreshCookieSource)? = nil,
+        credentialStore: KeychainManager? = nil
     ) -> UsageViewModel {
         UsageViewModel(
             claudeService: claude,
             chatGPTService: chatGPT,
+            chatGPTCookieSource: chatGPTCookieSource,
             grokService: grok,
             grokSessionRestorer: restorer,
             grokCookieSource: EmptyGrokRefreshCookieSource(),
-            credentialStore: KeychainManager(inMemory: true)
+            credentialStore: credentialStore ?? KeychainManager(inMemory: true)
         )
+    }
+
+    private func chatGPTCredential(_ token: String) -> WebCredential {
+        WebCredential(
+            cookieName: "__Secure-next-auth.session-token",
+            value: token,
+            cookieHeader: "__Secure-next-auth.session-token=\(token)"
+        )
+    }
+
+    private func chatGPTCookie(_ token: String) -> HTTPCookie {
+        HTTPCookie(
+            properties: [
+                .domain: "chatgpt.com",
+                .path: "/",
+                .name: "__Secure-next-auth.session-token",
+                .value: token,
+                .secure: "TRUE"
+            ]
+        )!
     }
 
     @MainActor
@@ -695,6 +952,21 @@ struct V2ProductionIntegrationTests {
             weeklyResetText: weekly == nil ? nil : "w",
             weeklyRelativeResetText: weekly == nil ? nil : "r"
         )
+    }
+}
+
+@MainActor
+final class MutableChatGPTRefreshCookieSource: ChatGPTRefreshCookieSource {
+    var cookies: [HTTPCookie]
+    private(set) var readCount = 0
+
+    init(cookies: [HTTPCookie]) {
+        self.cookies = cookies
+    }
+
+    func chatGPTCookies() async -> [HTTPCookie] {
+        readCount += 1
+        return cookies
     }
 }
 

@@ -93,6 +93,38 @@ enum L10n {
         tr("settings.launchAtLoginHelp", "Open AIUsageBar in the menu bar after you sign in to macOS")
     }
     static var quitApp: String { tr("settings.quit", "Quit AIUsageBar") }
+    static var updaterSectionTitle: String { tr("settings.updater.section", "Software Updates") }
+    static var updaterAutomaticChecks: String {
+        tr("settings.updater.automaticChecks", "Automatically check for updates")
+    }
+    static var updaterCheckNow: String { tr("settings.updater.checkNow", "Check for Updates…") }
+    static var updaterNotConfigured: String {
+        tr("settings.updater.notConfigured", "Updates are not configured for this build.")
+    }
+    static var updaterReady: String { tr("settings.updater.ready", "Updater is ready.") }
+    static var updaterChecking: String { tr("settings.updater.checking", "Checking for updates…") }
+    static func updaterAvailable(_ version: String) -> String {
+        tr("settings.updater.available", "Update %@ is available.", version)
+    }
+    static var updaterNoEligibleUpdate: String {
+        tr(
+            "settings.updater.noEligibleUpdate",
+            "No eligible update was found in the checked feed."
+        )
+    }
+    static var updaterDownloading: String { tr("settings.updater.downloading", "Downloading update…") }
+    static var updaterDownloaded: String {
+        tr("settings.updater.downloaded", "Update downloaded. Review Sparkle to continue.")
+    }
+    static var updaterExtracting: String {
+        tr("settings.updater.extracting", "Verifying and preparing update…")
+    }
+    static var updaterInstalling: String { tr("settings.updater.installing", "Installing update…") }
+    static var updaterRelaunching: String { tr("settings.updater.relaunching", "Restarting AIUsageBar…") }
+    static var updaterCancelled: String { tr("settings.updater.cancelled", "Update was canceled.") }
+    static var updaterFailed: String {
+        tr("settings.updater.failed", "Update operation failed. Try again later.")
+    }
     static func version(_ version: String, _ build: String) -> String {
         tr("settings.version", "Version %@ (%@)", version, build)
     }

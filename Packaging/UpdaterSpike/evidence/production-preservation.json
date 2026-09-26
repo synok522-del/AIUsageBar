@@ -1,0 +1,5 @@
+{
+  "status": "PASS",
+  "files": 10,
+  "scope": "installed bundle file content hashes; no session data inspected"
+}

@@ -18,6 +18,21 @@ struct LocalizationTests {
         let required: [String] = [
             "settings.title",
             "settings.windowTitle",
+            "settings.updater.section",
+            "settings.updater.automaticChecks",
+            "settings.updater.checkNow",
+            "settings.updater.notConfigured",
+            "settings.updater.ready",
+            "settings.updater.checking",
+            "settings.updater.available",
+            "settings.updater.noEligibleUpdate",
+            "settings.updater.downloading",
+            "settings.updater.downloaded",
+            "settings.updater.extracting",
+            "settings.updater.installing",
+            "settings.updater.relaunching",
+            "settings.updater.cancelled",
+            "settings.updater.failed",
             "meter.fiveHours",
             "meter.weekly",
             "action.signIn",
@@ -80,6 +95,8 @@ struct LocalizationTests {
         #expect(!L10n.lowUsageBodyWithReset(19, L10n.resetsRelative("in 2 hours")).isEmpty)
         #expect(!L10n.httpError("Grok", 503).isEmpty)
         #expect(!L10n.version("1.0.0", "4").isEmpty)
+        #expect(!L10n.updaterAvailable("1.1.0").isEmpty)
+        #expect(!L10n.updaterFailed.isEmpty)
         #expect(!L10n.remainingPercent(20).isEmpty)
     }
 

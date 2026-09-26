@@ -304,6 +304,7 @@ enum AIUsageServiceError: LocalizedError {
     case invalidPayload(String)
     case missingValue(String)
     case wafBlocked(String)
+    case localCredentialMismatch(String)
 
     var isRateLimited: Bool {
         switch self {
@@ -361,6 +362,9 @@ enum AIUsageServiceError: LocalizedError {
 
         case .wafBlocked(let service):
             return L10n.wafBlocked(service)
+
+        case .localCredentialMismatch(let service):
+            return L10n.invalidPayload(service)
         }
     }
 }

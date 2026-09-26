@@ -40,9 +40,9 @@ These safeguards improve recovery from temporary failures. Available readings st
 
 **Artifact provenance:** `AIUsageBar-1.0.0-build4.dmg` was built from product source SHA `df65e6b9541721eefc7b18fb4365c12f7a2aa10a`. The later release documentation commit `ee62a668dc32f2a46cd6c0ec3ff9f7f311809546` is documentation-only and is not the binary's build source; the DMG was not built from that documentation HEAD. Subsequent test and audit cleanup commits leave the production source unchanged.
 
-**Publication status (checked September 13, 2026):** this exact artifact is not yet available among the public GitHub Release assets. The existing `v1.0.0` release contains an older, differently named DMG (`AIUsageBar-1.0.0-build4-main-0cf9989-notarized.dmg`) with a different checksum. It is not the designated artifact described here.
+**Publication status (checked September 13, 2026):** this exact artifact is publicly available in [GitHub Release v1.0.0](https://github.com/synok522-del/AIUsageBar/releases/tag/v1.0.0) as the canonical current Build 4 installer.
 
-[Check GitHub Releases for availability](https://github.com/synok522-del/AIUsageBar/releases). A direct download link will be added when the exact final artifact is published.
+[Download `AIUsageBar-1.0.0-build4.dmg`](https://github.com/synok522-del/AIUsageBar/releases/download/v1.0.0/AIUsageBar-1.0.0-build4.dmg) and compare its SHA-256 with the value below.
 
 SHA-256 for `AIUsageBar-1.0.0-build4.dmg`:
 
@@ -52,7 +52,7 @@ SHA-256 for `AIUsageBar-1.0.0-build4.dmg`:
 
 Requires **macOS 13.0 or later** and an account for each provider you want to monitor.
 
-1. Once published, download `AIUsageBar-1.0.0-build4.dmg` from GitHub Releases and compare its SHA-256 with the value above.
+1. Download [`AIUsageBar-1.0.0-build4.dmg`](https://github.com/synok522-del/AIUsageBar/releases/download/v1.0.0/AIUsageBar-1.0.0-build4.dmg) and compare its SHA-256 with the value above.
 2. Open the DMG and drag `AIUsageBar.app` to **Applications**.
 3. Launch AIUsageBar from Applications; its icon appears in the menu bar.
 4. Open **Settings** and sign in to ChatGPT, Claude, or Grok. Connect only the services you use.
@@ -93,4 +93,4 @@ AIUsageBar 是輕量的 macOS 選單列 App，集中顯示 **ChatGPT／Claude／
 
 v3 Reliability 強化最後成功資料保留（last-good）、過期資料標示（stale）、429 退避重試、睡眠喚醒後更新、各服務獨立的單一進行中更新與逾時期限、切換帳號保護，以及 Grok session 復原。
 
-正式指定安裝檔為 **`AIUsageBar-1.0.0-build4.dmg`**，已完成 Developer ID 簽署、Apple 公證、staple 與 Gatekeeper 驗證。**此檔案尚未公開於 GitHub Releases**；現有舊檔案並非本次指定版本。公開後請依上方安裝步驟操作，並核對 SHA-256。
+正式指定安裝檔為 **`AIUsageBar-1.0.0-build4.dmg`**，已完成 Developer ID 簽署、Apple 公證、staple 與 Gatekeeper 驗證。**此檔案已公開於 GitHub Releases**；請下載 [AIUsageBar-1.0.0-build4.dmg](https://github.com/synok522-del/AIUsageBar/releases/download/v1.0.0/AIUsageBar-1.0.0-build4.dmg) 並核對 SHA-256。

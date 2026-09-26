@@ -71,6 +71,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
     func showSettings(
         viewModel: UsageViewModel,
+        updater: AppUpdater,
         onLoginClaude: @escaping () -> Void,
         onLoginChatGPT: @escaping () -> Void,
         onLoginGrok: @escaping () -> Void
@@ -85,6 +86,7 @@ final class WindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
 
             SettingsView(
                 viewModel: viewModel,
+                updater: updater,
                 onLoginChatGPT: onLoginChatGPT,
                 onLoginClaude: onLoginClaude,
                 onLoginGrok: onLoginGrok

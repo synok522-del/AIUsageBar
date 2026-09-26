@@ -1,0 +1,15 @@
+{
+  "url": "https://github.com/synok522-del/AIUsageBar/releases/download/u1-staging-20260915/AIUsageBar-0.0.2-u1-9002.dmg",
+  "status": 200,
+  "final_host": "release-assets.githubusercontent.com",
+  "headers": {
+    "Content-Type": "application/octet-stream",
+    "Content-Length": "4054794",
+    "Cache-Control": null,
+    "ETag": "\"0x8DF13A900DD72CF\"",
+    "Last-Modified": "Wed, 16 Sep 2026 04:14:29 GMT",
+    "Age": "0"
+  },
+  "size": 4054794,
+  "sha256": "3bfb0a8cf60b32dcb8b2a90173fd7f16a8a50cc19061b51188b56d0dd4edac17"
+}

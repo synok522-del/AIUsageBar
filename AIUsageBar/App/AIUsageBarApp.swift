@@ -3,12 +3,13 @@ import SwiftUI
 @main
 struct AIUsageBarApp: App {
     @StateObject private var viewModel = UsageViewModel()
+    @StateObject private var updater = AppUpdater()
     @StateObject private var windowCoordinator = WindowCoordinator()
     @State private var didEvaluateWelcome = false
 
     var body: some Scene {
         MenuBarExtra {
-            UsagePanelView(viewModel: viewModel)
+            UsagePanelView(viewModel: viewModel, updater: updater)
         } label: {
             MenuBarStatusView(viewModel: viewModel)
                 .task {

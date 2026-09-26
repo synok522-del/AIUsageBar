@@ -98,6 +98,24 @@ struct RecoveryCoordinator {
         backoffUntil = nil
     }
 
+    /// Allows one explicitly requested user refresh to retry a latched
+    /// recovery. Automatic and wake refreshes must never call this method.
+    @discardableResult
+    mutating func resetRequiresUserActionForManualRefresh() -> Bool {
+        guard state == .requiresUserAction else {
+            return false
+        }
+
+        generation += 1
+        activeScope = nil
+        failureTimes = []
+        backoffUntil = nil
+        restoresUsed = 0
+        retriesUsed = 0
+        state = .healthy
+        return true
+    }
+
     mutating func markFailure(now: Date = Date()) {
         failureTimes.append(now)
         failureTimes = failureTimes.filter { now.timeIntervalSince($0) <= policy.circuitWindow }

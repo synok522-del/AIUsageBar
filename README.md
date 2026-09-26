@@ -1,96 +1,80 @@
 # AIUsageBar
 
-Keep an eye on your remaining **ChatGPT, Claude, and Grok usage** from the macOS menu bar.
+AIUsageBar is a native macOS menu bar app for checking your remaining AI usage without repeatedly opening provider websites.
 
-**English version · English + Traditional Chinese localization · v3 Reliability**
+AIUsageBar 是原生 macOS 選單列 App，讓你快速查看 AI 服務剩餘用量，不必反覆開啟各服務網站。
 
-AIUsageBar brings available usage balances, usage windows, and reset times into one lightweight native panel, so you can check your remaining allowance without opening each provider’s website.
+**Current production release / 目前正式版：AIUsageBar v1.1.0 (Build 5)**
 
-[Product introduction](docs/intro.md) · [Release availability](#download-and-install) · [繁體中文摘要](#繁體中文摘要)
+## Download / 下載
 
-## English + Traditional Chinese
+- [Download AIUsageBar 1.1.0 Build 5 DMG](https://github.com/synok522-del/AIUsageBar/releases/download/v1.1.0/AIUsageBar-1.1.0-build5.dmg)
+- [GitHub Release and release notes / GitHub 發布頁與版本說明](https://github.com/synok522-del/AIUsageBar/releases/tag/v1.1.0)
 
-The interface supports **English and Traditional Chinese**, including the usage panel, settings, sign-in flows, notifications, and status messages. English is the development language and fallback; macOS language preferences determine the app language.
+SHA-256: `fcef7da669c56ada976f76550f4638eadc3b4a6dab4b28b9e16da0bc9f5919e2`
 
-## v3 Reliability
+Requires macOS 13 or later. Open the DMG and drag `AIUsageBar.app` to Applications.
 
-The `v3/release-candidate` branch focuses on dependable usage monitoring. “v3” names this reliability work; the designated release artifact is still **AIUsageBar 1.0.0 (build 4)**.
+系統需求為 macOS 13 以上。打開 DMG，將 `AIUsageBar.app` 拖到「應用程式」資料夾即可安裝。
 
-- **Last-good data:** retains eligible, account-scoped usage from the last successful refresh during temporary failures.
-- **Stale status:** marks retained readings as stale with last-update information, so older values are not mistaken for fresh data.
-- **HTTP 429 backoff:** delays retries after rate limits, with exponential backoff and respect for the provider’s `Retry-After` value.
-- **Sleep/wake refresh:** refreshes after the Mac wakes, coalescing repeated wake events and respecting active backoff.
-- **Per-provider single-flight and deadline:** duplicate refresh requests share one logical refresh per provider; deadlines end stalled work, and late results cannot overwrite newer state.
-- **Account switching protection:** invalidates old refresh work and scopes retained data to account identity to prevent results from a previous account appearing after a switch.
-- **Grok recovery:** improves session recovery and recovery-state handling, while asking for sign-in again when user action is needed.
+## Features / 功能
 
-These safeguards improve recovery from temporary failures. Available readings still depend on each provider’s account, session, and endpoints.
+- Check remaining usage, available usage periods, and reset times in one menu bar panel.
+- Refresh usage automatically and optionally receive low-usage notifications.
+- Use the app in English or Traditional Chinese.
+- 在同一個選單列面板查看剩餘用量、可用的用量週期與重置時間。
+- 可自動更新用量，並選擇接收低用量通知。
+- 支援英文與繁體中文介面。
 
-## Features
+## Supported Providers / 支援服務
 
-- ChatGPT, Claude, and Grok remaining usage in one menu bar panel.
-- Provider-supplied usage windows and reset times, where available.
-- Automatic refresh and low-usage notifications below 20% remaining.
-- Optional launch at login.
-- Native SwiftUI interface with credentials and session tokens stored in macOS Keychain.
+AIUsageBar currently supports **ChatGPT, Claude, and Grok**. Available usage details depend on each provider and account. Provider websites and sign-in methods can change, so occasional sign-in may be required.
 
-## Download and install
+目前支援 **ChatGPT、Claude 與 Grok**。可顯示的用量資訊依各服務與帳戶而異。服務網站或登入方式變更時，偶爾可能需要重新登入。
 
-**Designated final release artifact:** `AIUsageBar-1.0.0-build4.dmg` — version **1.0.0 (4)**, **Developer ID signed, Apple notarized, stapled, and Gatekeeper accepted**.
+## Automatic Updates / 自動更新
 
-**Artifact provenance:** `AIUsageBar-1.0.0-build4.dmg` was built from product source SHA `df65e6b9541721eefc7b18fb4365c12f7a2aa10a`. The later release documentation commit `ee62a668dc32f2a46cd6c0ec3ff9f7f311809546` is documentation-only and is not the binary's build source; the DMG was not built from that documentation HEAD. Subsequent test and audit cleanup commits leave the production source unchanged.
+Build 5 is the first production release with an in-app updater. Build 4 and earlier do not include the updater, so those users must manually download and install Build 5. Starting with Build 5, you can check for future releases inside AIUsageBar; update availability and status appear in Settings. Updates use the production Sparkle update channel.
 
-**Publication status (checked September 13, 2026):** this exact artifact is publicly available in [GitHub Release v1.0.0](https://github.com/synok522-del/AIUsageBar/releases/tag/v1.0.0) as the canonical current Build 4 installer.
+Build 5 是第一個包含 App 內更新功能的正式版本。Build 4 及更早版本不含更新程式，因此需要手動下載並安裝 Build 5。從 Build 5 起，可在 AIUsageBar 內檢查後續版本；更新是否可用與目前狀態會顯示在「設定」。更新使用正式版 Sparkle 更新頻道。
 
-[Download `AIUsageBar-1.0.0-build4.dmg`](https://github.com/synok522-del/AIUsageBar/releases/download/v1.0.0/AIUsageBar-1.0.0-build4.dmg) and compare its SHA-256 with the value below.
+## Screenshots / 畫面截圖
 
-SHA-256 for `AIUsageBar-1.0.0-build4.dmg`:
+These previews show the main interface; some newer Settings controls may not appear.
 
-```text
-49d4ecc16ea149d8d05e780cd9512ecaba2bbd49a6c118dfc1250c55ff4e3415
-```
+以下畫面展示主要介面，部分較新的設定選項可能未顯示。
 
-Requires **macOS 13.0 or later** and an account for each provider you want to monitor.
-
-1. Download [`AIUsageBar-1.0.0-build4.dmg`](https://github.com/synok522-del/AIUsageBar/releases/download/v1.0.0/AIUsageBar-1.0.0-build4.dmg) and compare its SHA-256 with the value above.
-2. Open the DMG and drag `AIUsageBar.app` to **Applications**.
-3. Launch AIUsageBar from Applications; its icon appears in the menu bar.
-4. Open **Settings** and sign in to ChatGPT, Claude, or Grok. Connect only the services you use.
-5. Optionally enable low-usage notifications and launch at login.
-
-## Screenshots
-
-The existing screenshots below show the Traditional Chinese interface; English localization is also supported.
-
-### Usage panel
+### Usage panel / 用量面板
 
 ![AIUsageBar usage panel in Traditional Chinese](docs/images/aiusagebar-main.png)
 
-Remaining usage and available reset times for ChatGPT, Claude, and Grok in one panel.
-
-### Accounts and settings
+### Accounts and settings / 帳戶與設定
 
 ![AIUsageBar settings in Traditional Chinese](docs/images/aiusagebar-settings.png)
 
-Manage provider sign-in, sign out, notifications, and launch at login.
-
-### Menu bar icon
+### Menu bar icon / 選單列圖示
 
 ![AIUsageBar menu bar icon](docs/images/aiusagebar-menu-bar-icon.png)
 
-## Privacy and data
+## Privacy / 隱私
 
-- Credentials and session tokens are stored locally in macOS Keychain.
-- Sign-in uses provider websites and in-app WebKit sessions; website cookies remain in the local WebKit data store.
-- Usage data comes directly from the provider endpoints used by the app.
-- The project has no AIUsageBar backend or analytics endpoint; credentials are not intentionally uploaded to an AIUsageBar server.
+Sign-in credentials are stored in macOS Keychain, and website cookies stay in local WebKit storage. The app uses session data to communicate directly with the corresponding provider for sign-in and usage retrieval. The project does not operate a backend or analytics endpoint; credentials and session data are not sent to an AIUsageBar-operated server.
 
-AIUsageBar is an independent project, unaffiliated with and not endorsed or sponsored by OpenAI, Anthropic, or xAI. Provider website, sign-in, cookie, or endpoint changes can affect usage retrieval.
+登入憑證保存在 macOS 鑰匙圈，網站 Cookie 保存在本機 WebKit 資料中。App 使用工作階段資料直接與相應服務商進行登入及用量查詢。專案不營運後端或分析端點；登入憑證與工作階段資料不會傳送至 AIUsageBar 營運的伺服器。
 
-## 繁體中文摘要
+AIUsageBar is an independent project and is not affiliated with, endorsed by, or sponsored by OpenAI, Anthropic, or xAI.
 
-AIUsageBar 是輕量的 macOS 選單列 App，集中顯示 **ChatGPT／Claude／Grok 剩餘用量、用量週期與重置時間**，支援 **英文與繁體中文介面**。
+AIUsageBar 為獨立專案，與 OpenAI、Anthropic 或 xAI 無隸屬、背書或贊助關係。
 
-v3 Reliability 強化最後成功資料保留（last-good）、過期資料標示（stale）、429 退避重試、睡眠喚醒後更新、各服務獨立的單一進行中更新與逾時期限、切換帳號保護，以及 Grok session 復原。
+## Development / 開發
 
-正式指定安裝檔為 **`AIUsageBar-1.0.0-build4.dmg`**，已完成 Developer ID 簽署、Apple 公證、staple 與 Gatekeeper 驗證。**此檔案已公開於 GitHub Releases**；請下載 [AIUsageBar-1.0.0-build4.dmg](https://github.com/synok522-del/AIUsageBar/releases/download/v1.0.0/AIUsageBar-1.0.0-build4.dmg) 並核對 SHA-256。
+To open the Build 5 source revision in Xcode:
+
+```sh
+git clone https://github.com/synok522-del/AIUsageBar.git
+cd AIUsageBar
+git checkout ec4586b62e23a6098fc7247ec9f34b6915d8366f
+open AIUsageBar.xcodeproj
+```
+
+An Xcode development build is not the signed production DMG. Xcode 開發版並非已簽署的正式 DMG。

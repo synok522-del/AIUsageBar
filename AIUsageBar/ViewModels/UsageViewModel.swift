@@ -8,6 +8,11 @@ import AppKit
 import Combine
 import Foundation
 
+enum UsageRefreshTrigger: Equatable {
+    case automatic
+    case userInitiated
+}
+
 @MainActor
 final class UsageViewModel: ObservableObject {
 
@@ -51,6 +56,7 @@ final class UsageViewModel: ObservableObject {
 
     private let claudeService: any ClaudeUsageFetching
     private let chatGPTService: any ChatGPTUsageFetching
+    private let chatGPTCookieSource: any ChatGPTRefreshCookieSource
     private let grokService: GrokUsageFetching
     private let grokSessionRestorer: GrokSessionRestoring
     private let grokCookieSource: GrokRefreshCookieSource
@@ -83,6 +89,7 @@ final class UsageViewModel: ObservableObject {
     init(
         claudeService: any ClaudeUsageFetching = ClaudeService(),
         chatGPTService: any ChatGPTUsageFetching = ChatGPTService(),
+        chatGPTCookieSource: (any ChatGPTRefreshCookieSource)? = nil,
         grokService: GrokUsageFetching = GrokService(),
         grokSessionRestorer: GrokSessionRestoring? = nil,
         grokCookieSource: GrokRefreshCookieSource? = nil,
@@ -101,6 +108,7 @@ final class UsageViewModel: ObservableObject {
         self.credentialStore = credentialStore ?? KeychainManager(inMemory: KeychainManager.isTestProcess)
         self.claudeService = claudeService
         self.chatGPTService = chatGPTService
+        self.chatGPTCookieSource = chatGPTCookieSource ?? WebSessionManager.shared
         self.grokService = grokService
         self.grokSessionRestorer =
             grokSessionRestorer ?? GrokWebKitSessionRestorer.shared
@@ -458,13 +466,42 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - Refresh
 
-    func refreshAll() async {
+    func refreshAll(trigger: UsageRefreshTrigger = .automatic) async {
         async let chatGPTRefresh: Bool = refreshLane(.chatGPT)
         async let claudeRefresh: Bool = refreshLane(.claude)
+
+        // A manual click during an in-flight automatic Grok refresh waits for
+        // that cycle, then gets its own explicit opportunity to clear a latch.
+        if trigger == .userInitiated, lanes.isInFlight(.grok) {
+            _ = await refreshLane(.grok)
+        }
+
+        let manualLatchReset = trigger == .userInitiated
+            && v2.grokRecovery.resetRequiresUserActionForManualRefresh()
+        ProviderSessionDiagnostics.record(
+            ProviderSessionDiagnosticEvent(
+                provider: .grok,
+                stage: .manualLatchReset,
+                httpStatus: nil,
+                storedCredentialPresent: !grokSessionToken.isEmpty,
+                webKitCredentialPresent: nil,
+                credentialDiffers: nil,
+                reconciliationAttempted: nil,
+                recoveryState: v2.grokRecovery.state,
+                manualLatchReset: manualLatchReset,
+                retryCount: 0,
+                responseClass: .success,
+                finalClass: manualLatchReset ? .manualReset : .noManualResetNeeded
+            )
+        )
+
         // Keep Grok on this MainActor task so WKWebsiteDataStore.default()
         // first-touch cannot start on a child executor. ChatGPT/Claude remain
         // independently coalesced and can complete while Grok is in flight.
-        let grokSucceeded = await refreshLane(.grok)
+        let grokSucceeded = await refreshLane(
+            .grok,
+            manualGrokLatchReset: manualLatchReset
+        )
         let (chatGPTSucceeded, claudeSucceeded) = await (chatGPTRefresh, claudeRefresh)
         _ = (claudeSucceeded, chatGPTSucceeded, grokSucceeded)
     }
@@ -547,7 +584,10 @@ final class UsageViewModel: ObservableObject {
         return await refreshLane(provider)
     }
 
-    private func refreshLane(_ provider: UsageProviderID) async -> Bool {
+    private func refreshLane(
+        _ provider: UsageProviderID,
+        manualGrokLatchReset: Bool = false
+    ) async -> Bool {
         if lanes.isInFlight(provider) {
             return await withCheckedContinuation { continuation in
                 let epoch = lanes.currentEpoch(provider)
@@ -562,7 +602,11 @@ final class UsageViewModel: ObservableObject {
 
         let epoch = lanes.begin(provider)
         isLoading = true
-        let result = await executeLane(provider, epoch: epoch)
+        let result = await executeLane(
+            provider,
+            epoch: epoch,
+            manualGrokLatchReset: manualGrokLatchReset
+        )
         finishLane(provider, epoch: epoch)
         resumeLaneWaiters(provider, epoch: epoch, result: result)
         return result
@@ -599,10 +643,18 @@ final class UsageViewModel: ObservableObject {
         isLoading = lanes.anyInFlight
     }
 
-    private func executeLane(_ provider: UsageProviderID, epoch: UInt) async -> Bool {
+    private func executeLane(
+        _ provider: UsageProviderID,
+        epoch: UInt,
+        manualGrokLatchReset: Bool
+    ) async -> Bool {
         let timeout = refreshDeadlines.timeout(for: provider)
         let work = Task { @MainActor in
-            await self.performLane(provider, epoch: epoch)
+            await self.performLane(
+                provider,
+                epoch: epoch,
+                manualGrokLatchReset: manualGrokLatchReset
+            )
         }
         laneWork[provider] = work
         defer {
@@ -628,14 +680,21 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
-    private func performLane(_ provider: UsageProviderID, epoch: UInt) async -> Bool {
+    private func performLane(
+        _ provider: UsageProviderID,
+        epoch: UInt,
+        manualGrokLatchReset: Bool
+    ) async -> Bool {
         switch provider {
         case .chatGPT:
             return await refreshChatGPT(epoch: epoch)
         case .claude:
             return await refreshClaude(epoch: epoch)
         case .grok:
-            return await refreshGrok(epoch: epoch)
+            return await refreshGrok(
+                epoch: epoch,
+                manualGrokLatchReset: manualGrokLatchReset
+            )
         default:
             return false
         }
@@ -994,11 +1053,29 @@ final class UsageViewModel: ObservableObject {
 
         let captured = v2.chatGPTRecovery.generation
         v2.noteFetch(.chatGPT)
-        let source = ChatGPTProductionUsageSource(
-            service: chatGPTService,
+        return await fetchChatGPTUsage(
+            token: token,
             cookieHeader: chatGPTCookieHeader.isEmpty
                 ? "__Secure-next-auth.session-token=\(token)"
                 : chatGPTCookieHeader,
+            capturedGeneration: captured,
+            expectedAccountKey: expectedAccountKey,
+            epoch: epoch,
+            retryCount: 0
+        )
+    }
+
+    private func fetchChatGPTUsage(
+        token: String,
+        cookieHeader: String,
+        capturedGeneration: UInt,
+        expectedAccountKey: String?,
+        epoch: UInt,
+        retryCount: Int
+    ) async -> Bool {
+        let source = ChatGPTProductionUsageSource(
+            service: chatGPTService,
+            cookieHeader: cookieHeader,
             accountCredential: token
         )
 
@@ -1007,7 +1084,7 @@ final class UsageViewModel: ObservableObject {
             guard canCommit(
                 provider: .chatGPT,
                 epoch: epoch,
-                capturedGeneration: captured,
+                capturedGeneration: capturedGeneration,
                 expectedAccountKey: expectedAccountKey
             ) else {
                 return false
@@ -1020,7 +1097,7 @@ final class UsageViewModel: ObservableObject {
             guard canCommit(
                 provider: .chatGPT,
                 epoch: epoch,
-                capturedGeneration: captured,
+                capturedGeneration: capturedGeneration,
                 expectedAccountKey: expectedAccountKey
             ) else {
                 return false
@@ -1034,16 +1111,131 @@ final class UsageViewModel: ObservableObject {
             clearBackoff(provider: .chatGPT, accountKey: expectedAccountKey)
             evaluateNotifications()
             lastUpdated = now()
+            logChatGPTDiagnostic(
+                stage: retryCount == 0 ? .initialRequest : .retryRequest,
+                error: nil,
+                storedCredentialPresent: !token.isEmpty,
+                webKitCredentialPresent: nil,
+                credentialDiffers: nil,
+                reconciliationAttempted: retryCount > 0,
+                retryCount: retryCount,
+                finalClass: .success
+            )
             return true
         } catch {
             guard canCommit(
                 provider: .chatGPT,
                 epoch: epoch,
-                capturedGeneration: captured,
+                capturedGeneration: capturedGeneration,
                 expectedAccountKey: expectedAccountKey
             ) else {
                 return false
             }
+
+            let isProvider401 = Self.isChatGPTProviderUnauthorized(error)
+            let responseClass = ProviderSessionDiagnostics.responseClass(for: error)
+            if isProvider401, retryCount == 0 {
+                let webKitCookies = await chatGPTCookieSource.chatGPTCookies()
+                guard canCommit(
+                    provider: .chatGPT,
+                    epoch: epoch,
+                    capturedGeneration: capturedGeneration,
+                    expectedAccountKey: expectedAccountKey
+                ) else {
+                    return false
+                }
+
+                let webKitCredential = WebLoginProvider.chatGPT.credential(from: webKitCookies)
+                let usableWebKitCredential = webKitCredential.flatMap { credential in
+                    credential.value.isEmpty || credential.cookieHeader.isEmpty
+                        ? nil
+                        : credential
+                }
+                let differs = usableWebKitCredential.map {
+                    $0.value != token || $0.cookieHeader != cookieHeader
+                }
+                logChatGPTDiagnostic(
+                    stage: .webKitCredentialRead,
+                    error: error,
+                    storedCredentialPresent: !token.isEmpty,
+                    webKitCredentialPresent: usableWebKitCredential != nil,
+                    credentialDiffers: differs,
+                    reconciliationAttempted: differs == true,
+                    retryCount: retryCount,
+                    finalClass: usableWebKitCredential == nil
+                        ? .noMatchingWebKitCredential
+                        : (differs == true ? .credentialReconciled : .identicalCredential)
+                )
+
+                if differs != true {
+                    logChatGPTDiagnostic(
+                        stage: .credentialReconciliation,
+                        error: error,
+                        storedCredentialPresent: !token.isEmpty,
+                        webKitCredentialPresent: usableWebKitCredential != nil,
+                        credentialDiffers: false,
+                        reconciliationAttempted: false,
+                        retryCount: retryCount,
+                        finalClass: .loginExpired
+                    )
+                }
+
+                if let usableWebKitCredential, differs == true {
+                    reconcileChatGPTCredentialDuringRefresh(usableWebKitCredential)
+                    let reconciledToken = chatGPTSessionToken
+                    let reconciledAccountKey = UsageIdentity.accountKey(from: reconciledToken)
+                    let reconciledGeneration = v2.chatGPTRecovery.generation
+                    logChatGPTDiagnostic(
+                        stage: .credentialReconciliation,
+                        error: error,
+                        storedCredentialPresent: !reconciledToken.isEmpty,
+                        webKitCredentialPresent: true,
+                        credentialDiffers: true,
+                        reconciliationAttempted: true,
+                        retryCount: retryCount,
+                        finalClass: .credentialReconciled
+                    )
+                    return await fetchChatGPTUsage(
+                        token: reconciledToken,
+                        cookieHeader: chatGPTCookieHeader,
+                        capturedGeneration: reconciledGeneration,
+                        expectedAccountKey: reconciledAccountKey,
+                        epoch: epoch,
+                        retryCount: 1
+                    )
+                }
+            } else {
+                let finalClass: SessionDiagnosticFinalClass
+                switch responseClass {
+                case .unauthorized:
+                    finalClass = retryCount > 0 ? .retryUnauthorized : .loginExpired
+                case .forbidden:
+                    finalClass = .forbidden
+                case .rateLimited:
+                    finalClass = .rateLimited
+                case .network:
+                    finalClass = .network
+                case .parse:
+                    finalClass = .parse
+                case .localCredentialMismatch:
+                    finalClass = .localCredentialMismatch
+                case .wafHTML:
+                    finalClass = .waf
+                default:
+                    finalClass = .otherFailure
+                }
+                logChatGPTDiagnostic(
+                    stage: retryCount == 0 ? .initialRequest : .retryRequest,
+                    error: error,
+                    storedCredentialPresent: !token.isEmpty,
+                    webKitCredentialPresent: nil,
+                    credentialDiffers: nil,
+                    reconciliationAttempted: retryCount > 0,
+                    retryCount: retryCount,
+                    finalClass: finalClass
+                )
+            }
+
             recordRateLimitIfNeeded(
                 provider: .chatGPT,
                 accountKey: expectedAccountKey,
@@ -1055,11 +1247,92 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    private static func isChatGPTProviderUnauthorized(_ error: Error) -> Bool {
+        guard let serviceError = error as? AIUsageServiceError,
+              case .httpStatus("ChatGPT", 401) = serviceError else {
+            return false
+        }
+        return true
+    }
+
+    /// Persists the new WebKit credential through the same Keychain-backed
+    /// path as login, while keeping this provider lane alive for its one retry.
+    private func reconcileChatGPTCredentialDuringRefresh(_ credential: WebCredential) {
+        let previousAccountKey = UsageIdentity.accountKey(from: chatGPTSessionToken)
+        chatGPT = UsageInfo()
+        usageNotificationManager.resetTracking(for: .chatGPT)
+        v2.invalidateProvider(.chatGPT, accountKey: previousAccountKey)
+        if let previousAccountKey {
+            lastGoodStore.remove(provider: .chatGPT, accountKey: previousAccountKey)
+            backoffStore.clear(provider: .chatGPT, accountKey: previousAccountKey)
+        }
+        resetRefreshRequests = Set(resetRefreshRequests.filter { $0.provider != .chatGPT })
+        scheduleNextResetRefresh()
+        persistChatGPTCredential(credential)
+    }
+
+    private func logChatGPTDiagnostic(
+        stage: SessionDiagnosticStage,
+        error: Error?,
+        storedCredentialPresent: Bool?,
+        webKitCredentialPresent: Bool?,
+        credentialDiffers: Bool?,
+        reconciliationAttempted: Bool?,
+        retryCount: Int,
+        finalClass: SessionDiagnosticFinalClass
+    ) {
+        ProviderSessionDiagnostics.record(
+            ProviderSessionDiagnosticEvent(
+                provider: .chatGPT,
+                stage: stage,
+                httpStatus: error.flatMap(ProviderSessionDiagnostics.httpStatus(for:)),
+                storedCredentialPresent: storedCredentialPresent,
+                webKitCredentialPresent: webKitCredentialPresent,
+                credentialDiffers: credentialDiffers,
+                reconciliationAttempted: reconciliationAttempted,
+                recoveryState: v2.chatGPTRecovery.state,
+                manualLatchReset: nil,
+                retryCount: retryCount,
+                responseClass: error.map(ProviderSessionDiagnostics.responseClass(for:)) ?? .success,
+                finalClass: finalClass
+            )
+        )
+    }
+
+    private func logGrokDiagnostic(
+        stage: SessionDiagnosticStage,
+        error: Error?,
+        webKitCredentialPresent: Bool?,
+        manualLatchReset: Bool,
+        retryCount: Int,
+        finalClass: SessionDiagnosticFinalClass
+    ) {
+        ProviderSessionDiagnostics.record(
+            ProviderSessionDiagnosticEvent(
+                provider: .grok,
+                stage: stage,
+                httpStatus: error.flatMap(ProviderSessionDiagnostics.httpStatus(for:)),
+                storedCredentialPresent: !grokSessionToken.isEmpty,
+                webKitCredentialPresent: webKitCredentialPresent,
+                credentialDiffers: nil,
+                reconciliationAttempted: nil,
+                recoveryState: v2.grokRecovery.state,
+                manualLatchReset: manualLatchReset,
+                retryCount: retryCount,
+                responseClass: error.map(ProviderSessionDiagnostics.responseClass(for:)) ?? .success,
+                finalClass: finalClass
+            )
+        )
+    }
+
 
 
     // MARK: - Grok
 
-    private func refreshGrok(epoch: UInt) async -> Bool {
+    private func refreshGrok(
+        epoch: UInt,
+        manualGrokLatchReset: Bool
+    ) async -> Bool {
 
         let token =
         grokSessionToken
@@ -1099,7 +1372,8 @@ final class UsageViewModel: ObservableObject {
             allowRecovery: true,
             authGeneration: authGeneration,
             epoch: epoch,
-            expectedAccountKey: expectedAccountKey
+            expectedAccountKey: expectedAccountKey,
+            manualLatchReset: manualGrokLatchReset
         )
     }
 
@@ -1108,7 +1382,8 @@ final class UsageViewModel: ObservableObject {
         allowRecovery: Bool,
         authGeneration: UInt,
         epoch: UInt,
-        expectedAccountKey: String?
+        expectedAccountKey: String?,
+        manualLatchReset: Bool
     ) async -> Bool {
         let recoveryLatched = v2.grokRecovery.state == .requiresUserAction
         guard canCommitGrok(epoch: epoch, authGeneration: authGeneration, expectedAccountKey: expectedAccountKey) else {
@@ -1205,11 +1480,46 @@ final class UsageViewModel: ObservableObject {
             }
             evaluateNotifications()
             lastUpdated = now()
+            logGrokDiagnostic(
+                stage: allowRecovery ? .initialRequest : .retryRequest,
+                error: nil,
+                webKitCredentialPresent: webKitCredentialsMatch,
+                manualLatchReset: manualLatchReset,
+                retryCount: allowRecovery ? 0 : 1,
+                finalClass: .success
+            )
             return true
         } catch {
             guard canCommitGrok(epoch: epoch, authGeneration: authGeneration, expectedAccountKey: expectedAccountKey) else {
                 return false
             }
+
+            let responseClass = ProviderSessionDiagnostics.responseClass(for: error)
+            let attemptFinalClass: SessionDiagnosticFinalClass
+            switch responseClass {
+            case .wafHTML:
+                attemptFinalClass = .waf
+            case .rateLimited:
+                attemptFinalClass = .rateLimited
+            case .unauthorized, .forbidden:
+                attemptFinalClass = recoveryLatched ? .recoveryLatched : .recoveryAttempt
+            case .network:
+                attemptFinalClass = .network
+            case .parse:
+                attemptFinalClass = .parse
+            case .localCredentialMismatch:
+                attemptFinalClass = .localCredentialMismatch
+            default:
+                attemptFinalClass = recoveryLatched ? .recoveryLatched : .otherFailure
+            }
+            logGrokDiagnostic(
+                stage: allowRecovery ? .initialRequest : .retryRequest,
+                error: error,
+                webKitCredentialPresent: webKitCredentialsMatch,
+                manualLatchReset: manualLatchReset,
+                retryCount: allowRecovery ? 0 : 1,
+                finalClass: attemptFinalClass
+            )
 
             if error.isRateLimitedError {
                 recordRateLimitIfNeeded(
@@ -1297,7 +1607,8 @@ final class UsageViewModel: ObservableObject {
                     allowRecovery: false,
                     authGeneration: authGeneration,
                     epoch: epoch,
-                    expectedAccountKey: expectedAccountKey
+                    expectedAccountKey: expectedAccountKey,
+                    manualLatchReset: manualLatchReset
                 )
             }
 

@@ -23,7 +23,7 @@ struct UsagePanelView: View {
                     Button {
 
                         Task {
-                            await viewModel.refreshAll()
+                            await viewModel.refreshAll(trigger: .userInitiated)
                         }
 
                     } label: {

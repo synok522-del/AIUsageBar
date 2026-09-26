@@ -1,0 +1,18 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>AIUsageBar</title>
+        <item>
+            <title>1.1.0</title>
+            <pubDate>Sat, 26 Sep 2026 20:41:17 +0800</pubDate>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/synok522-del/AIUsageBar/releases/download/v1.1.0/AIUsageBar-1.1.0-build5.dmg" length="4095577" type="application/octet-stream" sparkle:edSignature="qoxsH5I2Ry4n4kkewmiflWv7mN2H3ujanRDe41a+CWo+b8pqGHe8IXLsMjMETU0St9jpVoknNfR5m8ndB7w/CA=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: C9eyuU9IKKq0BQqfm5N7M3ga7/ly5lg8eqhM19j8iZA8kjS2uxXDLGkXjiAHYt6sdYPMghDijZGWj5VFsCO9Bw==
+length: 1058
+-->

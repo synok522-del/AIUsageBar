@@ -8,10 +8,11 @@ AIUsageBar 是原生 macOS 選單列 App，讓你快速查看 AI 服務剩餘用
 
 ## Download / 下載
 
-- [Download AIUsageBar 1.1.0 Build 5 DMG](https://github.com/synok522-del/AIUsageBar/releases/download/v1.1.0/AIUsageBar-1.1.0-build5.dmg)
+- [Download the official Build 5 DMG, `AIUsageBar-1.1.0-build5.dmg`](https://github.com/synok522-del/AIUsageBar/releases/download/v1.1.0/AIUsageBar-1.1.0-build5.dmg)
 - [GitHub Release and release notes / GitHub 發布頁與版本說明](https://github.com/synok522-del/AIUsageBar/releases/tag/v1.1.0)
 
-SHA-256: `fcef7da669c56ada976f76550f4638eadc3b4a6dab4b28b9e16da0bc9f5919e2`
+- DMG SHA-256: `fcef7da669c56ada976f76550f4638eadc3b4a6dab4b28b9e16da0bc9f5919e2`
+- Build source revision / 建置來源版本：`ec4586b62e23a6098fc7247ec9f34b6915d8366f`
 
 Requires macOS 13 or later. Open the DMG and drag `AIUsageBar.app` to Applications.
 
@@ -32,35 +33,31 @@ AIUsageBar currently supports **ChatGPT, Claude, and Grok**. Available usage det
 
 目前支援 **ChatGPT、Claude 與 Grok**。可顯示的用量資訊依各服務與帳戶而異。服務網站或登入方式變更時，偶爾可能需要重新登入。
 
-## Automatic Updates / 自動更新
+## Software Updates / 軟體更新
 
-Build 5 is the first production release with an in-app updater. Build 4 and earlier do not include the updater, so those users must manually download and install Build 5. Starting with Build 5, you can check for future releases inside AIUsageBar; update availability and status appear in Settings. Updates use the production Sparkle update channel.
+Build 5 is the first production release that includes an in-app updater connected to the production update feed. In **Settings → Software Updates**, you can enable **Automatically check for updates** or choose **Check for Updates…** to check manually. Update availability and status appear in Settings. Build 4 and earlier do not include the updater, so they must be manually updated to Build 5 once. Starting with Build 5, later releases can be checked and installed from inside the app through the production Sparkle update channel.
 
-Build 5 是第一個包含 App 內更新功能的正式版本。Build 4 及更早版本不含更新程式，因此需要手動下載並安裝 Build 5。從 Build 5 起，可在 AIUsageBar 內檢查後續版本；更新是否可用與目前狀態會顯示在「設定」。更新使用正式版 Sparkle 更新頻道。
+Build 5 是第一個正式提供 App 內更新程式的版本。在「設定 → 軟體更新」中，可開啟「自動檢查更新」，或按「檢查更新⋯」手動檢查；更新是否可用與目前狀態會顯示在設定中。Build 4 及更早版本沒有更新程式，因此需要先手動下載並安裝一次 Build 5。從 Build 5 起，後續版本可透過正式版 Sparkle 更新頻道，在 App 內檢查並安裝。
 
 ## Screenshots / 畫面截圖
 
-These previews show the main interface; some newer Settings controls may not appear.
+### Usage panels / 用量面板
 
-以下畫面展示主要介面，部分較新的設定選項可能未顯示。
+![Build 5 English usage panel showing ChatGPT, Claude, and Grok usage and reset times](docs/images/build5-en-main.png)
 
-### Usage panel / 用量面板
+![Build 5 Traditional Chinese usage panel showing ChatGPT, Claude, and Grok usage and reset times](docs/images/build5-zh-main.png)
 
-![AIUsageBar usage panel in Traditional Chinese](docs/images/aiusagebar-main.png)
+### Settings / 設定
 
-### Accounts and settings / 帳戶與設定
+![Build 5 English Settings showing Software Updates and Automatically check for updates](docs/images/build5-en-settings.png)
 
-![AIUsageBar settings in Traditional Chinese](docs/images/aiusagebar-settings.png)
-
-### Menu bar icon / 選單列圖示
-
-![AIUsageBar menu bar icon](docs/images/aiusagebar-menu-bar-icon.png)
+![Build 5 Traditional Chinese 設定畫面，顯示軟體更新與自動檢查更新](docs/images/build5-zh-settings.png)
 
 ## Privacy / 隱私
 
-Sign-in credentials are stored in macOS Keychain, and website cookies stay in local WebKit storage. The app uses session data to communicate directly with the corresponding provider for sign-in and usage retrieval. The project does not operate a backend or analytics endpoint; credentials and session data are not sent to an AIUsageBar-operated server.
+Sign-in credentials and provider session tokens used by the app are stored locally in macOS Keychain. Provider website cookies may also remain in the local WebKit data store used for sign-in. The app communicates directly with each provider to retrieve usage; the project does not operate a backend or analytics endpoint, and these data are not sent to an AIUsageBar-operated server.
 
-登入憑證保存在 macOS 鑰匙圈，網站 Cookie 保存在本機 WebKit 資料中。App 使用工作階段資料直接與相應服務商進行登入及用量查詢。專案不營運後端或分析端點；登入憑證與工作階段資料不會傳送至 AIUsageBar 營運的伺服器。
+登入憑證與 App 使用的服務工作階段 Token 保存在本機 macOS 鑰匙圈。服務網站 Cookie 也可能留存在登入時使用的本機 WebKit 資料儲存區。App 會直接向各服務查詢用量；本專案不營運後端或分析端點，這些資料不會傳送至 AIUsageBar 營運的伺服器。
 
 AIUsageBar is an independent project and is not affiliated with, endorsed by, or sponsored by OpenAI, Anthropic, or xAI.
 

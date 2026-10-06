@@ -3,6 +3,7 @@ import SwiftUI
 struct UsagePanelView: View {
 
     @ObservedObject var viewModel: UsageViewModel
+    @ObservedObject var updater: AppUpdater
     @StateObject private var windowCoordinator = WindowCoordinator()
     @State private var isPanelVisible = false
 
@@ -22,7 +23,7 @@ struct UsagePanelView: View {
                     Button {
 
                         Task {
-                            await viewModel.refreshAll()
+                            await viewModel.refreshAll(trigger: .userInitiated)
                         }
 
                     } label: {
@@ -303,6 +304,7 @@ struct UsagePanelView: View {
         coordinator.showSettings(
 
             viewModel: model,
+            updater: updater,
 
 
             onLoginClaude: {

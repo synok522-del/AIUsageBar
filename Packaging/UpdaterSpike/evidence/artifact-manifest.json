@@ -1,0 +1,42 @@
+{
+  "host": {
+    "version": "0.0.1",
+    "build": "9001",
+    "source_sha": "0df57e6b59eee566aa305ff2e229998bbf276f02",
+    "filename": "AIUsageBar-0.0.1-u1-9001.dmg",
+    "sha256": "5fa1da43179c54b597e1c15255417dbf395ecc047e0e03b383961c8b1cb2a3fd",
+    "size": 4054775,
+    "edSignature": "of9e4Vb5huURoPYwdZF8yMSSwAMt2QYARj4yPN4O1lWmySotlGdNP1TyMAXu8IYaC+je+MLUuAt5X+EFqiOrDg==",
+    "url": "https://github.com/synok522-del/AIUsageBar/releases/download/u1-staging-20260915/AIUsageBar-0.0.1-u1-9001.dmg",
+    "app_notary": {
+      "id": "935d6ac9-a167-4bcd-b0c9-005dce2d566b",
+      "status": "Accepted",
+      "message": "Processing complete"
+    },
+    "dmg_notary": {
+      "id": "0af7d339-e2f7-49af-bb5d-82ce8dc18495",
+      "status": "Accepted",
+      "message": "Processing complete"
+    }
+  },
+  "candidate": {
+    "version": "0.0.2",
+    "build": "9002",
+    "source_sha": "4fb083d3af2360b4a87d875cee55735473561a15",
+    "filename": "AIUsageBar-0.0.2-u1-9002.dmg",
+    "sha256": "3bfb0a8cf60b32dcb8b2a90173fd7f16a8a50cc19061b51188b56d0dd4edac17",
+    "size": 4054794,
+    "edSignature": "7U3iPQFmBknaCqktp+eK7boWCmFJH5slAmtUiZkzr3bJNGmgt3qVeNfIifmGKgOq48GtCKgRhPFoGmHXns2eAw==",
+    "url": "https://github.com/synok522-del/AIUsageBar/releases/download/u1-staging-20260915/AIUsageBar-0.0.2-u1-9002.dmg",
+    "app_notary": {
+      "id": "605866d5-c8c6-4731-82fa-d8d09744327a",
+      "message": "Processing complete",
+      "status": "Accepted"
+    },
+    "dmg_notary": {
+      "id": "c27a572a-461a-423a-85ad-81e7bf9e1567",
+      "status": "Accepted",
+      "message": "Processing complete"
+    }
+  }
+}

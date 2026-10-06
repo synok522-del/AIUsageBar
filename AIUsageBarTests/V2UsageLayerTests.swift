@@ -233,6 +233,21 @@ struct V2UsageLayerTests {
         #expect(decision12)
     }
 
+    @Test("Manual refresh clears requiresUserAction only once")
+    func manualRefreshResetsUserActionLatchOnce() {
+        var coordinator = RecoveryCoordinator()
+        coordinator.markRequiresUserAction()
+        let generationBeforeReset = coordinator.generation
+
+        let firstReset = coordinator.resetRequiresUserActionForManualRefresh()
+        #expect(firstReset)
+        #expect(coordinator.state == .healthy)
+        #expect(coordinator.generation == generationBeforeReset + 1)
+        let secondReset = coordinator.resetRequiresUserActionForManualRefresh()
+        #expect(secondReset == false)
+        #expect(coordinator.generation == generationBeforeReset + 1)
+    }
+
     @Test("Recovery success requires fetch parse and identity not WebKit READY")
     func recoverySuccessIsFreshFetchNotCookieLatch() {
         #expect(

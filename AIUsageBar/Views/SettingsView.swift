@@ -4,6 +4,7 @@ import AppKit
 struct SettingsView: View {
 
     @ObservedObject var viewModel: UsageViewModel
+    @ObservedObject var updater: AppUpdater
 
     @State private var launchAtLogin =
         LaunchAtLoginManager.shared.isEnabled
@@ -70,6 +71,35 @@ struct SettingsView: View {
                 Text(L10n.lowUsageNotificationsHelp)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+
+                Text(L10n.updaterSectionTitle)
+                    .font(.headline)
+
+                Toggle(
+                    L10n.updaterAutomaticChecks,
+                    isOn: Binding(
+                        get: { updater.automaticallyChecksForUpdates },
+                        set: { updater.setAutomaticallyChecksForUpdates($0) }
+                    )
+                )
+                .disabled(!updater.isConfigured)
+
+                Button(L10n.updaterCheckNow) {
+                    updater.checkForUpdates()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!updater.canCheckForUpdates)
+
+                Text(updater.statusDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("updater.status")
             }
 
             Divider()

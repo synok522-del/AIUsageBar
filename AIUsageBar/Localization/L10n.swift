@@ -74,6 +74,30 @@ enum L10n {
     static func lastUpdated(_ relative: String) -> String {
         tr("status.lastUpdated", "Last updated %@", relative)
     }
+    static func providerUpdated(_ relative: String) -> String {
+        tr("status.providerUpdated", "Updated %@", relative)
+    }
+    static func providerDataStale(_ relative: String) -> String {
+        tr("status.providerDataStale", "Stale data · last updated %@", relative)
+    }
+    static func providerRefreshFailed(_ relative: String) -> String {
+        tr("status.providerRefreshFailed", "Refresh failed · showing data from %@", relative)
+    }
+    static func providerRefreshFailedStale(_ relative: String) -> String {
+        tr("status.providerRefreshFailedStale", "Refresh failed · showing stale data from %@", relative)
+    }
+    static func claudeOrganizationNamed(_ name: String, _ suffix: String) -> String {
+        tr("status.claudeOrganizationNamed", "Organization: %@ · ID …%@", name, suffix)
+    }
+    static func claudeOrganizationID(_ suffix: String) -> String {
+        tr("status.claudeOrganizationID", "Organization ID ends in %@", suffix)
+    }
+    static var claudeOrganizationUnavailable: String {
+        tr("error.claudeOrganizationUnavailable", "Claude organization information is unavailable")
+    }
+    static var claudeOrganizationAmbiguous: String {
+        tr("error.claudeOrganizationAmbiguous", "Multiple Claude organizations are available; AIUsageBar cannot safely choose one")
+    }
     static func rateLimitedRetry(_ provider: String, _ seconds: Int) -> String {
         tr(
             "status.rateLimitedRetry",

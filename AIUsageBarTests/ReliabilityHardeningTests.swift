@@ -140,6 +140,8 @@ struct ReliabilityHardeningUnitTests {
         #expect(info.resetText != "resets in 5 minutes")
         #expect(info.resetText.contains(L10n.resetPrefix))
         #expect(info.staleCaption?.hasPrefix(L10n.lastUpdatedPrefix) == true)
+        let relative = StaleUsagePresentation.relative(asOf: asOf, now: now)
+        #expect(info.providerFreshnessCaption(now: now) == L10n.providerDataStale(relative))
     }
 
     @Test("Timeout claim invalidates the epoch so late success cannot win")
@@ -226,10 +228,29 @@ struct ReliabilityHardeningUnitTests {
         #expect(staleFailure.observedAt == observedAt)
         #expect(staleFailure.sessionPercent == 41)
         #expect(staleFailure.staleCaption?.hasPrefix(L10n.lastUpdatedPrefix) == true)
+        let relative = StaleUsagePresentation.relative(
+            asOf: observedAt,
+            now: observedAt.addingTimeInterval(UsageValidityPolicy.freshnessTTL + 1)
+        )
+        #expect(
+            staleFailure.providerFreshnessCaption(
+                now: observedAt.addingTimeInterval(UsageValidityPolicy.freshnessTTL + 1)
+            ) == L10n.providerRefreshFailedStale(relative)
+        )
+
+        let fresh = UsageInfo(
+            sessionPercent: 63,
+            isLoaded: true,
+            observedAt: observedAt
+        )
+        #expect(
+            fresh.providerFreshnessCaption(now: observedAt) ==
+                L10n.providerUpdated(StaleUsagePresentation.relative(asOf: observedAt, now: observedAt))
+        )
     }
 
     @Test("Expired secondary meter is omitted on restore while primary stays")
-    func expiredSecondaryIsOmittedOnRestore() throws {
+    func expiredSecondaryIsUnavailableOnRestoreWhilePrimaryStays() throws {
         let asOf = Date(timeIntervalSince1970: 5_000)
         let snapshot = V1UsageAdapters.grokSnapshot(
             usage: GrokUsage(
@@ -249,8 +270,10 @@ struct ReliabilityHardeningUnitTests {
         let info = try #require(UsageInfoFromSnapshot.make(snapshot, stale: true, now: now))
         #expect(info.sessionPercent == 44)
         #expect(info.weeklyAvailable == false)
+        #expect(info.weeklyUnavailable)
         #expect(info.isLoaded)
-        #expect(GrokCardPresentation.from(info).showsWeeklyRow == false)
+        #expect(GrokCardPresentation.from(info).showsSessionRow)
+        #expect(GrokCardPresentation.from(info).showsWeeklyRow)
         #expect(GrokCardPresentation.from(info).weeklyPercent == nil)
     }
 
@@ -281,6 +304,44 @@ struct ReliabilityHardeningUnitTests {
 
 @MainActor
 struct ReliabilityHardeningIntegrationTests {
+    @Test("A successful provider refresh does not make a failed provider appear fresh")
+    func providerFreshnessIsIndependentAfterMixedRefresh() async throws {
+        let clock = TestClock()
+        let chatGPT = CountingChatGPTUsageService()
+        let claude = CountingClaudeUsageService()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: claude,
+            grok: ImmediateGrokUsageService(),
+            now: { clock.date }
+        )
+        model.setChatGPTSessionToken("chatgpt-token")
+        model.setClaudeSessionKey("claude-session")
+        chatGPT.enqueue(.success(sampleChatGPT(session: 54)))
+        claude.enqueue(.success(sampleClaude(session: 72)))
+
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+        let claudeLastGood = try #require(model.claude.observedAt)
+
+        clock.advance(30)
+        chatGPT.enqueue(.success(sampleChatGPT(session: 49)))
+        claude.enqueue(.failure(URLError(.timedOut)))
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        let claudeAge = StaleUsagePresentation.relative(asOf: claudeLastGood, now: clock.date)
+        let chatGPTAt = try #require(model.chatGPT.observedAt)
+        #expect(model.chatGPT.sessionPercent == 49)
+        #expect(chatGPTAt > claudeLastGood)
+        #expect(model.claude.observedAt == claudeLastGood)
+        #expect(model.claude.sessionPercent == 72)
+        #expect(model.claude.errorMessage != nil)
+        #expect(model.claude.isStale == false)
+        #expect(model.claude.providerFreshnessCaption(now: clock.date) == L10n.providerRefreshFailed(claudeAge))
+        #expect(model.chatGPT.providerFreshnessCaption(now: clock.date) != model.claude.providerFreshnessCaption(now: clock.date))
+    }
+
     @Test("Timer wake and manual duplicate triggers coalesce to one HTTP per provider")
     func duplicateTriggersCoalesceToOneHTTP() async {
         let chatGPT = HangingChatGPTUsageService()

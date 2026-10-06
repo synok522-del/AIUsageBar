@@ -15,6 +15,8 @@ struct ClaudeUsage {
     let weeklyResetText: String
     let sessionResetAt: Date?
     let weeklyResetAt: Date?
+    let organizationID: String?
+    let organizationName: String?
 
     init(
         sessionRemainingPercent: Int,
@@ -22,7 +24,9 @@ struct ClaudeUsage {
         resetText: String,
         weeklyResetText: String,
         sessionResetAt: Date? = nil,
-        weeklyResetAt: Date? = nil
+        weeklyResetAt: Date? = nil,
+        organizationID: String? = nil,
+        organizationName: String? = nil
     ) {
         self.sessionRemainingPercent = sessionRemainingPercent
         self.weeklyRemainingPercent = weeklyRemainingPercent
@@ -30,5 +34,7 @@ struct ClaudeUsage {
         self.weeklyResetText = weeklyResetText
         self.sessionResetAt = sessionResetAt
         self.weeklyResetAt = weeklyResetAt
+        self.organizationID = organizationID
+        self.organizationName = organizationName
     }
 }

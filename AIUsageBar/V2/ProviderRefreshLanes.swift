@@ -141,10 +141,13 @@ enum ProviderRefreshLaneRace: Sendable {
 
 enum StaleUsagePresentation {
     static func caption(asOf: Date, now: Date = Date()) -> String {
+        L10n.lastUpdated(relative(asOf: asOf, now: now))
+    }
+
+    static func relative(asOf: Date, now: Date = Date()) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = .current
         formatter.unitsStyle = .full
-        let relative = formatter.localizedString(for: asOf, relativeTo: now)
-        return L10n.lastUpdated(relative)
+        return formatter.localizedString(for: asOf, relativeTo: now)
     }
 }

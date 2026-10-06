@@ -3,6 +3,33 @@ import Testing
 @testable import AIUsageBar
 
 struct V2ProductionIntegrationTests {
+    @Test("Claude organization identity reaches the provider diagnostic")
+    @MainActor
+    func claudeOrganizationIdentityPropagatesToProviderState() async {
+        let claude = ControllableClaudeUsageService()
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: claude,
+            grok: ImmediateGrokUsageService(),
+            restorer: GrokSessionRestorerSpy()
+        )
+        claude.enqueue(.success(ClaudeUsage(
+            sessionRemainingPercent: 70,
+            weeklyRemainingPercent: 45,
+            resetText: "session reset",
+            weeklyResetText: "weekly reset",
+            organizationID: "org-abcdef1234",
+            organizationName: "Studio"
+        )))
+        model.setClaudeSessionKey("claude-session")
+
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        #expect(model.claude.organizationDiagnostic == L10n.claudeOrganizationNamed("Studio", "1234"))
+        #expect(model.claude.organizationDiagnostic?.contains("org-abcdef1234") == false)
+    }
+
     @Test("Production refresh invokes V2 and commits ChatGPT Claude Grok snapshots")
     @MainActor
     func productionRefreshInvokesV2PathAndCommitsSnapshots() async {
@@ -56,6 +83,10 @@ struct V2ProductionIntegrationTests {
         #expect(model.claude.weeklyPercent == 20)
         #expect(model.grok.sessionPercent == 40)
         #expect(model.grok.weeklyPercent == 12)
+        #expect(model.grok.weeklyUnavailable == false)
+        #expect(model.grok.sessionResetText == "s")
+        #expect(model.grok.weeklyRelativeResetText == "r")
+        #expect(GrokCardPresentation.from(model.grok).displayedRowCount == 2)
         #expect(chatGPT.cookieHeaders.count == 1)
         #expect(claude.sessionKeys.count == 1)
         #expect(grok.cookieHeaders.count == 1)

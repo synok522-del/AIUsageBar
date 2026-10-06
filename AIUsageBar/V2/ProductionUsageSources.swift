@@ -49,7 +49,7 @@ final class ClaudeProductionUsageSource: UsageSource {
         return V1UsageAdapters.claudeSnapshot(
             usage: usage,
             sessionKey: sessionKey,
-            organizationID: nil
+            organizationID: usage.organizationID
         )
     }
 }

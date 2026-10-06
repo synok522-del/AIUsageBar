@@ -879,6 +879,55 @@ struct AIUsageBarTests {
         #expect(changedSchema.weeklyResetAt == nil)
     }
 
+    @Test("Claude organization selection is stable and carries safe diagnostic context")
+    func claudeOrganizationSelectionAndDiagnosticContext() throws {
+        let selected = try ClaudeService.selectOrganization(from: [[
+            "id": " org-123456 ",
+            "uuid": "org-123456",
+            "name": " Studio\nTeam "
+        ]])
+        let usage = try ClaudeService.parseUsage(
+            ["five_hour": ["utilization": 25]],
+            organization: selected
+        )
+        let diagnostic = ClaudeOrganizationPresentation.diagnostic(
+            organizationID: usage.organizationID,
+            name: usage.organizationName
+        )
+
+        #expect(selected.id == "org-123456")
+        #expect(selected.displayName == "Studio Team")
+        #expect(usage.organizationID == "org-123456")
+        #expect(usage.organizationName == "Studio Team")
+        #expect(diagnostic == L10n.claudeOrganizationNamed("Studio Team", "3456"))
+        #expect(diagnostic?.contains("org-123456") == false)
+    }
+
+    @Test("Claude refuses ambiguous or incomplete organization lists")
+    func claudeOrganizationSelectionFailsClosed() {
+        var ambiguous: ClaudeOrganizationSelectionError?
+        do {
+            _ = try ClaudeService.selectOrganization(from: [
+                ["id": "org-one", "name": "One"],
+                ["uuid": "org-two", "name": "Two"]
+            ])
+        } catch {
+            ambiguous = error as? ClaudeOrganizationSelectionError
+        }
+        #expect(ambiguous == .ambiguous)
+
+        var unavailable: ClaudeOrganizationSelectionError?
+        do {
+            _ = try ClaudeService.selectOrganization(from: [
+                ["id": "org-one"],
+                ["name": "Unknown identity"]
+            ])
+        } catch {
+            unavailable = error as? ClaudeOrganizationSelectionError
+        }
+        #expect(unavailable == .unavailable)
+    }
+
     @Test("Claude usage parsing rejects malformed required numbers")
     func claudeUsageParsingRejectsMalformedRequiredNumbers() {
         let usage: [String: [String: Any]] = [
@@ -2082,63 +2131,76 @@ struct AIUsageBarTests {
             sessionPercent: usage.sessionRemainingPercent,
             weeklyPercent: 0,
             weeklyAvailable: false,
+            weeklyUnavailable: true,
             resetText: usage.resetText,
             sessionWindowSeconds: usage.sessionWindowSeconds,
             isLoaded: true
         )
         let presentation = GrokCardPresentation.from(info)
         #expect(presentation.showsSessionRow)
-        #expect(!presentation.showsWeeklyRow)
-        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.showsWeeklyRow)
+        #expect(presentation.weeklyPercent == nil)
+        #expect(presentation.displayedRowCount == 2)
     }
 
-    @Test("T9 valid Weekly shows exactly one Weekly row")
-    func grokValidWeeklyShowsOneWeeklyRow() {
+    @Test("T9 valid Weekly shows alongside the short-window row")
+    func grokValidWeeklyShowsBothRows() {
         let info = UsageInfo(
             sessionPercent: 99,
             weeklyPercent: 37,
             weeklyAvailable: true,
             resetText: "重置於 2 天後",
             weeklyResetText: "9 月 5 日 下午 3:11",
+            sessionResetText: "short reset",
+            weeklyRelativeResetText: "weekly reset",
             sessionWindowSeconds: 7200,
             isLoaded: true
         )
         let presentation = GrokCardPresentation.from(info)
         #expect(presentation.showsWeeklyRow)
-        #expect(!presentation.showsSessionRow)
-        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.showsSessionRow)
+        #expect(presentation.displayedRowCount == 2)
         #expect(presentation.weeklyPercent == 37)
-        #expect(presentation.sessionPercent == nil)
+        #expect(presentation.sessionPercent == 99)
+        #expect(presentation.sessionResetText == "short reset")
+        #expect(presentation.weeklyResetText == "weekly reset")
     }
 
-    @Test("T10 no Weekly shows exactly one short-window row")
-    func grokWithoutWeeklyShowsOneShortWindowRow() {
+    @Test("T10 no Weekly keeps short quota and exposes the unavailable Weekly row")
+    func grokWithoutWeeklyShowsUnavailableWeeklyRow() {
         let info = UsageInfo(
             sessionPercent: 97,
             weeklyPercent: 0,
             weeklyAvailable: false,
+            weeklyUnavailable: true,
             sessionWindowSeconds: 86400,
             isLoaded: true
         )
         let presentation = GrokCardPresentation.from(info)
         #expect(presentation.showsSessionRow)
-        #expect(!presentation.showsWeeklyRow)
-        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.showsWeeklyRow)
+        #expect(presentation.weeklyPercent == nil)
+        #expect(presentation.displayedRowCount == 2)
         #expect(presentation.sessionPercent == 97)
     }
 
-    @Test("T11 valid Weekly does not display the short-window bar")
-    func grokValidWeeklyHidesShortWindowBar() {
+    @Test("T11 valid Weekly keeps both bars and their own resets")
+    func grokValidWeeklyKeepsBothResets() {
         let info = UsageInfo(
             sessionPercent: 100,
             weeklyPercent: 37,
             weeklyAvailable: true,
+            sessionResetText: "short reset",
+            weeklyRelativeResetText: "weekly reset",
             sessionWindowSeconds: 7200,
             isLoaded: true
         )
         let presentation = GrokCardPresentation.from(info)
-        #expect(presentation.showsSessionRow == false)
-        #expect(presentation.sessionPercent == nil)
+        #expect(presentation.showsSessionRow)
+        #expect(presentation.showsWeeklyRow)
+        #expect(presentation.sessionPercent == 100)
+        #expect(presentation.sessionResetText == "short reset")
+        #expect(presentation.weeklyResetText == "weekly reset")
         #expect(info.sessionPercent == 100)
     }
 
@@ -2150,6 +2212,8 @@ struct AIUsageBarTests {
             weeklyAvailable: true,
             resetText: "重置於 2 天後",
             weeklyResetText: "9 月 5 日 下午 3:11",
+            sessionResetText: "short reset",
+            weeklyRelativeResetText: "weekly reset",
             isLoaded: true
         )
         #expect(info.primaryRemainingPercent == 18)
@@ -2305,6 +2369,8 @@ struct AIUsageBarTests {
             weeklyAvailable: true,
             resetText: "重置於 2 天後",
             weeklyResetText: "9 月 5 日 下午 3:11",
+            sessionResetText: "short reset",
+            weeklyRelativeResetText: "weekly reset",
             sessionWindowSeconds: 7200,
             isLoaded: true
         )
@@ -2320,10 +2386,12 @@ struct AIUsageBarTests {
         #expect(info.weeklyAvailable)
         #expect(info.errorMessage != nil)
         #expect(presentation.showsWeeklyRow)
-        #expect(!presentation.showsSessionRow)
-        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.showsSessionRow)
+        #expect(presentation.displayedRowCount == 2)
         #expect(presentation.weeklyPercent == 37)
-        #expect(presentation.sessionPercent == nil)
+        #expect(presentation.sessionPercent == 99)
+        #expect(presentation.sessionResetText == "short reset")
+        #expect(presentation.weeklyResetText == "weekly reset")
         #expect(menuBarPrimary == 37)
         #expect(notificationPrimary == 37)
         #expect(presentation.weeklyPercent == menuBarPrimary)

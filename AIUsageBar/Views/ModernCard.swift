@@ -11,7 +11,7 @@ struct ModernCard: View {
     let weeklyUnavailableText: String?
     let sessionResetText: String?
     let weeklyResetText: String?
-    var footnote: String? = nil
+    var footnotes: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -48,11 +48,15 @@ struct ModernCard: View {
                 )
             }
 
-            if let footnote, !footnote.isEmpty {
-                Text(footnote)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.textSecondary.opacity(0.8))
-                    .lineLimit(1)
+            if !footnotes.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(footnotes.indices, id: \.self) { index in
+                        Text(footnotes[index])
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.textSecondary.opacity(0.8))
+                            .lineLimit(1)
+                    }
+                }
             }
         }
         .padding(16)

@@ -427,6 +427,108 @@
         }
       }
     },
+    "status.providerUpdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已更新 %@"
+          }
+        }
+      }
+    },
+    "status.providerDataStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stale data · last updated %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料已過期 · 上次更新 %@"
+          }
+        }
+      }
+    },
+    "status.providerRefreshFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh failed · showing data from %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新失敗 · 顯示 %@ 的資料"
+          }
+        }
+      }
+    },
+    "status.providerRefreshFailedStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh failed · showing stale data from %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新失敗 · 顯示 %@ 的過期資料"
+          }
+        }
+      }
+    },
+    "status.claudeOrganizationNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organization: %@ · ID …%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織：%@ · ID …%@"
+          }
+        }
+      }
+    },
+    "status.claudeOrganizationID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organization ID ends in %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織 ID 結尾為 %@"
+          }
+        }
+      }
+    },
     "status.rateLimitedRetry": {
       "extractionState": "manual",
       "localizations": {
@@ -1528,6 +1630,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "找不到 Claude Organization ID"
+          }
+        }
+      }
+    },
+    "error.claudeOrganizationUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude organization information is unavailable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法取得 Claude 組織資訊"
+          }
+        }
+      }
+    },
+    "error.claudeOrganizationAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple Claude organizations are available; AIUsageBar cannot safely choose one"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偵測到多個 Claude 組織，AIUsageBar 無法安全選擇"
           }
         }
       }

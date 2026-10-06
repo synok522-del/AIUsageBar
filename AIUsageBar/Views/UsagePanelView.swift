@@ -166,7 +166,8 @@ struct UsagePanelView: View {
                 sessionResetText: viewModel.claude.resetText,
                 weeklyResetText: viewModel.claude.weeklyResetText.isEmpty
                     ? nil
-                    : L10n.resetsAbsolute(viewModel.claude.weeklyResetText)
+                    : L10n.resetsAbsolute(viewModel.claude.weeklyResetText),
+                diagnosticFootnotes: viewModel.claude.organizationDiagnostic.map { [$0] } ?? []
             )
 
         case .grok:
@@ -184,14 +185,8 @@ struct UsagePanelView: View {
                 ),
                 weeklyRowLabel: L10n.weekly,
                 weeklyAccessibilityLabel: L10n.weekly,
-                sessionResetText: presentation.showsSessionRow ? viewModel.grok.resetText : nil,
-                weeklyResetText: presentation.showsWeeklyRow
-                    ? (viewModel.grok.resetText.isEmpty
-                        ? (viewModel.grok.weeklyResetText.isEmpty
-                            ? nil
-                            : L10n.resetsAbsolute(viewModel.grok.weeklyResetText))
-                        : viewModel.grok.resetText)
-                    : nil
+                sessionResetText: presentation.showsSessionRow ? presentation.sessionResetText : nil,
+                weeklyResetText: presentation.showsWeeklyRow ? presentation.weeklyResetText : nil
             )
         }
     }
@@ -243,7 +238,8 @@ struct UsagePanelView: View {
         weeklyRowLabel: String,
         weeklyAccessibilityLabel: String,
         sessionResetText: String?,
-        weeklyResetText: String?
+        weeklyResetText: String?,
+        diagnosticFootnotes: [String] = []
     ) -> some View {
 
         let weeklyRow = OptionalMeterRowBinding(
@@ -266,7 +262,7 @@ struct UsagePanelView: View {
                 weeklyUnavailableText: weeklyRow.unavailableText,
                 sessionResetText: sessionResetText,
                 weeklyResetText: weeklyRow.resetText,
-                footnote: info.staleCaption
+                footnotes: diagnosticFootnotes + [info.providerFreshnessCaption()].compactMap { $0 }
             )
 
         } else if let error = info.errorMessage {
@@ -308,7 +304,7 @@ struct UsagePanelView: View {
                 weeklyUnavailableText: nil,
                 sessionResetText: nil,
                 weeklyResetText: nil,
-                footnote: L10n.updating
+                footnotes: [L10n.updating]
 
             )
         }

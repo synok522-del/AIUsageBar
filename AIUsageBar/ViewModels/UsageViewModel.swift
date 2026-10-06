@@ -1659,12 +1659,17 @@ final class UsageViewModel: ObservableObject {
             weeklyUnavailable: usage.weeklyRemainingPercent == nil,
             resetText: usage.resetText,
             weeklyResetText: usage.weeklyResetText,
+            sessionResetText: usage.resetText,
             sessionWindowLabel: .fiveHourWindow,
             weeklyWindowLabel: .sevenDayWindow,
             isLoaded: true,
             errorMessage: nil,
             isStale: false,
-            observedAt: observedAt
+            observedAt: observedAt,
+            organizationDiagnostic: ClaudeOrganizationPresentation.diagnostic(
+                organizationID: usage.organizationID,
+                name: usage.organizationName
+            )
         )
         clearStatusMessage(for: "Claude")
     }
@@ -1677,6 +1682,7 @@ final class UsageViewModel: ObservableObject {
             weeklyUnavailable: usage.weeklyUnavailable,
             resetText: usage.resetText,
             weeklyResetText: usage.weeklyResetText ?? "",
+            sessionResetText: usage.resetText,
             sessionWindowLabel: .primaryWindow,
             weeklyWindowLabel: .secondaryWindow,
             isLoaded: true,
@@ -1692,10 +1698,13 @@ final class UsageViewModel: ObservableObject {
             sessionPercent: usage.sessionRemainingPercent,
             weeklyPercent: usage.weeklyRemainingPercent ?? 0,
             weeklyAvailable: usage.weeklyRemainingPercent != nil,
+            weeklyUnavailable: usage.weeklyRemainingPercent == nil,
             resetText: usage.weeklyRemainingPercent != nil
                 ? (usage.weeklyRelativeResetText ?? "")
                 : usage.resetText,
             weeklyResetText: usage.weeklyResetText ?? "",
+            sessionResetText: usage.resetText,
+            weeklyRelativeResetText: usage.weeklyRelativeResetText,
             sessionWindowSeconds: usage.sessionWindowSeconds,
             isLoaded: true,
             errorMessage: nil,

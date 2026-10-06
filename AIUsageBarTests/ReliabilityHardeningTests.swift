@@ -361,6 +361,80 @@ struct ReliabilityHardeningIntegrationTests {
         }
     }
 
+    @Test("Failed preferred ChatGPT save retains defaults and never tries the older alias")
+    func failedPreferredChatGPTSaveDoesNotDowngrade() {
+        let defaults = isolatedDefaults()
+        defaults.set(String(repeating: "p", count: 32), forKey: "chatGPTSessionToken")
+        defaults.set(String(repeating: "o", count: 32), forKey: "chatgptSessionToken")
+
+        let backend = InMemoryKeychainStorageBackend()
+        // The preferred value fails; a second save would succeed if migration
+        // incorrectly fell through to the older alias.
+        backend.queueProtectedSaveOutcomes([false, true])
+        let keychain = KeychainManager(backend: backend)
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+
+        model.migrateToKeychain(defaults: defaults)
+
+        #expect(backend.protectedSaveAttemptCount == 1)
+        #expect(backend.queuedProtectedSaveOutcomeCount == 1)
+        #expect(defaults.object(forKey: "chatGPTSessionToken") != nil)
+        #expect(defaults.object(forKey: "chatgptSessionToken") != nil)
+        #expect(!backend.hasProtectedItem(forKey: "chatGPTSessionToken"))
+    }
+
+    @Test("A retry after preferred ChatGPT save failure securely stores then removes defaults")
+    func preferredChatGPTSaveRetryCleansDefaultsAfterSecureSuccess() {
+        let defaults = isolatedDefaults()
+        defaults.set(String(repeating: "p", count: 32), forKey: "chatGPTSessionToken")
+        defaults.set(String(repeating: "o", count: 32), forKey: "chatgptSessionToken")
+
+        let backend = InMemoryKeychainStorageBackend()
+        backend.queueProtectedSaveOutcomes([false, true])
+        let keychain = KeychainManager(backend: backend)
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+
+        model.migrateToKeychain(defaults: defaults)
+        #expect(defaults.object(forKey: "chatGPTSessionToken") != nil)
+        #expect(defaults.object(forKey: "chatgptSessionToken") != nil)
+
+        model.migrateToKeychain(defaults: defaults)
+
+        #expect(backend.hasProtectedItem(forKey: "chatGPTSessionToken"))
+        #expect(defaults.object(forKey: "chatGPTSessionToken") == nil)
+        #expect(defaults.object(forKey: "chatgptSessionToken") == nil)
+    }
+
+    @Test("Legacy Keychain reads require a protected write and retry before deleting legacy data")
+    func legacyKeychainReadWaitsForProtectedWriteAndRetries() {
+        let key = "chatGPTSessionToken"
+        let backend = InMemoryKeychainStorageBackend(
+            legacyItems: [key: String(repeating: "l", count: 32)]
+        )
+        backend.queueProtectedSaveOutcomes([false, true])
+        let keychain = KeychainManager(backend: backend)
+
+        #expect(keychain.read(key) == nil)
+        #expect(!backend.hasProtectedItem(forKey: key))
+        #expect(backend.hasLegacyItem(forKey: key))
+
+        #expect(keychain.read(key) != nil)
+        #expect(backend.hasProtectedItem(forKey: key))
+        #expect(!backend.hasLegacyItem(forKey: key))
+    }
+
     @Test("Legacy credential residue is removed when Keychain is already populated")
     func legacyCredentialsAreCleanedWhenKeychainIsPopulated() {
         let defaults = isolatedDefaults()

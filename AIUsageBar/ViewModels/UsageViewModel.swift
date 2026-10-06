@@ -206,29 +206,24 @@ final class UsageViewModel: ObservableObject {
         ]
 
         for migration in migrations {
-            if credentialStore.read(migration.keychainKey) == nil {
-                for defaultsKey in migration.defaultsKeys {
-                    guard let value = defaults.string(forKey: defaultsKey), !value.isEmpty else {
-                        continue
-                    }
-
-                    credentialStore.save(value, forKey: migration.keychainKey)
-                    if credentialStore.read(migration.keychainKey) != nil {
-                        break
-                    }
+            // An already readable canonical Keychain item is authoritative and
+            // permits cleanup of stale defaults residue. When importing from
+            // defaults, select only the highest-priority non-empty alias; a
+            // failed write must never fall through to an older credential.
+            let existingCredential = credentialStore.read(migration.keychainKey)
+            if existingCredential?.isEmpty ?? true {
+                guard let preferredValue = migration.defaultsKeys.lazy
+                    .compactMap({ defaults.string(forKey: $0) })
+                    .first(where: { !$0.isEmpty }),
+                      credentialStore.save(preferredValue, forKey: migration.keychainKey),
+                      credentialStore.read(migration.keychainKey) == preferredValue else {
+                    continue
                 }
             }
 
-            let keychainHasCredential = credentialStore.read(migration.keychainKey) != nil
-            let hasUnmigratedValue = migration.defaultsKeys.contains { defaultsKey in
-                guard let value = defaults.string(forKey: defaultsKey) else { return false }
-                return !value.isEmpty
-            }
-
-            // If saving failed, retain the old value so a later launch can
-            // retry. Otherwise remove every legacy source, including stale
-            // alternates left behind when Keychain was already populated.
-            guard keychainHasCredential || !hasUnmigratedValue else { continue }
+            // Cleanup is allowed only when the canonical item was already
+            // securely readable or the preferred defaults value was saved and
+            // confirmed as that exact canonical value.
             for defaultsKey in migration.defaultsKeys {
                 defaults.removeObject(forKey: defaultsKey)
             }

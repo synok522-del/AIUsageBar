@@ -246,6 +246,12 @@ struct UsagePanelView: View {
         weeklyResetText: String?
     ) -> some View {
 
+        let weeklyRow = OptionalMeterRowBinding(
+            isSupported: supportsWeeklyQuota,
+            info: info,
+            unavailableText: L10n.windowDataUnavailable,
+            resetText: weeklyResetText
+        )
 
         if info.isLoaded {
 
@@ -254,14 +260,12 @@ struct UsagePanelView: View {
                 session: showsSessionRow ? info.sessionPercent : nil,
                 sessionRowLabel: sessionRowLabel,
                 sessionAccessibilityLabel: sessionAccessibilityLabel,
-                weekly: supportsWeeklyQuota ? info.weeklyPercent : nil,
+                weekly: weeklyRow.percent,
                 weeklyRowLabel: weeklyRowLabel,
                 weeklyAccessibilityLabel: weeklyAccessibilityLabel,
-                weeklyUnavailableText: supportsWeeklyQuota && info.weeklyUnavailable
-                    ? L10n.windowDataUnavailable
-                    : nil,
+                weeklyUnavailableText: weeklyRow.unavailableText,
                 sessionResetText: sessionResetText,
-                weeklyResetText: weeklyResetText,
+                weeklyResetText: weeklyRow.resetText,
                 footnote: info.staleCaption
             )
 
@@ -374,5 +378,36 @@ struct UsagePanelView: View {
                 }
             }
         )
+    }
+}
+
+struct OptionalMeterRowBinding: Equatable {
+    let percent: Int?
+    let unavailableText: String?
+    let resetText: String?
+
+    init(
+        isSupported: Bool,
+        info: UsageInfo,
+        unavailableText: String,
+        resetText: String?
+    ) {
+        guard isSupported else {
+            percent = nil
+            self.unavailableText = nil
+            self.resetText = nil
+            return
+        }
+
+        guard !info.weeklyUnavailable else {
+            percent = nil
+            self.unavailableText = unavailableText
+            self.resetText = nil
+            return
+        }
+
+        percent = info.weeklyPercent
+        self.unavailableText = nil
+        self.resetText = resetText
     }
 }

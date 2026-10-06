@@ -154,6 +154,29 @@ struct V2UsageLayerTests {
         #expect(info.weeklyResetText.isEmpty)
     }
 
+    @Test("Optional-window card binding distinguishes unavailable zero from available zero")
+    func optionalWindowCardBindingKeepsUnavailableDistinctFromZero() {
+        let unavailable = OptionalMeterRowBinding(
+            isSupported: true,
+            info: UsageInfo(weeklyPercent: 0, weeklyUnavailable: true),
+            unavailableText: L10n.windowDataUnavailable,
+            resetText: "primary reset"
+        )
+        #expect(unavailable.percent == nil)
+        #expect(unavailable.unavailableText == L10n.windowDataUnavailable)
+        #expect(unavailable.resetText == nil)
+
+        let availableZero = OptionalMeterRowBinding(
+            isSupported: true,
+            info: UsageInfo(weeklyPercent: 0, weeklyAvailable: true),
+            unavailableText: L10n.windowDataUnavailable,
+            resetText: "secondary reset"
+        )
+        #expect(availableZero.percent == 0)
+        #expect(availableZero.unavailableText == nil)
+        #expect(availableZero.resetText == "secondary reset")
+    }
+
     @Test("Account switch invalidates cache and notification history")
     func accountSwitchInvalidatesCacheAndNotifications() {
         var cache = UsageAccountCache()

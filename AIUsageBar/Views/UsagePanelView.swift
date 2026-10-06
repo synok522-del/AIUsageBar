@@ -141,20 +141,32 @@ struct UsagePanelView: View {
             providerCard(
                 title: "ChatGPT",
                 info: viewModel.chatGPT,
-                supportsWeeklyQuota: viewModel.chatGPT.weeklyAvailable,
+                supportsWeeklyQuota: viewModel.chatGPT.weeklyAvailable || viewModel.chatGPT.weeklyUnavailable,
                 showsSessionRow: true,
-                sessionRowLabel: L10n.fiveHours,
-                sessionAccessibilityLabel: L10n.fiveHours
+                sessionRowLabel: L10n.windowLabel(viewModel.chatGPT.sessionWindowLabel),
+                sessionAccessibilityLabel: L10n.windowLabel(viewModel.chatGPT.sessionWindowLabel),
+                weeklyRowLabel: L10n.windowLabel(viewModel.chatGPT.weeklyWindowLabel),
+                weeklyAccessibilityLabel: L10n.windowLabel(viewModel.chatGPT.weeklyWindowLabel),
+                sessionResetText: viewModel.chatGPT.resetText,
+                weeklyResetText: viewModel.chatGPT.weeklyResetText.isEmpty
+                    ? nil
+                    : L10n.resetsAbsolute(viewModel.chatGPT.weeklyResetText)
             )
 
         case .claude:
             providerCard(
                 title: "Claude",
                 info: viewModel.claude,
-                supportsWeeklyQuota: true,
+                supportsWeeklyQuota: viewModel.claude.weeklyAvailable || viewModel.claude.weeklyUnavailable,
                 showsSessionRow: true,
-                sessionRowLabel: L10n.fiveHours,
-                sessionAccessibilityLabel: L10n.fiveHours
+                sessionRowLabel: L10n.windowLabel(viewModel.claude.sessionWindowLabel),
+                sessionAccessibilityLabel: L10n.windowLabel(viewModel.claude.sessionWindowLabel),
+                weeklyRowLabel: L10n.windowLabel(viewModel.claude.weeklyWindowLabel),
+                weeklyAccessibilityLabel: L10n.windowLabel(viewModel.claude.weeklyWindowLabel),
+                sessionResetText: viewModel.claude.resetText,
+                weeklyResetText: viewModel.claude.weeklyResetText.isEmpty
+                    ? nil
+                    : L10n.resetsAbsolute(viewModel.claude.weeklyResetText)
             )
 
         case .grok:
@@ -169,7 +181,17 @@ struct UsagePanelView: View {
                 ),
                 sessionAccessibilityLabel: GrokService.sessionRowLabel(
                     windowSeconds: viewModel.grok.sessionWindowSeconds
-                )
+                ),
+                weeklyRowLabel: L10n.weekly,
+                weeklyAccessibilityLabel: L10n.weekly,
+                sessionResetText: presentation.showsSessionRow ? viewModel.grok.resetText : nil,
+                weeklyResetText: presentation.showsWeeklyRow
+                    ? (viewModel.grok.resetText.isEmpty
+                        ? (viewModel.grok.weeklyResetText.isEmpty
+                            ? nil
+                            : L10n.resetsAbsolute(viewModel.grok.weeklyResetText))
+                        : viewModel.grok.resetText)
+                    : nil
             )
         }
     }
@@ -217,7 +239,11 @@ struct UsagePanelView: View {
         supportsWeeklyQuota: Bool,
         showsSessionRow: Bool,
         sessionRowLabel: String?,
-        sessionAccessibilityLabel: String
+        sessionAccessibilityLabel: String,
+        weeklyRowLabel: String,
+        weeklyAccessibilityLabel: String,
+        sessionResetText: String?,
+        weeklyResetText: String?
     ) -> some View {
 
 
@@ -229,12 +255,13 @@ struct UsagePanelView: View {
                 sessionRowLabel: sessionRowLabel,
                 sessionAccessibilityLabel: sessionAccessibilityLabel,
                 weekly: supportsWeeklyQuota ? info.weeklyPercent : nil,
-                weeklyRowLabel: L10n.weekly,
-                weeklyAccessibilityLabel: L10n.weekly,
-                reset: ServiceSupport.combinedResetText(
-                    session: info.resetText,
-                    weekly: info.weeklyResetText
-                ),
+                weeklyRowLabel: weeklyRowLabel,
+                weeklyAccessibilityLabel: weeklyAccessibilityLabel,
+                weeklyUnavailableText: supportsWeeklyQuota && info.weeklyUnavailable
+                    ? L10n.windowDataUnavailable
+                    : nil,
+                sessionResetText: sessionResetText,
+                weeklyResetText: weeklyResetText,
                 footnote: info.staleCaption
             )
 
@@ -272,9 +299,12 @@ struct UsagePanelView: View {
                 sessionRowLabel: sessionRowLabel,
                 sessionAccessibilityLabel: sessionAccessibilityLabel,
                 weekly: nil,
-                weeklyRowLabel: L10n.weekly,
-                weeklyAccessibilityLabel: L10n.weekly,
-                reset: L10n.updating,
+                weeklyRowLabel: weeklyRowLabel,
+                weeklyAccessibilityLabel: weeklyAccessibilityLabel,
+                weeklyUnavailableText: nil,
+                sessionResetText: nil,
+                weeklyResetText: nil,
+                footnote: L10n.updating
 
             )
         }

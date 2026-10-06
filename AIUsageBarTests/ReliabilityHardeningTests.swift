@@ -62,6 +62,8 @@ struct ReliabilityHardeningUnitTests {
         let loaded = try #require(store.load(provider: .chatGPT, accountKey: accountKey))
         #expect(loaded.asOf == asOf)
         #expect(loaded.meters.allSatisfy { $0.resetText == nil && $0.weeklyRelativeResetText == nil })
+        #expect(loaded.meters.first { $0.meterId == "chatgpt.secondary_window" }?.availability == .available)
+        #expect(loaded.meters.first { $0.meterId == "chatgpt.secondary_window" }?.windowLabel == .secondaryWindow)
         #expect(store.load(provider: .chatGPT, accountKey: "other") == nil)
 
         var mismatched = try #require(LastGoodUsageStore.record(from: snapshot))
@@ -69,6 +71,51 @@ struct ReliabilityHardeningUnitTests {
         let data = try JSONEncoder().encode(mismatched)
         defaults.set(data, forKey: LastGoodUsageStore.storageKey(provider: "chatGPT", accountKey: accountKey))
         #expect(store.load(provider: .chatGPT, accountKey: accountKey) == nil)
+    }
+
+    @Test("Older persisted meters decode with safe label defaults")
+    func oldPersistedMeterDecodesWithoutNewMetadata() throws {
+        let meter = PersistedLastGoodMeter(
+            meterId: "chatgpt.primary_window",
+            window: UsageWindow.rolling5Hour.rawValue,
+            remainingPercent: 40,
+            usedPercent: 60,
+            resetAt: nil,
+            isDisplayedPrimary: true,
+            absoluteUsed: nil,
+            absoluteRemaining: nil,
+            absoluteLimit: nil,
+            overage: nil,
+            entitlement: nil,
+            windowDurationSeconds: nil
+        )
+        let record = PersistedLastGoodRecord(
+            schemaVersion: PersistedLastGoodRecord.currentSchemaVersion,
+            provider: UsageProviderID.chatGPT.rawValue,
+            accountKey: "account",
+            asOf: Date(),
+            health: UsageSourceHealth.available.rawValue,
+            sourceType: UsageSourceType.appWebKit.rawValue,
+            meters: [meter]
+        )
+        let encoded = try JSONEncoder().encode(record)
+        var json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var persistedMeters = try #require(json["meters"] as? [[String: Any]])
+        persistedMeters[0].removeValue(forKey: "windowLabel")
+        persistedMeters[0].removeValue(forKey: "availability")
+        json["meters"] = persistedMeters
+        let legacyData = try JSONSerialization.data(withJSONObject: json)
+        let decoded = try JSONDecoder().decode(PersistedLastGoodRecord.self, from: legacyData)
+        let snapshot = try #require(LastGoodUsageStore.snapshot(
+            from: decoded,
+            expectedProvider: .chatGPT,
+            expectedAccountKey: "account"
+        ))
+        let restoredMeter = try #require(snapshot.displayedPrimaryMeter)
+        #expect(restoredMeter.windowLabel == .primaryWindow)
+        #expect(restoredMeter.availability == .available)
+        let info = try #require(UsageInfoFromSnapshot.make(snapshot, stale: false))
+        #expect(info.weeklyUnavailable)
     }
 
     @Test("Persisted last-good recomputes relative reset text")

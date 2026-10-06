@@ -43,6 +43,24 @@ enum L10n {
 
     static var fiveHours: String { tr("meter.fiveHours", "5 hours") }
     static var weekly: String { tr("meter.weekly", "Weekly") }
+    static var primaryWindow: String { tr("meter.primaryWindow", "Primary window") }
+    static var secondaryWindow: String { tr("meter.secondaryWindow", "Secondary window") }
+    static var fiveHourWindow: String { tr("meter.fiveHourWindow", "5-hour window") }
+    static var sevenDayWindow: String { tr("meter.sevenDayWindow", "7-day window") }
+    static var windowDataUnavailable: String {
+        tr("meter.windowDataUnavailable", "Window data unavailable")
+    }
+
+    static func windowLabel(_ label: UsageWindowLabel) -> String {
+        switch label {
+        case .primaryWindow: primaryWindow
+        case .secondaryWindow: secondaryWindow
+        case .fiveHourWindow: fiveHourWindow
+        case .sevenDayWindow: sevenDayWindow
+        case .shortWindow: shortWindow
+        case .weeklyWindow: weekly
+        }
+    }
 
     static var notSignedIn: String { tr("status.notSignedIn", "Not signed in") }
     static var signedIn: String { tr("status.signedIn", "Signed in") }

@@ -222,6 +222,41 @@
         }
       }
     },
+    "meter.primaryWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Primary window" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "主要窗口" } }
+      }
+    },
+    "meter.secondaryWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Secondary window" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "次要窗口" } }
+      }
+    },
+    "meter.fiveHourWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "5-hour window" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "5 小時窗口" } }
+      }
+    },
+    "meter.sevenDayWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "7-day window" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "7 天窗口" } }
+      }
+    },
+    "meter.windowDataUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Window data unavailable" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "目前無法取得窗口資料" } }
+      }
+    },
     "status.notSignedIn": {
       "extractionState": "manual",
       "localizations": {

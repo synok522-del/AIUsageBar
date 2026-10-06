@@ -13,8 +13,11 @@ struct UsageInfo {
     var sessionPercent: Int = 0
     var weeklyPercent: Int = 0
     var weeklyAvailable: Bool = false
+    var weeklyUnavailable: Bool = false
     var resetText: String = ""
     var weeklyResetText: String = ""
+    var sessionWindowLabel: UsageWindowLabel = .primaryWindow
+    var weeklyWindowLabel: UsageWindowLabel = .secondaryWindow
     var sessionWindowSeconds: Int = 0
     var isLoaded: Bool = false
     var errorMessage: String?
@@ -27,10 +30,9 @@ struct UsageInfo {
 
     var primaryResetText: String {
         if weeklyAvailable {
-            return ServiceSupport.combinedResetText(
-                session: resetText,
-                weekly: weeklyResetText
-            )
+            return weeklyResetText.isEmpty
+                ? resetText
+                : L10n.resetsAbsolute(weeklyResetText)
         }
         return resetText
     }

@@ -506,7 +506,7 @@ struct V2ProductionIntegrationTests {
             now: Date(),
             expectedAccountKey: UsageIdentity.accountKey(from: "chatgpt-token"),
             meterId: "chatgpt.secondary_window",
-            window: .weekly
+            window: .unknown
         ) == .expired)
     }
 

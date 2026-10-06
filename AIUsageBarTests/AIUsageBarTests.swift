@@ -859,6 +859,26 @@ struct AIUsageBarTests {
         }
     }
 
+    @Test("Claude missing or unparseable seven_day data remains explicitly unavailable")
+    func claudeOptionalWindowDoesNotInvalidatePrimaryUsage() throws {
+        let missing = try ClaudeService.parseUsage([
+            "five_hour": ["utilization": 25, "resets_at": 1_700_000_000]
+        ])
+        #expect(missing.sessionRemainingPercent == 75)
+        #expect(missing.weeklyRemainingPercent == nil)
+        #expect(missing.weeklyResetText.isEmpty)
+        #expect(missing.weeklyResetAt == nil)
+
+        let changedSchema = try ClaudeService.parseUsage([
+            "five_hour": ["utilization": 25],
+            "seven_day": ["utilization": "not-a-number", "resets_at": 1_800_000_000]
+        ])
+        #expect(changedSchema.sessionRemainingPercent == 75)
+        #expect(changedSchema.weeklyRemainingPercent == nil)
+        #expect(changedSchema.weeklyResetText.isEmpty)
+        #expect(changedSchema.weeklyResetAt == nil)
+    }
+
     @Test("Claude usage parsing rejects malformed required numbers")
     func claudeUsageParsingRejectsMalformedRequiredNumbers() {
         let usage: [String: [String: Any]] = [
@@ -949,6 +969,27 @@ struct AIUsageBarTests {
         #expect(parsed.weeklyRemainingPercent == 97)
         #expect(parsed.weeklyResetText != nil)
         #expect(!(parsed.weeklyResetText ?? "").isEmpty)
+    }
+
+    @Test("ChatGPT missing or malformed secondary data is marked unavailable")
+    func chatGPTOptionalWindowUnavailableIsExplicit() throws {
+        let missing = try ChatGPTService.parseUsage([
+            "rate_limit": ["primary_window": ["used_percent": 25]]
+        ])
+        #expect(missing.sessionRemainingPercent == 75)
+        #expect(missing.weeklyRemainingPercent == nil)
+        #expect(missing.weeklyUnavailable)
+
+        let changedSchema = try ChatGPTService.parseUsage([
+            "rate_limit": [
+                "primary_window": ["used_percent": 25],
+                "secondary_window": ["used_percent": "not-a-number", "reset_at": 1_700_000_000]
+            ]
+        ])
+        #expect(changedSchema.sessionRemainingPercent == 75)
+        #expect(changedSchema.weeklyRemainingPercent == nil)
+        #expect(changedSchema.weeklyUnavailable)
+        #expect(changedSchema.weeklyResetAt == nil)
     }
 
     @Test("ChatGPT weekly zero percent remains available")
@@ -2126,8 +2167,8 @@ struct AIUsageBarTests {
             hasError: false
         )
         #expect(notifiedOnWeeklyPrimary)
-        #expect(info.primaryResetText.contains("重置於 2 天後"))
-        #expect(info.primaryResetText.contains("9 月 5 日 下午 3:11"))
+        #expect(info.primaryResetText == L10n.resetsAbsolute("9 月 5 日 下午 3:11"))
+        #expect(!info.primaryResetText.contains("2 天後"))
     }
 
     @Test("T13 notification uses short-window remaining when Weekly is absent")

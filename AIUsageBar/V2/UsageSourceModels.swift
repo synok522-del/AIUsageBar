@@ -30,6 +30,22 @@ enum UsageWindow: String, Hashable, Sendable {
     case unknown
 }
 
+/// User-facing wording is kept separate from provider quota semantics. A
+/// ChatGPT `primary_window` is not assumed to mean a five-hour allowance.
+enum UsageWindowLabel: String, Codable, Hashable, Sendable {
+    case primaryWindow
+    case secondaryWindow
+    case fiveHourWindow
+    case sevenDayWindow
+    case shortWindow
+    case weeklyWindow
+}
+
+enum UsageMeterAvailability: String, Codable, Hashable, Sendable {
+    case available
+    case unavailable
+}
+
 enum UsageValidity: String, Hashable, Sendable {
     case fresh
     case staleButValid
@@ -46,6 +62,8 @@ enum UsageSourceHealth: String, Hashable, Sendable {
 struct UsageMeter: Equatable, Sendable {
     var meterId: String
     var window: UsageWindow
+    var windowLabel: UsageWindowLabel = .primaryWindow
+    var availability: UsageMeterAvailability = .available
     var remainingPercent: Int?
     var usedPercent: Int?
     var resetAt: Date?
@@ -60,7 +78,22 @@ struct UsageMeter: Equatable, Sendable {
     var windowDurationSeconds: Int? = nil
 
     func validity(observedAt: Date, now: Date, identityMatches: Bool) -> UsageValidity {
-        guard !meterId.isEmpty,
+        guard !meterId.isEmpty else { return .invalid }
+        if availability == .unavailable {
+            guard remainingPercent == nil,
+                  usedPercent == nil,
+                  absoluteUsed == nil,
+                  absoluteRemaining == nil,
+                  absoluteLimit == nil,
+                  overage == nil else { return .invalid }
+            return UsageValidityPolicy.validity(
+                asOf: observedAt,
+                now: now,
+                expiresAt: nil,
+                identityMatches: identityMatches
+            )
+        }
+        guard
               remainingPercent != nil || usedPercent != nil || absoluteUsed != nil || absoluteRemaining != nil,
               [absoluteUsed, absoluteRemaining, absoluteLimit, overage].compactMap({ $0 }).allSatisfy({ $0.isFinite && $0 >= 0 }),
               remainingPercent.map({ (0...100).contains($0) }) ?? true,

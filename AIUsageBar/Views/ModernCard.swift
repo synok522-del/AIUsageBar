@@ -8,7 +8,9 @@ struct ModernCard: View {
     let weekly: Int?
     let weeklyRowLabel: String
     let weeklyAccessibilityLabel: String
-    let reset: String
+    let weeklyUnavailableText: String?
+    let sessionResetText: String?
+    let weeklyResetText: String?
     var footnote: String? = nil
 
     var body: some View {
@@ -21,7 +23,9 @@ struct ModernCard: View {
                 ProgressLine(
                     rowLabel: sessionRowLabel,
                     accessibilityLabel: sessionAccessibilityLabel,
-                    value: session
+                    value: session,
+                    unavailableText: nil,
+                    resetText: sessionResetText
                 )
             }
 
@@ -29,16 +33,19 @@ struct ModernCard: View {
                 ProgressLine(
                     rowLabel: weeklyRowLabel,
                     accessibilityLabel: weeklyAccessibilityLabel,
-                    value: weekly
+                    value: weekly,
+                    unavailableText: nil,
+                    resetText: weeklyResetText
                 )
             }
-
-            if !reset.isEmpty {
-                Text(reset)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+            else if let weeklyUnavailableText {
+                ProgressLine(
+                    rowLabel: weeklyRowLabel,
+                    accessibilityLabel: weeklyAccessibilityLabel,
+                    value: nil,
+                    unavailableText: weeklyUnavailableText,
+                    resetText: weeklyResetText
+                )
             }
 
             if let footnote, !footnote.isEmpty {
@@ -77,62 +84,91 @@ struct ModernCard: View {
 private struct ProgressLine: View {
     let rowLabel: String?
     let accessibilityLabel: String
-    let value: Int
+    let value: Int?
+    let unavailableText: String?
+    let resetText: String?
 
     private var percent: Int {
-        min(max(value, 0), 100)
+        min(max(value ?? 0, 0), 100)
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            if let rowLabel {
-                Text(rowLabel)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.75)
-                    .multilineTextAlignment(.leading)
-                    .frame(width: 64, alignment: .leading)
-                    .accessibilityHidden(true)
-            } else {
-                Color.clear
-                    .frame(width: 64)
-                    .accessibilityHidden(true)
-            }
-
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Theme.track)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                if let rowLabel {
+                    Text(rowLabel)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                        .multilineTextAlignment(.leading)
+                        .frame(width: 64, alignment: .leading)
                         .accessibilityHidden(true)
+                } else {
+                    Color.clear
+                        .frame(width: 64)
+                        .accessibilityHidden(true)
+                }
 
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [Theme.purple, Theme.pink],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: geometry.size.width * CGFloat(percent) / 100)
-                        .shadow(color: Theme.pink.opacity(0.35), radius: 6)
+                if value != nil {
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Theme.track)
+                                .accessibilityHidden(true)
+
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Theme.purple, Theme.pink],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: geometry.size.width * CGFloat(percent) / 100)
+                                .shadow(color: Theme.pink.opacity(0.35), radius: 6)
+                                .animation(.easeInOut(duration: 0.5), value: percent)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .frame(height: 7)
+                    .accessibilityHidden(true)
+
+                    Text("\(percent)%")
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(Theme.textPrimary)
+                        .frame(width: 38, alignment: .trailing)
+                        .contentTransition(.numericText())
                         .animation(.easeInOut(duration: 0.5), value: percent)
+                        .accessibilityHidden(true)
+                } else {
+                    Text(unavailableText ?? L10n.windowDataUnavailable)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
                         .accessibilityHidden(true)
                 }
             }
-            .frame(height: 7)
-            .accessibilityHidden(true)
 
-            Text("\(percent)%")
-                .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: 38, alignment: .trailing)
-                .contentTransition(.numericText())
-                .animation(.easeInOut(duration: 0.5), value: percent)
-                .accessibilityHidden(true)
+            if let resetText, !resetText.isEmpty {
+                Text(resetText)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 74)
+                    .accessibilityHidden(true)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(L10n.remainingPercent(percent))
+        .accessibilityValue(accessibilityValue)
+    }
+
+    private var accessibilityValue: String {
+        let meterValue = value.map(L10n.remainingPercent) ?? (unavailableText ?? L10n.windowDataUnavailable)
+        guard let resetText, !resetText.isEmpty else { return meterValue }
+        return "\(meterValue), \(resetText)"
     }
 }

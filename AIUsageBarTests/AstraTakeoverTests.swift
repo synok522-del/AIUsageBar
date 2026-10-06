@@ -123,7 +123,7 @@ struct AstraTakeoverTests {
             sessionResetAt: now.addingTimeInterval(100), weeklyResetAt: now), token: "synthetic-A")
         #expect(snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh)
         #expect(snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey,
-            meterId: "chatgpt.secondary_window", window: .weekly) == .expired)
+            meterId: "chatgpt.secondary_window", window: .unknown) == .expired)
     }
 
     @Test func actualNotificationManagerScopesPrimaryAndReset() {

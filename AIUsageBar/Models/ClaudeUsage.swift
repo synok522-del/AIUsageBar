@@ -10,7 +10,7 @@ import Foundation
 
 struct ClaudeUsage {
     let sessionRemainingPercent: Int
-    let weeklyRemainingPercent: Int
+    let weeklyRemainingPercent: Int?
     let resetText: String
     let weeklyResetText: String
     let sessionResetAt: Date?
@@ -18,7 +18,7 @@ struct ClaudeUsage {
 
     init(
         sessionRemainingPercent: Int,
-        weeklyRemainingPercent: Int,
+        weeklyRemainingPercent: Int?,
         resetText: String,
         weeklyResetText: String,
         sessionResetAt: Date? = nil,

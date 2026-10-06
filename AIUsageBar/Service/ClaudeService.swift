@@ -20,23 +20,25 @@ struct ClaudeService: ClaudeUsageFetching {
             serviceName: "Claude",
             field: "five_hour.utilization"
         )
-        let weeklyUsed = try ServiceSupport.requiredPercent(
+        let weeklyUsed = try? ServiceSupport.requiredPercent(
             usage["seven_day"]?["utilization"],
             serviceName: "Claude",
             field: "seven_day.utilization"
         )
         let sessionReset = ServiceSupport.resetText(usage["five_hour"]?["resets_at"])
-        let weeklyAbsoluteReset = ServiceSupport.absoluteResetText(
-            usage["seven_day"]?["resets_at"]
-        )
+        let weeklyAbsoluteReset = weeklyUsed == nil
+            ? ""
+            : ServiceSupport.absoluteResetText(usage["seven_day"]?["resets_at"])
 
         return ClaudeUsage(
             sessionRemainingPercent: max(0, 100 - sessionUsed),
-            weeklyRemainingPercent: max(0, 100 - weeklyUsed),
+            weeklyRemainingPercent: weeklyUsed.map { max(0, 100 - $0) },
             resetText: sessionReset,
             weeklyResetText: weeklyAbsoluteReset,
             sessionResetAt: ServiceSupport.resetDate(usage["five_hour"]?["resets_at"]),
-            weeklyResetAt: ServiceSupport.resetDate(usage["seven_day"]?["resets_at"])
+            weeklyResetAt: weeklyUsed == nil
+                ? nil
+                : ServiceSupport.resetDate(usage["seven_day"]?["resets_at"])
         )
     }
 

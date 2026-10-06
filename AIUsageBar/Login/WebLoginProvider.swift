@@ -75,6 +75,34 @@ enum WebLoginProvider {
     }
 }
 
+enum ProviderNavigationPolicy {
+    static func permits(_ url: URL?, for provider: WebLoginProvider) -> Bool {
+        guard let url,
+              url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              !host.isEmpty,
+              !host.hasSuffix("."),
+              url.user == nil,
+              url.password == nil,
+              url.port == nil || url.port == 443 else {
+            return false
+        }
+
+        switch provider {
+        case .chatGPT:
+            return WebSessionProvider.chatGPT.matches(host)
+        case .claude:
+            return WebSessionProvider.claude.matches(host)
+        case .grok:
+            // The repository supports grok.com login and explicitly exercises
+            // accounts.grok.com/continue. Other paths and subdomains, x.ai,
+            // and x.com are not established login destinations here.
+            return host == "grok.com"
+                || (host == "accounts.grok.com" && url.path == "/continue")
+        }
+    }
+}
+
 struct WebLoginView: NSViewRepresentable {
     let provider: WebLoginProvider
     let onCredentialFound: (WebCredential) -> Void
@@ -112,6 +140,17 @@ struct WebLoginView: NSViewRepresentable {
         init(provider: WebLoginProvider, onCredentialFound: @escaping (WebCredential) -> Void) {
             self.provider = provider
             self.onCredentialFound = onCredentialFound
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            let destination = navigationAction.request.url
+            decisionHandler(
+                ProviderNavigationPolicy.permits(destination, for: provider) ? .allow : .cancel
+            )
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

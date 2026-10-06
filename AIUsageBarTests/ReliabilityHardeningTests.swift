@@ -1,9 +1,29 @@
 import AppKit
 import Foundation
+import Security
 import Testing
 @testable import AIUsageBar
 
 struct ReliabilityHardeningUnitTests {
+    @Test("Credential Keychain writes use device-only when-unlocked accessibility")
+    func credentialKeychainAccessibilityIsDeviceOnlyAndWhenUnlocked() {
+        let data = Data("synthetic-credential".utf8)
+        let attributes = KeychainManager.credentialItemAttributes(for: data)
+        let protectedQuery = KeychainManager.queryAttributes(forKey: "synthetic-account")
+        let legacyQuery = KeychainManager.queryAttributes(
+            forKey: "synthetic-account",
+            useDataProtectionKeychain: false
+        )
+
+        #expect(
+            (attributes[kSecAttrAccessible as String] as? String)
+                == (kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
+        )
+        #expect(attributes[kSecValueData as String] as? Data == data)
+        #expect(protectedQuery[kSecUseDataProtectionKeychain as String] as? Bool == true)
+        #expect(legacyQuery[kSecUseDataProtectionKeychain as String] == nil)
+    }
+
     @Test("Duplicate lane begins are rejected until finish")
     func laneBookSingleFlightAndLateEpoch() {
         var book = ProviderRefreshLaneBook()
@@ -304,6 +324,112 @@ struct ReliabilityHardeningUnitTests {
 
 @MainActor
 struct ReliabilityHardeningIntegrationTests {
+    @Test("Legacy credential defaults migrate to an empty Keychain and are removed")
+    func legacyCredentialsMigrateWithEmptyKeychain() {
+        let defaults = isolatedDefaults()
+        let keychain = KeychainManager(inMemory: true)
+        defaults.set("legacy-claude", forKey: "claudeSessionKey")
+        defaults.set("current-chatgpt", forKey: "chatGPTSessionToken")
+        defaults.set("older-chatgpt", forKey: "chatgptSessionToken")
+        defaults.set("chatgpt-cookie-header", forKey: "chatGPTCookieHeader")
+        defaults.set("legacy-grok", forKey: "grokSessionToken")
+        defaults.set("grok-cookie-header", forKey: "grokCookieHeader")
+
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+        model.migrateToKeychain(defaults: defaults)
+
+        #expect(keychain.read("claudeSessionKey") == "legacy-claude")
+        #expect(keychain.read("chatGPTSessionToken") == "current-chatgpt")
+        #expect(keychain.read("chatGPTCookieHeader") == "chatgpt-cookie-header")
+        #expect(keychain.read("grokSessionToken") == "legacy-grok")
+        #expect(keychain.read("grokCookieHeader") == "grok-cookie-header")
+        for key in [
+            "claudeSessionKey",
+            "chatGPTSessionToken",
+            "chatgptSessionToken",
+            "chatGPTCookieHeader",
+            "grokSessionToken",
+            "grokCookieHeader"
+        ] {
+            #expect(defaults.object(forKey: key) == nil)
+        }
+    }
+
+    @Test("Legacy credential residue is removed when Keychain is already populated")
+    func legacyCredentialsAreCleanedWhenKeychainIsPopulated() {
+        let defaults = isolatedDefaults()
+        let keychain = KeychainManager(inMemory: true)
+        let existing = [
+            "claudeSessionKey": "stored-claude",
+            "chatGPTSessionToken": "stored-chatgpt",
+            "chatGPTCookieHeader": "stored-chatgpt-header",
+            "grokSessionToken": "stored-grok",
+            "grokCookieHeader": "stored-grok-header"
+        ]
+        for (key, value) in existing {
+            keychain.save(value, forKey: key)
+        }
+        for key in [
+            "claudeSessionKey",
+            "chatGPTSessionToken",
+            "chatgptSessionToken",
+            "chatGPTCookieHeader",
+            "grokSessionToken",
+            "grokCookieHeader"
+        ] {
+            defaults.set("stale-legacy-value", forKey: key)
+        }
+
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+        model.migrateToKeychain(defaults: defaults)
+
+        for (key, value) in existing {
+            #expect(keychain.read(key) == value)
+        }
+        for key in [
+            "claudeSessionKey",
+            "chatGPTSessionToken",
+            "chatgptSessionToken",
+            "chatGPTCookieHeader",
+            "grokSessionToken",
+            "grokCookieHeader"
+        ] {
+            #expect(defaults.object(forKey: key) == nil)
+        }
+    }
+
+    @Test("Legacy credential cleanup is idempotent")
+    func legacyCredentialCleanupIsIdempotent() {
+        let defaults = isolatedDefaults()
+        let keychain = KeychainManager(inMemory: true)
+        defaults.set("once-only-value", forKey: "chatgptSessionToken")
+
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+        model.migrateToKeychain(defaults: defaults)
+        model.migrateToKeychain(defaults: defaults)
+
+        #expect(keychain.read("chatGPTSessionToken") == "once-only-value")
+        #expect(defaults.object(forKey: "chatgptSessionToken") == nil)
+    }
+
     @Test("A successful provider refresh does not make a failed provider appear fresh")
     func providerFreshnessIsIndependentAfterMixedRefresh() async throws {
         let clock = TestClock()

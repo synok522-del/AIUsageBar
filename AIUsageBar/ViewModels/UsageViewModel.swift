@@ -128,7 +128,7 @@ final class UsageViewModel: ObservableObject {
         self.now = now
         self.wakeCoalesce = max(0, wakeCoalesce)
 
-        if !KeychainManager.isTestProcess { migrateToKeychain() }
+        if !KeychainManager.isTestProcess { migrateToKeychain(defaults: .standard) }
 
         self.claudeSessionKey =
             self.credentialStore.read(
@@ -193,67 +193,44 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - Keychain Migration
 
-    private func migrateToKeychain() {
+    func migrateToKeychain(defaults: UserDefaults = .standard) {
+        let migrations: [(keychainKey: String, defaultsKeys: [String])] = [
+            (StorageKey.claudeSessionKey, [StorageKey.claudeSessionKey]),
+            (
+                StorageKey.chatGPTSessionToken,
+                [StorageKey.chatGPTSessionToken, StorageKey.oldChatGPTSessionToken]
+            ),
+            (StorageKey.chatGPTCookieHeader, [StorageKey.chatGPTCookieHeader]),
+            (StorageKey.grokSessionToken, [StorageKey.grokSessionToken]),
+            (StorageKey.grokCookieHeader, [StorageKey.grokCookieHeader])
+        ]
 
-        let defaults = UserDefaults.standard
+        for migration in migrations {
+            if credentialStore.read(migration.keychainKey) == nil {
+                for defaultsKey in migration.defaultsKeys {
+                    guard let value = defaults.string(forKey: defaultsKey), !value.isEmpty else {
+                        continue
+                    }
 
-
-        // Claude
-
-        if self.credentialStore.read(
-            StorageKey.claudeSessionKey
-        ) == nil {
-
-            if let oldValue = defaults.string(
-                forKey: StorageKey.claudeSessionKey
-            ) {
-
-                self.credentialStore.save(
-                    oldValue,
-                    forKey: StorageKey.claudeSessionKey
-                )
-
-                defaults.removeObject(
-                    forKey: StorageKey.claudeSessionKey
-                )
+                    credentialStore.save(value, forKey: migration.keychainKey)
+                    if credentialStore.read(migration.keychainKey) != nil {
+                        break
+                    }
+                }
             }
-        }
 
+            let keychainHasCredential = credentialStore.read(migration.keychainKey) != nil
+            let hasUnmigratedValue = migration.defaultsKeys.contains { defaultsKey in
+                guard let value = defaults.string(forKey: defaultsKey) else { return false }
+                return !value.isEmpty
+            }
 
-        // ChatGPT 新 key
-
-        if self.credentialStore.read(
-            StorageKey.chatGPTSessionToken
-        ) == nil {
-
-
-            let newValue =
-            defaults.string(
-                forKey: StorageKey.chatGPTSessionToken
-            )
-
-
-            let oldValue =
-            defaults.string(
-                forKey: StorageKey.oldChatGPTSessionToken
-            )
-
-
-            if let token = newValue ?? oldValue {
-
-                self.credentialStore.save(
-                    token,
-                    forKey: StorageKey.chatGPTSessionToken
-                )
-
-
-                defaults.removeObject(
-                    forKey: StorageKey.chatGPTSessionToken
-                )
-
-                defaults.removeObject(
-                    forKey: StorageKey.oldChatGPTSessionToken
-                )
+            // If saving failed, retain the old value so a later launch can
+            // retry. Otherwise remove every legacy source, including stale
+            // alternates left behind when Keychain was already populated.
+            guard keychainHasCredential || !hasUnmigratedValue else { continue }
+            for defaultsKey in migration.defaultsKeys {
+                defaults.removeObject(forKey: defaultsKey)
             }
         }
     }

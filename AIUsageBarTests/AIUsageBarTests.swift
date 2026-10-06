@@ -1395,6 +1395,31 @@ struct AIUsageBarTests {
         )
     }
 
+    @Test("Provider login navigation allows only supported HTTPS destinations")
+    func providerLoginNavigationUsesProviderAllowLists() {
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://chatgpt.com/auth/login"), for: .chatGPT))
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://auth.chatgpt.com/"), for: .chatGPT))
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://auth.openai.com/"), for: .chatGPT))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://login.openai.com.attacker.example/"), for: .chatGPT))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://unrelated.example/"), for: .chatGPT))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "http://chatgpt.com/"), for: .chatGPT))
+
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://claude.ai/login"), for: .claude))
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://auth.anthropic.com/"), for: .claude))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://claude.ai.attacker.example/"), for: .claude))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://unrelated.example/"), for: .claude))
+
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://grok.com/"), for: .grok))
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://accounts.grok.com/continue"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://accounts.grok.com/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://other.grok.com/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://x.ai/auth"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://x.com/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://unrelated.example/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "http://grok.com/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://user@grok.com/"), for: .grok))
+    }
+
     @Test("Grok login URL and display name are product-scoped")
     func grokLoginProviderUsesGrokDotCom() {
         #expect(WebLoginProvider.grok.displayName == "Grok")
@@ -1954,22 +1979,23 @@ struct AIUsageBarTests {
         )
     }
 
-    @Test("Grok Cookie header is stripped on redirect outside grok.com")
-    func grokCookieHeaderIsStrippedOutsideGrokHost() {
-        var foreign = URLRequest(url: URL(string: "https://example.com/steal")!)
-        foreign.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
-        let rewritten = GrokRedirectPolicy.requestAfterRedirect(foreign)
-        #expect(rewritten?.url?.host == "example.com")
-        #expect(rewritten?.value(forHTTPHeaderField: "Cookie") == nil)
-
-        var grok = URLRequest(url: URL(string: "https://accounts.grok.com/continue")!)
-        grok.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
-        let kept = GrokRedirectPolicy.requestAfterRedirect(grok)
+    @Test("Grok quota redirects stay on the original HTTPS origin")
+    func grokQuotaRedirectsStayOnOriginalOrigin() {
+        let origin = URL(string: "https://grok.com/rest/rate-limits")!
+        var sameOrigin = URLRequest(url: URL(string: "https://grok.com/rest/usage")!)
+        sameOrigin.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
+        let kept = GrokRedirectPolicy.requestAfterRedirect(sameOrigin, originalURL: origin)
         #expect(kept?.value(forHTTPHeaderField: "Cookie") == "sso=dummy-sso")
 
-        var xai = URLRequest(url: URL(string: "https://x.ai/auth")!)
-        xai.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
-        #expect(GrokRedirectPolicy.requestAfterRedirect(xai)?.value(forHTTPHeaderField: "Cookie") == nil)
+        for destination in [
+            "https://accounts.grok.com/continue",
+            "https://other.example/steal",
+            "https://x.ai/auth",
+            "http://grok.com/rest/usage"
+        ] {
+            let request = URLRequest(url: URL(string: destination)!)
+            #expect(GrokRedirectPolicy.requestAfterRedirect(request, originalURL: origin) == nil)
+        }
     }
 
     @Test("Web session manager is isolated to the main actor")

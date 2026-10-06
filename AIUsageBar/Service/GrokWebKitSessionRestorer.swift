@@ -110,6 +110,23 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
         webView.load(URLRequest(url: Self.restoreURL))
     }
 
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard webView === self.webView else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        decisionHandler(
+            ProviderNavigationPolicy.permits(navigationAction.request.url, for: .grok)
+                ? .allow
+                : .cancel
+        )
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard webView === self.webView else { return }
         let generation = pending?.generation

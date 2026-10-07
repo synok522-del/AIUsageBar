@@ -859,6 +859,75 @@ struct AIUsageBarTests {
         }
     }
 
+    @Test("Claude missing or unparseable seven_day data remains explicitly unavailable")
+    func claudeOptionalWindowDoesNotInvalidatePrimaryUsage() throws {
+        let missing = try ClaudeService.parseUsage([
+            "five_hour": ["utilization": 25, "resets_at": 1_700_000_000]
+        ])
+        #expect(missing.sessionRemainingPercent == 75)
+        #expect(missing.weeklyRemainingPercent == nil)
+        #expect(missing.weeklyResetText.isEmpty)
+        #expect(missing.weeklyResetAt == nil)
+
+        let changedSchema = try ClaudeService.parseUsage([
+            "five_hour": ["utilization": 25],
+            "seven_day": ["utilization": "not-a-number", "resets_at": 1_800_000_000]
+        ])
+        #expect(changedSchema.sessionRemainingPercent == 75)
+        #expect(changedSchema.weeklyRemainingPercent == nil)
+        #expect(changedSchema.weeklyResetText.isEmpty)
+        #expect(changedSchema.weeklyResetAt == nil)
+    }
+
+    @Test("Claude organization selection is stable and carries safe diagnostic context")
+    func claudeOrganizationSelectionAndDiagnosticContext() throws {
+        let selected = try ClaudeService.selectOrganization(from: [[
+            "id": " org-123456 ",
+            "uuid": "org-123456",
+            "name": " Studio\nTeam "
+        ]])
+        let usage = try ClaudeService.parseUsage(
+            ["five_hour": ["utilization": 25]],
+            organization: selected
+        )
+        let diagnostic = ClaudeOrganizationPresentation.diagnostic(
+            organizationID: usage.organizationID,
+            name: usage.organizationName
+        )
+
+        #expect(selected.id == "org-123456")
+        #expect(selected.displayName == "Studio Team")
+        #expect(usage.organizationID == "org-123456")
+        #expect(usage.organizationName == "Studio Team")
+        #expect(diagnostic == L10n.claudeOrganizationNamed("Studio Team", "3456"))
+        #expect(diagnostic?.contains("org-123456") == false)
+    }
+
+    @Test("Claude refuses ambiguous or incomplete organization lists")
+    func claudeOrganizationSelectionFailsClosed() {
+        var ambiguous: ClaudeOrganizationSelectionError?
+        do {
+            _ = try ClaudeService.selectOrganization(from: [
+                ["id": "org-one", "name": "One"],
+                ["uuid": "org-two", "name": "Two"]
+            ])
+        } catch {
+            ambiguous = error as? ClaudeOrganizationSelectionError
+        }
+        #expect(ambiguous == .ambiguous)
+
+        var unavailable: ClaudeOrganizationSelectionError?
+        do {
+            _ = try ClaudeService.selectOrganization(from: [
+                ["id": "org-one"],
+                ["name": "Unknown identity"]
+            ])
+        } catch {
+            unavailable = error as? ClaudeOrganizationSelectionError
+        }
+        #expect(unavailable == .unavailable)
+    }
+
     @Test("Claude usage parsing rejects malformed required numbers")
     func claudeUsageParsingRejectsMalformedRequiredNumbers() {
         let usage: [String: [String: Any]] = [
@@ -949,6 +1018,27 @@ struct AIUsageBarTests {
         #expect(parsed.weeklyRemainingPercent == 97)
         #expect(parsed.weeklyResetText != nil)
         #expect(!(parsed.weeklyResetText ?? "").isEmpty)
+    }
+
+    @Test("ChatGPT missing or malformed secondary data is marked unavailable")
+    func chatGPTOptionalWindowUnavailableIsExplicit() throws {
+        let missing = try ChatGPTService.parseUsage([
+            "rate_limit": ["primary_window": ["used_percent": 25]]
+        ])
+        #expect(missing.sessionRemainingPercent == 75)
+        #expect(missing.weeklyRemainingPercent == nil)
+        #expect(missing.weeklyUnavailable)
+
+        let changedSchema = try ChatGPTService.parseUsage([
+            "rate_limit": [
+                "primary_window": ["used_percent": 25],
+                "secondary_window": ["used_percent": "not-a-number", "reset_at": 1_700_000_000]
+            ]
+        ])
+        #expect(changedSchema.sessionRemainingPercent == 75)
+        #expect(changedSchema.weeklyRemainingPercent == nil)
+        #expect(changedSchema.weeklyUnavailable)
+        #expect(changedSchema.weeklyResetAt == nil)
     }
 
     @Test("ChatGPT weekly zero percent remains available")
@@ -1303,6 +1393,31 @@ struct AIUsageBarTests {
                 error: URLError(.cancelled)
             ) == nil
         )
+    }
+
+    @Test("Provider login navigation allows only supported HTTPS destinations")
+    func providerLoginNavigationUsesProviderAllowLists() {
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://chatgpt.com/auth/login"), for: .chatGPT))
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://auth.chatgpt.com/"), for: .chatGPT))
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://auth.openai.com/"), for: .chatGPT))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://login.openai.com.attacker.example/"), for: .chatGPT))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://unrelated.example/"), for: .chatGPT))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "http://chatgpt.com/"), for: .chatGPT))
+
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://claude.ai/login"), for: .claude))
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://auth.anthropic.com/"), for: .claude))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://claude.ai.attacker.example/"), for: .claude))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://unrelated.example/"), for: .claude))
+
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://grok.com/"), for: .grok))
+        #expect(ProviderNavigationPolicy.permits(URL(string: "https://accounts.grok.com/continue"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://accounts.grok.com/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://other.grok.com/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://x.ai/auth"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://x.com/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://unrelated.example/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "http://grok.com/"), for: .grok))
+        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://user@grok.com/"), for: .grok))
     }
 
     @Test("Grok login URL and display name are product-scoped")
@@ -1864,22 +1979,23 @@ struct AIUsageBarTests {
         )
     }
 
-    @Test("Grok Cookie header is stripped on redirect outside grok.com")
-    func grokCookieHeaderIsStrippedOutsideGrokHost() {
-        var foreign = URLRequest(url: URL(string: "https://example.com/steal")!)
-        foreign.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
-        let rewritten = GrokRedirectPolicy.requestAfterRedirect(foreign)
-        #expect(rewritten?.url?.host == "example.com")
-        #expect(rewritten?.value(forHTTPHeaderField: "Cookie") == nil)
-
-        var grok = URLRequest(url: URL(string: "https://accounts.grok.com/continue")!)
-        grok.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
-        let kept = GrokRedirectPolicy.requestAfterRedirect(grok)
+    @Test("Grok quota redirects stay on the original HTTPS origin")
+    func grokQuotaRedirectsStayOnOriginalOrigin() {
+        let origin = URL(string: "https://grok.com/rest/rate-limits")!
+        var sameOrigin = URLRequest(url: URL(string: "https://grok.com/rest/usage")!)
+        sameOrigin.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
+        let kept = GrokRedirectPolicy.requestAfterRedirect(sameOrigin, originalURL: origin)
         #expect(kept?.value(forHTTPHeaderField: "Cookie") == "sso=dummy-sso")
 
-        var xai = URLRequest(url: URL(string: "https://x.ai/auth")!)
-        xai.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
-        #expect(GrokRedirectPolicy.requestAfterRedirect(xai)?.value(forHTTPHeaderField: "Cookie") == nil)
+        for destination in [
+            "https://accounts.grok.com/continue",
+            "https://other.example/steal",
+            "https://x.ai/auth",
+            "http://grok.com/rest/usage"
+        ] {
+            let request = URLRequest(url: URL(string: destination)!)
+            #expect(GrokRedirectPolicy.requestAfterRedirect(request, originalURL: origin) == nil)
+        }
     }
 
     @Test("Web session manager is isolated to the main actor")
@@ -2041,63 +2157,76 @@ struct AIUsageBarTests {
             sessionPercent: usage.sessionRemainingPercent,
             weeklyPercent: 0,
             weeklyAvailable: false,
+            weeklyUnavailable: true,
             resetText: usage.resetText,
             sessionWindowSeconds: usage.sessionWindowSeconds,
             isLoaded: true
         )
         let presentation = GrokCardPresentation.from(info)
         #expect(presentation.showsSessionRow)
-        #expect(!presentation.showsWeeklyRow)
-        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.showsWeeklyRow)
+        #expect(presentation.weeklyPercent == nil)
+        #expect(presentation.displayedRowCount == 2)
     }
 
-    @Test("T9 valid Weekly shows exactly one Weekly row")
-    func grokValidWeeklyShowsOneWeeklyRow() {
+    @Test("T9 valid Weekly shows alongside the short-window row")
+    func grokValidWeeklyShowsBothRows() {
         let info = UsageInfo(
             sessionPercent: 99,
             weeklyPercent: 37,
             weeklyAvailable: true,
             resetText: "重置於 2 天後",
             weeklyResetText: "9 月 5 日 下午 3:11",
+            sessionResetText: "short reset",
+            weeklyRelativeResetText: "weekly reset",
             sessionWindowSeconds: 7200,
             isLoaded: true
         )
         let presentation = GrokCardPresentation.from(info)
         #expect(presentation.showsWeeklyRow)
-        #expect(!presentation.showsSessionRow)
-        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.showsSessionRow)
+        #expect(presentation.displayedRowCount == 2)
         #expect(presentation.weeklyPercent == 37)
-        #expect(presentation.sessionPercent == nil)
+        #expect(presentation.sessionPercent == 99)
+        #expect(presentation.sessionResetText == "short reset")
+        #expect(presentation.weeklyResetText == "weekly reset")
     }
 
-    @Test("T10 no Weekly shows exactly one short-window row")
-    func grokWithoutWeeklyShowsOneShortWindowRow() {
+    @Test("T10 no Weekly keeps short quota and exposes the unavailable Weekly row")
+    func grokWithoutWeeklyShowsUnavailableWeeklyRow() {
         let info = UsageInfo(
             sessionPercent: 97,
             weeklyPercent: 0,
             weeklyAvailable: false,
+            weeklyUnavailable: true,
             sessionWindowSeconds: 86400,
             isLoaded: true
         )
         let presentation = GrokCardPresentation.from(info)
         #expect(presentation.showsSessionRow)
-        #expect(!presentation.showsWeeklyRow)
-        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.showsWeeklyRow)
+        #expect(presentation.weeklyPercent == nil)
+        #expect(presentation.displayedRowCount == 2)
         #expect(presentation.sessionPercent == 97)
     }
 
-    @Test("T11 valid Weekly does not display the short-window bar")
-    func grokValidWeeklyHidesShortWindowBar() {
+    @Test("T11 valid Weekly keeps both bars and their own resets")
+    func grokValidWeeklyKeepsBothResets() {
         let info = UsageInfo(
             sessionPercent: 100,
             weeklyPercent: 37,
             weeklyAvailable: true,
+            sessionResetText: "short reset",
+            weeklyRelativeResetText: "weekly reset",
             sessionWindowSeconds: 7200,
             isLoaded: true
         )
         let presentation = GrokCardPresentation.from(info)
-        #expect(presentation.showsSessionRow == false)
-        #expect(presentation.sessionPercent == nil)
+        #expect(presentation.showsSessionRow)
+        #expect(presentation.showsWeeklyRow)
+        #expect(presentation.sessionPercent == 100)
+        #expect(presentation.sessionResetText == "short reset")
+        #expect(presentation.weeklyResetText == "weekly reset")
         #expect(info.sessionPercent == 100)
     }
 
@@ -2109,6 +2238,8 @@ struct AIUsageBarTests {
             weeklyAvailable: true,
             resetText: "重置於 2 天後",
             weeklyResetText: "9 月 5 日 下午 3:11",
+            sessionResetText: "short reset",
+            weeklyRelativeResetText: "weekly reset",
             isLoaded: true
         )
         #expect(info.primaryRemainingPercent == 18)
@@ -2126,8 +2257,8 @@ struct AIUsageBarTests {
             hasError: false
         )
         #expect(notifiedOnWeeklyPrimary)
-        #expect(info.primaryResetText.contains("重置於 2 天後"))
-        #expect(info.primaryResetText.contains("9 月 5 日 下午 3:11"))
+        #expect(info.primaryResetText == L10n.resetsAbsolute("9 月 5 日 下午 3:11"))
+        #expect(!info.primaryResetText.contains("2 天後"))
     }
 
     @Test("T13 notification uses short-window remaining when Weekly is absent")
@@ -2264,6 +2395,8 @@ struct AIUsageBarTests {
             weeklyAvailable: true,
             resetText: "重置於 2 天後",
             weeklyResetText: "9 月 5 日 下午 3:11",
+            sessionResetText: "short reset",
+            weeklyRelativeResetText: "weekly reset",
             sessionWindowSeconds: 7200,
             isLoaded: true
         )
@@ -2279,10 +2412,12 @@ struct AIUsageBarTests {
         #expect(info.weeklyAvailable)
         #expect(info.errorMessage != nil)
         #expect(presentation.showsWeeklyRow)
-        #expect(!presentation.showsSessionRow)
-        #expect(presentation.displayedRowCount == 1)
+        #expect(presentation.showsSessionRow)
+        #expect(presentation.displayedRowCount == 2)
         #expect(presentation.weeklyPercent == 37)
-        #expect(presentation.sessionPercent == nil)
+        #expect(presentation.sessionPercent == 99)
+        #expect(presentation.sessionResetText == "short reset")
+        #expect(presentation.weeklyResetText == "weekly reset")
         #expect(menuBarPrimary == 37)
         #expect(notificationPrimary == 37)
         #expect(presentation.weeklyPercent == menuBarPrimary)

@@ -13,13 +13,19 @@ struct UsageInfo {
     var sessionPercent: Int = 0
     var weeklyPercent: Int = 0
     var weeklyAvailable: Bool = false
+    var weeklyUnavailable: Bool = false
     var resetText: String = ""
     var weeklyResetText: String = ""
+    var sessionResetText: String? = nil
+    var weeklyRelativeResetText: String? = nil
+    var sessionWindowLabel: UsageWindowLabel = .primaryWindow
+    var weeklyWindowLabel: UsageWindowLabel = .secondaryWindow
     var sessionWindowSeconds: Int = 0
     var isLoaded: Bool = false
     var errorMessage: String?
     var isStale: Bool = false
     var observedAt: Date?
+    var organizationDiagnostic: String? = nil
 
     var primaryRemainingPercent: Int {
         weeklyAvailable ? weeklyPercent : sessionPercent
@@ -27,10 +33,9 @@ struct UsageInfo {
 
     var primaryResetText: String {
         if weeklyAvailable {
-            return ServiceSupport.combinedResetText(
-                session: resetText,
-                weekly: weeklyResetText
-            )
+            return weeklyResetText.isEmpty
+                ? resetText
+                : L10n.resetsAbsolute(weeklyResetText)
         }
         return resetText
     }
@@ -41,6 +46,38 @@ struct UsageInfo {
         }
         return StaleUsagePresentation.caption(asOf: observedAt)
     }
+
+    func providerFreshnessCaption(now: Date = Date()) -> String? {
+        ProviderFreshnessPresentation.caption(for: self, now: now)
+    }
+}
+
+enum ProviderFreshnessPresentation {
+    static func caption(for info: UsageInfo, now: Date = Date()) -> String? {
+        guard info.isLoaded, let observedAt = info.observedAt else { return nil }
+        let relative = StaleUsagePresentation.relative(asOf: observedAt, now: now)
+        if info.errorMessage != nil {
+            return info.isStale
+                ? L10n.providerRefreshFailedStale(relative)
+                : L10n.providerRefreshFailed(relative)
+        }
+        return info.isStale
+            ? L10n.providerDataStale(relative)
+            : L10n.providerUpdated(relative)
+    }
+}
+
+enum ClaudeOrganizationPresentation {
+    static func diagnostic(organizationID: String?, name: String?) -> String? {
+        guard let organizationID = ClaudeOrganization.normalizedID(organizationID) else { return nil }
+        let suffix = String(organizationID.suffix(4))
+        guard !suffix.isEmpty else { return nil }
+        let safeName = ClaudeOrganization.sanitizedName(name)
+        if let safeName {
+            return L10n.claudeOrganizationNamed(safeName, suffix)
+        }
+        return L10n.claudeOrganizationID(suffix)
+    }
 }
 
 struct GrokCardPresentation: Equatable {
@@ -48,37 +85,40 @@ struct GrokCardPresentation: Equatable {
     var showsWeeklyRow: Bool
     var sessionPercent: Int?
     var weeklyPercent: Int?
+    var sessionResetText: String?
+    var weeklyResetText: String?
 
     var displayedRowCount: Int {
         (showsSessionRow ? 1 : 0) + (showsWeeklyRow ? 1 : 0)
     }
 
     static func from(_ info: UsageInfo) -> GrokCardPresentation {
-        // Keep the displayed Grok quota identical to `primaryRemainingPercent`
-        // even when a later refresh failed and preserved stale loaded values.
+        // Keep each Grok horizon tied to its own retained value and reset,
+        // including after a failed refresh preserves last-good usage.
         guard info.isLoaded else {
             return GrokCardPresentation(
                 showsSessionRow: true,
                 showsWeeklyRow: false,
                 sessionPercent: nil,
-                weeklyPercent: nil
-            )
-        }
-
-        if info.weeklyAvailable {
-            return GrokCardPresentation(
-                showsSessionRow: false,
-                showsWeeklyRow: true,
-                sessionPercent: nil,
-                weeklyPercent: info.weeklyPercent
+                weeklyPercent: nil,
+                sessionResetText: nil,
+                weeklyResetText: nil
             )
         }
 
         return GrokCardPresentation(
             showsSessionRow: true,
-            showsWeeklyRow: false,
+            showsWeeklyRow: info.weeklyAvailable || info.weeklyUnavailable,
             sessionPercent: info.sessionPercent,
-            weeklyPercent: nil
+            weeklyPercent: info.weeklyAvailable ? info.weeklyPercent : nil,
+            sessionResetText: info.sessionResetText ?? (info.weeklyAvailable ? nil : info.resetText),
+            weeklyResetText: info.weeklyRelativeResetText ?? (
+                info.weeklyAvailable
+                    ? (info.resetText.isEmpty
+                        ? (info.weeklyResetText.isEmpty ? nil : L10n.resetsAbsolute(info.weeklyResetText))
+                        : info.resetText)
+                    : nil
+            )
         )
     }
 }

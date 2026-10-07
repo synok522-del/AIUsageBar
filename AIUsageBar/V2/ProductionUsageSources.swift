@@ -20,7 +20,7 @@ final class ChatGPTProductionUsageSource: UsageSource {
 
     func fetchSnapshot() async throws -> UsageSnapshot {
         guard accountCredential.isEmpty || UsageIdentity.chatGPTCredential(in: cookieHeader) == accountCredential else {
-            throw AIUsageServiceError.httpStatus("ChatGPT", 401)
+            throw AIUsageServiceError.localCredentialMismatch("ChatGPT")
         }
         let usage = try await service.fetchUsage(cookieHeader: cookieHeader)
         lastUsage = usage
@@ -49,7 +49,7 @@ final class ClaudeProductionUsageSource: UsageSource {
         return V1UsageAdapters.claudeSnapshot(
             usage: usage,
             sessionKey: sessionKey,
-            organizationID: nil
+            organizationID: usage.organizationID
         )
     }
 }

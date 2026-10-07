@@ -15,6 +15,7 @@ struct ChatGPTUsage {
     let weeklyResetText: String?
     let sessionResetAt: Date?
     let weeklyResetAt: Date?
+    let weeklyUnavailable: Bool
 
     init(
         sessionRemainingPercent: Int,
@@ -22,7 +23,8 @@ struct ChatGPTUsage {
         weeklyRemainingPercent: Int?,
         weeklyResetText: String?,
         sessionResetAt: Date? = nil,
-        weeklyResetAt: Date? = nil
+        weeklyResetAt: Date? = nil,
+        weeklyUnavailable: Bool? = nil
     ) {
         self.sessionRemainingPercent = sessionRemainingPercent
         self.resetText = resetText
@@ -30,5 +32,6 @@ struct ChatGPTUsage {
         self.weeklyResetText = weeklyResetText
         self.sessionResetAt = sessionResetAt
         self.weeklyResetAt = weeklyResetAt
+        self.weeklyUnavailable = weeklyUnavailable ?? (weeklyRemainingPercent == nil)
     }
 }

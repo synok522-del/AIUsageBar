@@ -1,9 +1,29 @@
 import AppKit
 import Foundation
+import Security
 import Testing
 @testable import AIUsageBar
 
 struct ReliabilityHardeningUnitTests {
+    @Test("Credential Keychain writes use device-only when-unlocked accessibility")
+    func credentialKeychainAccessibilityIsDeviceOnlyAndWhenUnlocked() {
+        let data = Data("synthetic-credential".utf8)
+        let attributes = KeychainManager.credentialItemAttributes(for: data)
+        let protectedQuery = KeychainManager.queryAttributes(forKey: "synthetic-account")
+        let legacyQuery = KeychainManager.queryAttributes(
+            forKey: "synthetic-account",
+            useDataProtectionKeychain: false
+        )
+
+        #expect(
+            (attributes[kSecAttrAccessible as String] as? String)
+                == (kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
+        )
+        #expect(attributes[kSecValueData as String] as? Data == data)
+        #expect(protectedQuery[kSecUseDataProtectionKeychain as String] as? Bool == true)
+        #expect(legacyQuery[kSecUseDataProtectionKeychain as String] == nil)
+    }
+
     @Test("Duplicate lane begins are rejected until finish")
     func laneBookSingleFlightAndLateEpoch() {
         var book = ProviderRefreshLaneBook()
@@ -62,6 +82,8 @@ struct ReliabilityHardeningUnitTests {
         let loaded = try #require(store.load(provider: .chatGPT, accountKey: accountKey))
         #expect(loaded.asOf == asOf)
         #expect(loaded.meters.allSatisfy { $0.resetText == nil && $0.weeklyRelativeResetText == nil })
+        #expect(loaded.meters.first { $0.meterId == "chatgpt.secondary_window" }?.availability == .available)
+        #expect(loaded.meters.first { $0.meterId == "chatgpt.secondary_window" }?.windowLabel == .secondaryWindow)
         #expect(store.load(provider: .chatGPT, accountKey: "other") == nil)
 
         var mismatched = try #require(LastGoodUsageStore.record(from: snapshot))
@@ -69,6 +91,51 @@ struct ReliabilityHardeningUnitTests {
         let data = try JSONEncoder().encode(mismatched)
         defaults.set(data, forKey: LastGoodUsageStore.storageKey(provider: "chatGPT", accountKey: accountKey))
         #expect(store.load(provider: .chatGPT, accountKey: accountKey) == nil)
+    }
+
+    @Test("Older persisted meters decode with safe label defaults")
+    func oldPersistedMeterDecodesWithoutNewMetadata() throws {
+        let meter = PersistedLastGoodMeter(
+            meterId: "chatgpt.primary_window",
+            window: UsageWindow.rolling5Hour.rawValue,
+            remainingPercent: 40,
+            usedPercent: 60,
+            resetAt: nil,
+            isDisplayedPrimary: true,
+            absoluteUsed: nil,
+            absoluteRemaining: nil,
+            absoluteLimit: nil,
+            overage: nil,
+            entitlement: nil,
+            windowDurationSeconds: nil
+        )
+        let record = PersistedLastGoodRecord(
+            schemaVersion: PersistedLastGoodRecord.currentSchemaVersion,
+            provider: UsageProviderID.chatGPT.rawValue,
+            accountKey: "account",
+            asOf: Date(),
+            health: UsageSourceHealth.available.rawValue,
+            sourceType: UsageSourceType.appWebKit.rawValue,
+            meters: [meter]
+        )
+        let encoded = try JSONEncoder().encode(record)
+        var json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var persistedMeters = try #require(json["meters"] as? [[String: Any]])
+        persistedMeters[0].removeValue(forKey: "windowLabel")
+        persistedMeters[0].removeValue(forKey: "availability")
+        json["meters"] = persistedMeters
+        let legacyData = try JSONSerialization.data(withJSONObject: json)
+        let decoded = try JSONDecoder().decode(PersistedLastGoodRecord.self, from: legacyData)
+        let snapshot = try #require(LastGoodUsageStore.snapshot(
+            from: decoded,
+            expectedProvider: .chatGPT,
+            expectedAccountKey: "account"
+        ))
+        let restoredMeter = try #require(snapshot.displayedPrimaryMeter)
+        #expect(restoredMeter.windowLabel == .primaryWindow)
+        #expect(restoredMeter.availability == .available)
+        let info = try #require(UsageInfoFromSnapshot.make(snapshot, stale: false))
+        #expect(info.weeklyUnavailable)
     }
 
     @Test("Persisted last-good recomputes relative reset text")
@@ -93,6 +160,8 @@ struct ReliabilityHardeningUnitTests {
         #expect(info.resetText != "resets in 5 minutes")
         #expect(info.resetText.contains(L10n.resetPrefix))
         #expect(info.staleCaption?.hasPrefix(L10n.lastUpdatedPrefix) == true)
+        let relative = StaleUsagePresentation.relative(asOf: asOf, now: now)
+        #expect(info.providerFreshnessCaption(now: now) == L10n.providerDataStale(relative))
     }
 
     @Test("Timeout claim invalidates the epoch so late success cannot win")
@@ -179,10 +248,29 @@ struct ReliabilityHardeningUnitTests {
         #expect(staleFailure.observedAt == observedAt)
         #expect(staleFailure.sessionPercent == 41)
         #expect(staleFailure.staleCaption?.hasPrefix(L10n.lastUpdatedPrefix) == true)
+        let relative = StaleUsagePresentation.relative(
+            asOf: observedAt,
+            now: observedAt.addingTimeInterval(UsageValidityPolicy.freshnessTTL + 1)
+        )
+        #expect(
+            staleFailure.providerFreshnessCaption(
+                now: observedAt.addingTimeInterval(UsageValidityPolicy.freshnessTTL + 1)
+            ) == L10n.providerRefreshFailedStale(relative)
+        )
+
+        let fresh = UsageInfo(
+            sessionPercent: 63,
+            isLoaded: true,
+            observedAt: observedAt
+        )
+        #expect(
+            fresh.providerFreshnessCaption(now: observedAt) ==
+                L10n.providerUpdated(StaleUsagePresentation.relative(asOf: observedAt, now: observedAt))
+        )
     }
 
     @Test("Expired secondary meter is omitted on restore while primary stays")
-    func expiredSecondaryIsOmittedOnRestore() throws {
+    func expiredSecondaryIsUnavailableOnRestoreWhilePrimaryStays() throws {
         let asOf = Date(timeIntervalSince1970: 5_000)
         let snapshot = V1UsageAdapters.grokSnapshot(
             usage: GrokUsage(
@@ -202,8 +290,10 @@ struct ReliabilityHardeningUnitTests {
         let info = try #require(UsageInfoFromSnapshot.make(snapshot, stale: true, now: now))
         #expect(info.sessionPercent == 44)
         #expect(info.weeklyAvailable == false)
+        #expect(info.weeklyUnavailable)
         #expect(info.isLoaded)
-        #expect(GrokCardPresentation.from(info).showsWeeklyRow == false)
+        #expect(GrokCardPresentation.from(info).showsSessionRow)
+        #expect(GrokCardPresentation.from(info).showsWeeklyRow)
         #expect(GrokCardPresentation.from(info).weeklyPercent == nil)
     }
 
@@ -234,6 +324,224 @@ struct ReliabilityHardeningUnitTests {
 
 @MainActor
 struct ReliabilityHardeningIntegrationTests {
+    @Test("Legacy credential defaults migrate to an empty Keychain and are removed")
+    func legacyCredentialsMigrateWithEmptyKeychain() {
+        let defaults = isolatedDefaults()
+        let keychain = KeychainManager(inMemory: true)
+        defaults.set("legacy-claude", forKey: "claudeSessionKey")
+        defaults.set("current-chatgpt", forKey: "chatGPTSessionToken")
+        defaults.set("older-chatgpt", forKey: "chatgptSessionToken")
+        defaults.set("chatgpt-cookie-header", forKey: "chatGPTCookieHeader")
+        defaults.set("legacy-grok", forKey: "grokSessionToken")
+        defaults.set("grok-cookie-header", forKey: "grokCookieHeader")
+
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+        model.migrateToKeychain(defaults: defaults)
+
+        #expect(keychain.read("claudeSessionKey") == "legacy-claude")
+        #expect(keychain.read("chatGPTSessionToken") == "current-chatgpt")
+        #expect(keychain.read("chatGPTCookieHeader") == "chatgpt-cookie-header")
+        #expect(keychain.read("grokSessionToken") == "legacy-grok")
+        #expect(keychain.read("grokCookieHeader") == "grok-cookie-header")
+        for key in [
+            "claudeSessionKey",
+            "chatGPTSessionToken",
+            "chatgptSessionToken",
+            "chatGPTCookieHeader",
+            "grokSessionToken",
+            "grokCookieHeader"
+        ] {
+            #expect(defaults.object(forKey: key) == nil)
+        }
+    }
+
+    @Test("Failed preferred ChatGPT save retains defaults and never tries the older alias")
+    func failedPreferredChatGPTSaveDoesNotDowngrade() {
+        let defaults = isolatedDefaults()
+        defaults.set(String(repeating: "p", count: 32), forKey: "chatGPTSessionToken")
+        defaults.set(String(repeating: "o", count: 32), forKey: "chatgptSessionToken")
+
+        let backend = InMemoryKeychainStorageBackend()
+        // The preferred value fails; a second save would succeed if migration
+        // incorrectly fell through to the older alias.
+        backend.queueProtectedSaveOutcomes([false, true])
+        let keychain = KeychainManager(backend: backend)
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+
+        model.migrateToKeychain(defaults: defaults)
+
+        #expect(backend.protectedSaveAttemptCount == 1)
+        #expect(backend.queuedProtectedSaveOutcomeCount == 1)
+        #expect(defaults.object(forKey: "chatGPTSessionToken") != nil)
+        #expect(defaults.object(forKey: "chatgptSessionToken") != nil)
+        #expect(!backend.hasProtectedItem(forKey: "chatGPTSessionToken"))
+    }
+
+    @Test("A retry after preferred ChatGPT save failure securely stores then removes defaults")
+    func preferredChatGPTSaveRetryCleansDefaultsAfterSecureSuccess() {
+        let defaults = isolatedDefaults()
+        defaults.set(String(repeating: "p", count: 32), forKey: "chatGPTSessionToken")
+        defaults.set(String(repeating: "o", count: 32), forKey: "chatgptSessionToken")
+
+        let backend = InMemoryKeychainStorageBackend()
+        backend.queueProtectedSaveOutcomes([false, true])
+        let keychain = KeychainManager(backend: backend)
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+
+        model.migrateToKeychain(defaults: defaults)
+        #expect(defaults.object(forKey: "chatGPTSessionToken") != nil)
+        #expect(defaults.object(forKey: "chatgptSessionToken") != nil)
+
+        model.migrateToKeychain(defaults: defaults)
+
+        #expect(backend.hasProtectedItem(forKey: "chatGPTSessionToken"))
+        #expect(defaults.object(forKey: "chatGPTSessionToken") == nil)
+        #expect(defaults.object(forKey: "chatgptSessionToken") == nil)
+    }
+
+    @Test("Legacy Keychain reads require a protected write and retry before deleting legacy data")
+    func legacyKeychainReadWaitsForProtectedWriteAndRetries() {
+        let key = "chatGPTSessionToken"
+        let backend = InMemoryKeychainStorageBackend(
+            legacyItems: [key: String(repeating: "l", count: 32)]
+        )
+        backend.queueProtectedSaveOutcomes([false, true])
+        let keychain = KeychainManager(backend: backend)
+
+        #expect(keychain.read(key) == nil)
+        #expect(!backend.hasProtectedItem(forKey: key))
+        #expect(backend.hasLegacyItem(forKey: key))
+
+        #expect(keychain.read(key) != nil)
+        #expect(backend.hasProtectedItem(forKey: key))
+        #expect(!backend.hasLegacyItem(forKey: key))
+    }
+
+    @Test("Legacy credential residue is removed when Keychain is already populated")
+    func legacyCredentialsAreCleanedWhenKeychainIsPopulated() {
+        let defaults = isolatedDefaults()
+        let keychain = KeychainManager(inMemory: true)
+        let existing = [
+            "claudeSessionKey": "stored-claude",
+            "chatGPTSessionToken": "stored-chatgpt",
+            "chatGPTCookieHeader": "stored-chatgpt-header",
+            "grokSessionToken": "stored-grok",
+            "grokCookieHeader": "stored-grok-header"
+        ]
+        for (key, value) in existing {
+            keychain.save(value, forKey: key)
+        }
+        for key in [
+            "claudeSessionKey",
+            "chatGPTSessionToken",
+            "chatgptSessionToken",
+            "chatGPTCookieHeader",
+            "grokSessionToken",
+            "grokCookieHeader"
+        ] {
+            defaults.set("stale-legacy-value", forKey: key)
+        }
+
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+        model.migrateToKeychain(defaults: defaults)
+
+        for (key, value) in existing {
+            #expect(keychain.read(key) == value)
+        }
+        for key in [
+            "claudeSessionKey",
+            "chatGPTSessionToken",
+            "chatgptSessionToken",
+            "chatGPTCookieHeader",
+            "grokSessionToken",
+            "grokCookieHeader"
+        ] {
+            #expect(defaults.object(forKey: key) == nil)
+        }
+    }
+
+    @Test("Legacy credential cleanup is idempotent")
+    func legacyCredentialCleanupIsIdempotent() {
+        let defaults = isolatedDefaults()
+        let keychain = KeychainManager(inMemory: true)
+        defaults.set("once-only-value", forKey: "chatgptSessionToken")
+
+        let model = makeModel(
+            chatGPT: ImmediateChatGPTUsageService(),
+            claude: ImmediateClaudeUsageService(),
+            grok: ImmediateGrokUsageService(),
+            keychain: keychain,
+            defaults: defaults
+        )
+        model.migrateToKeychain(defaults: defaults)
+        model.migrateToKeychain(defaults: defaults)
+
+        #expect(keychain.read("chatGPTSessionToken") == "once-only-value")
+        #expect(defaults.object(forKey: "chatgptSessionToken") == nil)
+    }
+
+    @Test("A successful provider refresh does not make a failed provider appear fresh")
+    func providerFreshnessIsIndependentAfterMixedRefresh() async throws {
+        let clock = TestClock()
+        let chatGPT = CountingChatGPTUsageService()
+        let claude = CountingClaudeUsageService()
+        let model = makeModel(
+            chatGPT: chatGPT,
+            claude: claude,
+            grok: ImmediateGrokUsageService(),
+            now: { clock.date }
+        )
+        model.setChatGPTSessionToken("chatgpt-token")
+        model.setClaudeSessionKey("claude-session")
+        chatGPT.enqueue(.success(sampleChatGPT(session: 54)))
+        claude.enqueue(.success(sampleClaude(session: 72)))
+
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+        let claudeLastGood = try #require(model.claude.observedAt)
+
+        clock.advance(30)
+        chatGPT.enqueue(.success(sampleChatGPT(session: 49)))
+        claude.enqueue(.failure(URLError(.timedOut)))
+        await model.refreshAll()
+        await waitUntilRefreshIdle(model)
+
+        let claudeAge = StaleUsagePresentation.relative(asOf: claudeLastGood, now: clock.date)
+        let chatGPTAt = try #require(model.chatGPT.observedAt)
+        #expect(model.chatGPT.sessionPercent == 49)
+        #expect(chatGPTAt > claudeLastGood)
+        #expect(model.claude.observedAt == claudeLastGood)
+        #expect(model.claude.sessionPercent == 72)
+        #expect(model.claude.errorMessage != nil)
+        #expect(model.claude.isStale == false)
+        #expect(model.claude.providerFreshnessCaption(now: clock.date) == L10n.providerRefreshFailed(claudeAge))
+        #expect(model.chatGPT.providerFreshnessCaption(now: clock.date) != model.claude.providerFreshnessCaption(now: clock.date))
+    }
+
     @Test("Timer wake and manual duplicate triggers coalesce to one HTTP per provider")
     func duplicateTriggersCoalesceToOneHTTP() async {
         let chatGPT = HangingChatGPTUsageService()

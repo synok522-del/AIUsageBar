@@ -43,6 +43,24 @@ enum L10n {
 
     static var fiveHours: String { tr("meter.fiveHours", "5 hours") }
     static var weekly: String { tr("meter.weekly", "Weekly") }
+    static var primaryWindow: String { tr("meter.primaryWindow", "Primary window") }
+    static var secondaryWindow: String { tr("meter.secondaryWindow", "Secondary window") }
+    static var fiveHourWindow: String { tr("meter.fiveHourWindow", "5-hour window") }
+    static var sevenDayWindow: String { tr("meter.sevenDayWindow", "7-day window") }
+    static var windowDataUnavailable: String {
+        tr("meter.windowDataUnavailable", "Window data unavailable")
+    }
+
+    static func windowLabel(_ label: UsageWindowLabel) -> String {
+        switch label {
+        case .primaryWindow: primaryWindow
+        case .secondaryWindow: secondaryWindow
+        case .fiveHourWindow: fiveHourWindow
+        case .sevenDayWindow: sevenDayWindow
+        case .shortWindow: shortWindow
+        case .weeklyWindow: weekly
+        }
+    }
 
     static var notSignedIn: String { tr("status.notSignedIn", "Not signed in") }
     static var signedIn: String { tr("status.signedIn", "Signed in") }
@@ -55,6 +73,30 @@ enum L10n {
     static var lastUpdatedPrefix: String { tr("status.lastUpdatedPrefix", "Last updated") }
     static func lastUpdated(_ relative: String) -> String {
         tr("status.lastUpdated", "Last updated %@", relative)
+    }
+    static func providerUpdated(_ relative: String) -> String {
+        tr("status.providerUpdated", "Updated %@", relative)
+    }
+    static func providerDataStale(_ relative: String) -> String {
+        tr("status.providerDataStale", "Stale data · last updated %@", relative)
+    }
+    static func providerRefreshFailed(_ relative: String) -> String {
+        tr("status.providerRefreshFailed", "Refresh failed · showing data from %@", relative)
+    }
+    static func providerRefreshFailedStale(_ relative: String) -> String {
+        tr("status.providerRefreshFailedStale", "Refresh failed · showing stale data from %@", relative)
+    }
+    static func claudeOrganizationNamed(_ name: String, _ suffix: String) -> String {
+        tr("status.claudeOrganizationNamed", "Organization: %@ · ID …%@", name, suffix)
+    }
+    static func claudeOrganizationID(_ suffix: String) -> String {
+        tr("status.claudeOrganizationID", "Organization ID ends in %@", suffix)
+    }
+    static var claudeOrganizationUnavailable: String {
+        tr("error.claudeOrganizationUnavailable", "Claude organization information is unavailable")
+    }
+    static var claudeOrganizationAmbiguous: String {
+        tr("error.claudeOrganizationAmbiguous", "Multiple Claude organizations are available; AIUsageBar cannot safely choose one")
     }
     static func rateLimitedRetry(_ provider: String, _ seconds: Int) -> String {
         tr(
@@ -93,6 +135,38 @@ enum L10n {
         tr("settings.launchAtLoginHelp", "Open AIUsageBar in the menu bar after you sign in to macOS")
     }
     static var quitApp: String { tr("settings.quit", "Quit AIUsageBar") }
+    static var updaterSectionTitle: String { tr("settings.updater.section", "Software Updates") }
+    static var updaterAutomaticChecks: String {
+        tr("settings.updater.automaticChecks", "Automatically check for updates")
+    }
+    static var updaterCheckNow: String { tr("settings.updater.checkNow", "Check for Updates…") }
+    static var updaterNotConfigured: String {
+        tr("settings.updater.notConfigured", "Updates are not configured for this build.")
+    }
+    static var updaterReady: String { tr("settings.updater.ready", "Updater is ready.") }
+    static var updaterChecking: String { tr("settings.updater.checking", "Checking for updates…") }
+    static func updaterAvailable(_ version: String) -> String {
+        tr("settings.updater.available", "Update %@ is available.", version)
+    }
+    static var updaterNoEligibleUpdate: String {
+        tr(
+            "settings.updater.noEligibleUpdate",
+            "No eligible update was found in the checked feed."
+        )
+    }
+    static var updaterDownloading: String { tr("settings.updater.downloading", "Downloading update…") }
+    static var updaterDownloaded: String {
+        tr("settings.updater.downloaded", "Update downloaded. Review Sparkle to continue.")
+    }
+    static var updaterExtracting: String {
+        tr("settings.updater.extracting", "Verifying and preparing update…")
+    }
+    static var updaterInstalling: String { tr("settings.updater.installing", "Installing update…") }
+    static var updaterRelaunching: String { tr("settings.updater.relaunching", "Restarting AIUsageBar…") }
+    static var updaterCancelled: String { tr("settings.updater.cancelled", "Update was canceled.") }
+    static var updaterFailed: String {
+        tr("settings.updater.failed", "Update operation failed. Try again later.")
+    }
     static func version(_ version: String, _ build: String) -> String {
         tr("settings.version", "Version %@ (%@)", version, build)
     }

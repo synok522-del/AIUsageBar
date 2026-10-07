@@ -62,7 +62,8 @@ struct ChatGPTService: ChatGPTUsageFetching {
             weeklyRemainingPercent: weeklyRemainingPercent,
             weeklyResetText: weeklyResetText,
             sessionResetAt: ServiceSupport.resetDate(primaryWindow["reset_at"]),
-            weeklyResetAt: weeklyResetAt
+            weeklyResetAt: weeklyResetAt,
+            weeklyUnavailable: weeklyRemainingPercent == nil
         )
     }
 

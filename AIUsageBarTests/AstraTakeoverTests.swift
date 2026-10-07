@@ -123,7 +123,7 @@ struct AstraTakeoverTests {
             sessionResetAt: now.addingTimeInterval(100), weeklyResetAt: now), token: "synthetic-A")
         #expect(snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh)
         #expect(snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey,
-            meterId: "chatgpt.secondary_window", window: .weekly) == .expired)
+            meterId: "chatgpt.secondary_window", window: .unknown) == .expired)
     }
 
     @Test func actualNotificationManagerScopesPrimaryAndReset() {
@@ -324,8 +324,11 @@ struct AstraTakeoverTests {
     }
 
     @Test func grokCannotRedirectCredentialsToHTTP() {
+        let origin = URL(string: "https://grok.com/rest/rate-limits")!
         let request = URLRequest(url: URL(string: "http://grok.com/rest/rate-limits")!)
-        #expect(GrokRedirectPolicy.requestAfterRedirect(request) == nil)
+        #expect(GrokRedirectPolicy.requestAfterRedirect(request, originalURL: origin) == nil)
+        let crossOrigin = URLRequest(url: URL(string: "https://accounts.grok.com/continue")!)
+        #expect(GrokRedirectPolicy.requestAfterRedirect(crossOrigin, originalURL: origin) == nil)
     }
 
     @Test func credentialsCannotFollowCrossOriginOrDowngrade() {

@@ -19,6 +19,8 @@ struct PersistedLastGoodRecord: Codable, Equatable, Sendable {
 struct PersistedLastGoodMeter: Codable, Equatable, Sendable {
     var meterId: String
     var window: String
+    var windowLabel: String? = nil
+    var availability: String? = nil
     var remainingPercent: Int?
     var usedPercent: Int?
     var resetAt: Date?
@@ -100,6 +102,8 @@ final class LastGoodUsageStore: LastGoodUsageStoring, @unchecked Sendable {
                 PersistedLastGoodMeter(
                     meterId: meter.meterId,
                     window: meter.window.rawValue,
+                    windowLabel: meter.windowLabel.rawValue,
+                    availability: meter.availability.rawValue,
                     remainingPercent: meter.remainingPercent,
                     usedPercent: meter.usedPercent,
                     resetAt: meter.resetAt,
@@ -139,9 +143,25 @@ final class LastGoodUsageStore: LastGoodUsageStoring, @unchecked Sendable {
             guard let window = UsageWindow(rawValue: meter.window), !meter.meterId.isEmpty else {
                 return nil
             }
+            let windowLabel: UsageWindowLabel
+            if let rawLabel = meter.windowLabel {
+                guard let decoded = UsageWindowLabel(rawValue: rawLabel) else { return nil }
+                windowLabel = decoded
+            } else {
+                windowLabel = defaultWindowLabel(for: meter.meterId)
+            }
+            let availability: UsageMeterAvailability
+            if let rawAvailability = meter.availability {
+                guard let decoded = UsageMeterAvailability(rawValue: rawAvailability) else { return nil }
+                availability = decoded
+            } else {
+                availability = .available
+            }
             return UsageMeter(
                 meterId: meter.meterId,
                 window: window,
+                windowLabel: windowLabel,
+                availability: availability,
                 remainingPercent: meter.remainingPercent,
                 usedPercent: meter.usedPercent,
                 resetAt: meter.resetAt,
@@ -170,6 +190,18 @@ final class LastGoodUsageStore: LastGoodUsageStoring, @unchecked Sendable {
             health: health
         )
     }
+
+    private static func defaultWindowLabel(for meterId: String) -> UsageWindowLabel {
+        switch meterId {
+        case "chatgpt.primary_window": .primaryWindow
+        case "chatgpt.secondary_window": .secondaryWindow
+        case "claude.five_hour": .fiveHourWindow
+        case "claude.seven_day": .sevenDayWindow
+        case "grok.short": .shortWindow
+        case "grok.weekly": .weeklyWindow
+        default: .primaryWindow
+        }
+    }
 }
 
 enum UsageInfoFromSnapshot {
@@ -189,8 +221,12 @@ enum UsageInfoFromSnapshot {
                 sessionPercent: primary.remainingPercent ?? 0,
                 weeklyPercent: weekly?.percent ?? 0,
                 weeklyAvailable: weekly != nil,
+                weeklyUnavailable: weekly == nil,
                 resetText: relativeReset(primary.resetAt, now: now),
                 weeklyResetText: weekly.flatMap { absoluteReset($0.resetAt) } ?? "",
+                sessionResetText: relativeReset(primary.resetAt, now: now),
+                sessionWindowLabel: primary.windowLabel,
+                weeklyWindowLabel: snapshot.meters.first(where: { $0.meterId == "chatgpt.secondary_window" })?.windowLabel ?? .secondaryWindow,
                 isLoaded: true,
                 errorMessage: nil,
                 isStale: stale,
@@ -207,8 +243,12 @@ enum UsageInfoFromSnapshot {
                 sessionPercent: sessionPercent,
                 weeklyPercent: weekly?.percent ?? 0,
                 weeklyAvailable: weekly != nil,
+                weeklyUnavailable: weekly == nil,
                 resetText: relativeReset(session.resetAt, now: now),
                 weeklyResetText: weekly.flatMap { absoluteReset($0.resetAt) } ?? "",
+                sessionResetText: relativeReset(session.resetAt, now: now),
+                sessionWindowLabel: session.windowLabel,
+                weeklyWindowLabel: weeklyMeter?.windowLabel ?? .sevenDayWindow,
                 isLoaded: true,
                 errorMessage: nil,
                 isStale: stale,
@@ -222,14 +262,17 @@ enum UsageInfoFromSnapshot {
                 now: now
             )
             let sessionPercent = short?.remainingPercent ?? primary.remainingPercent ?? 0
+            let sessionResetText = relativeReset(short?.resetAt ?? (weekly == nil ? primary.resetAt : nil), now: now)
+            let weeklyRelativeResetText = weekly.map { relativeReset($0.resetAt, now: now) }
             return UsageInfo(
                 sessionPercent: sessionPercent,
                 weeklyPercent: weekly?.percent ?? 0,
                 weeklyAvailable: weekly != nil,
-                resetText: weekly != nil
-                    ? relativeReset(weekly?.resetAt, now: now)
-                    : relativeReset(short?.resetAt ?? primary.resetAt, now: now),
+                weeklyUnavailable: weekly == nil,
+                resetText: weeklyRelativeResetText ?? sessionResetText,
                 weeklyResetText: weekly.flatMap { absoluteReset($0.resetAt) } ?? "",
+                sessionResetText: sessionResetText,
+                weeklyRelativeResetText: weeklyRelativeResetText,
                 sessionWindowSeconds: short?.windowDurationSeconds ?? 0,
                 isLoaded: true,
                 errorMessage: nil,
@@ -251,7 +294,9 @@ enum UsageInfoFromSnapshot {
         observedAt: Date,
         now: Date
     ) -> SecondaryDisplay? {
-        guard let meter, let percent = meter.remainingPercent else {
+        guard let meter,
+              meter.availability == .available,
+              let percent = meter.remainingPercent else {
             return nil
         }
         switch meter.validity(observedAt: observedAt, now: now, identityMatches: true) {

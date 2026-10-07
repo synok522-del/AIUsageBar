@@ -3,6 +3,7 @@ import SwiftUI
 struct UsagePanelView: View {
 
     @ObservedObject var viewModel: UsageViewModel
+    @ObservedObject var updater: AppUpdater
     @StateObject private var windowCoordinator = WindowCoordinator()
     @State private var isPanelVisible = false
 
@@ -22,7 +23,7 @@ struct UsagePanelView: View {
                     Button {
 
                         Task {
-                            await viewModel.refreshAll()
+                            await viewModel.refreshAll(trigger: .userInitiated)
                         }
 
                     } label: {
@@ -140,20 +141,33 @@ struct UsagePanelView: View {
             providerCard(
                 title: "ChatGPT",
                 info: viewModel.chatGPT,
-                supportsWeeklyQuota: viewModel.chatGPT.weeklyAvailable,
+                supportsWeeklyQuota: viewModel.chatGPT.weeklyAvailable || viewModel.chatGPT.weeklyUnavailable,
                 showsSessionRow: true,
-                sessionRowLabel: L10n.fiveHours,
-                sessionAccessibilityLabel: L10n.fiveHours
+                sessionRowLabel: L10n.windowLabel(viewModel.chatGPT.sessionWindowLabel),
+                sessionAccessibilityLabel: L10n.windowLabel(viewModel.chatGPT.sessionWindowLabel),
+                weeklyRowLabel: L10n.windowLabel(viewModel.chatGPT.weeklyWindowLabel),
+                weeklyAccessibilityLabel: L10n.windowLabel(viewModel.chatGPT.weeklyWindowLabel),
+                sessionResetText: viewModel.chatGPT.resetText,
+                weeklyResetText: viewModel.chatGPT.weeklyResetText.isEmpty
+                    ? nil
+                    : L10n.resetsAbsolute(viewModel.chatGPT.weeklyResetText)
             )
 
         case .claude:
             providerCard(
                 title: "Claude",
                 info: viewModel.claude,
-                supportsWeeklyQuota: true,
+                supportsWeeklyQuota: viewModel.claude.weeklyAvailable || viewModel.claude.weeklyUnavailable,
                 showsSessionRow: true,
-                sessionRowLabel: L10n.fiveHours,
-                sessionAccessibilityLabel: L10n.fiveHours
+                sessionRowLabel: L10n.windowLabel(viewModel.claude.sessionWindowLabel),
+                sessionAccessibilityLabel: L10n.windowLabel(viewModel.claude.sessionWindowLabel),
+                weeklyRowLabel: L10n.windowLabel(viewModel.claude.weeklyWindowLabel),
+                weeklyAccessibilityLabel: L10n.windowLabel(viewModel.claude.weeklyWindowLabel),
+                sessionResetText: viewModel.claude.resetText,
+                weeklyResetText: viewModel.claude.weeklyResetText.isEmpty
+                    ? nil
+                    : L10n.resetsAbsolute(viewModel.claude.weeklyResetText),
+                diagnosticFootnotes: viewModel.claude.organizationDiagnostic.map { [$0] } ?? []
             )
 
         case .grok:
@@ -168,7 +182,11 @@ struct UsagePanelView: View {
                 ),
                 sessionAccessibilityLabel: GrokService.sessionRowLabel(
                     windowSeconds: viewModel.grok.sessionWindowSeconds
-                )
+                ),
+                weeklyRowLabel: L10n.weekly,
+                weeklyAccessibilityLabel: L10n.weekly,
+                sessionResetText: presentation.showsSessionRow ? presentation.sessionResetText : nil,
+                weeklyResetText: presentation.showsWeeklyRow ? presentation.weeklyResetText : nil
             )
         }
     }
@@ -216,9 +234,20 @@ struct UsagePanelView: View {
         supportsWeeklyQuota: Bool,
         showsSessionRow: Bool,
         sessionRowLabel: String?,
-        sessionAccessibilityLabel: String
+        sessionAccessibilityLabel: String,
+        weeklyRowLabel: String,
+        weeklyAccessibilityLabel: String,
+        sessionResetText: String?,
+        weeklyResetText: String?,
+        diagnosticFootnotes: [String] = []
     ) -> some View {
 
+        let weeklyRow = OptionalMeterRowBinding(
+            isSupported: supportsWeeklyQuota,
+            info: info,
+            unavailableText: L10n.windowDataUnavailable,
+            resetText: weeklyResetText
+        )
 
         if info.isLoaded {
 
@@ -227,14 +256,13 @@ struct UsagePanelView: View {
                 session: showsSessionRow ? info.sessionPercent : nil,
                 sessionRowLabel: sessionRowLabel,
                 sessionAccessibilityLabel: sessionAccessibilityLabel,
-                weekly: supportsWeeklyQuota ? info.weeklyPercent : nil,
-                weeklyRowLabel: L10n.weekly,
-                weeklyAccessibilityLabel: L10n.weekly,
-                reset: ServiceSupport.combinedResetText(
-                    session: info.resetText,
-                    weekly: info.weeklyResetText
-                ),
-                footnote: info.staleCaption
+                weekly: weeklyRow.percent,
+                weeklyRowLabel: weeklyRowLabel,
+                weeklyAccessibilityLabel: weeklyAccessibilityLabel,
+                weeklyUnavailableText: weeklyRow.unavailableText,
+                sessionResetText: sessionResetText,
+                weeklyResetText: weeklyRow.resetText,
+                footnotes: diagnosticFootnotes + [info.providerFreshnessCaption()].compactMap { $0 }
             )
 
         } else if let error = info.errorMessage {
@@ -271,9 +299,12 @@ struct UsagePanelView: View {
                 sessionRowLabel: sessionRowLabel,
                 sessionAccessibilityLabel: sessionAccessibilityLabel,
                 weekly: nil,
-                weeklyRowLabel: L10n.weekly,
-                weeklyAccessibilityLabel: L10n.weekly,
-                reset: L10n.updating,
+                weeklyRowLabel: weeklyRowLabel,
+                weeklyAccessibilityLabel: weeklyAccessibilityLabel,
+                weeklyUnavailableText: nil,
+                sessionResetText: nil,
+                weeklyResetText: nil,
+                footnotes: [L10n.updating]
 
             )
         }
@@ -303,6 +334,7 @@ struct UsagePanelView: View {
         coordinator.showSettings(
 
             viewModel: model,
+            updater: updater,
 
 
             onLoginClaude: {
@@ -342,5 +374,36 @@ struct UsagePanelView: View {
                 }
             }
         )
+    }
+}
+
+struct OptionalMeterRowBinding: Equatable {
+    let percent: Int?
+    let unavailableText: String?
+    let resetText: String?
+
+    init(
+        isSupported: Bool,
+        info: UsageInfo,
+        unavailableText: String,
+        resetText: String?
+    ) {
+        guard isSupported else {
+            percent = nil
+            self.unavailableText = nil
+            self.resetText = nil
+            return
+        }
+
+        guard !info.weeklyUnavailable else {
+            percent = nil
+            self.unavailableText = unavailableText
+            self.resetText = nil
+            return
+        }
+
+        percent = info.weeklyPercent
+        self.unavailableText = nil
+        self.resetText = resetText
     }
 }

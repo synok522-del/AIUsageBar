@@ -9,7 +9,8 @@ enum V1UsageAdapters {
         var meters: [UsageMeter] = [
             UsageMeter(
                 meterId: "chatgpt.primary_window",
-                window: .rolling5Hour,
+                window: .unknown,
+                windowLabel: .primaryWindow,
                 remainingPercent: usage.sessionRemainingPercent,
                 usedPercent: max(0, 100 - usage.sessionRemainingPercent),
                 resetAt: usage.sessionResetAt,
@@ -17,19 +18,20 @@ enum V1UsageAdapters {
                 resetText: usage.resetText
             )
         ]
-        if let weekly = usage.weeklyRemainingPercent {
-            meters.append(
-                UsageMeter(
-                    meterId: "chatgpt.secondary_window",
-                    window: .weekly,
-                    remainingPercent: weekly,
-                    usedPercent: max(0, 100 - weekly),
-                    resetAt: usage.weeklyResetAt,
-                    isDisplayedPrimary: false,
-                    resetText: usage.weeklyResetText
-                )
+        let secondaryRemaining = usage.weeklyRemainingPercent
+        meters.append(
+            UsageMeter(
+                meterId: "chatgpt.secondary_window",
+                window: .unknown,
+                windowLabel: .secondaryWindow,
+                availability: usage.weeklyUnavailable ? .unavailable : .available,
+                remainingPercent: secondaryRemaining,
+                usedPercent: secondaryRemaining.map { max(0, 100 - $0) },
+                resetAt: usage.weeklyUnavailable ? nil : usage.weeklyResetAt,
+                isDisplayedPrimary: false,
+                resetText: usage.weeklyUnavailable ? nil : usage.weeklyResetText
             )
-        }
+        )
         let accountKey = UsageIdentity.accountKey(from: token)
         return UsageSnapshot(
             provider: .chatGPT,
@@ -59,7 +61,8 @@ enum V1UsageAdapters {
             meters: [
                 UsageMeter(
                     meterId: "claude.five_hour",
-                    window: .rolling5Hour,
+                    window: .unknown,
+                    windowLabel: .fiveHourWindow,
                     remainingPercent: usage.sessionRemainingPercent,
                     usedPercent: max(0, 100 - usage.sessionRemainingPercent),
                     resetAt: usage.sessionResetAt,
@@ -68,12 +71,14 @@ enum V1UsageAdapters {
                 ),
                 UsageMeter(
                     meterId: "claude.seven_day",
-                    window: .rolling7Day,
+                    window: .unknown,
+                    windowLabel: .sevenDayWindow,
+                    availability: usage.weeklyRemainingPercent == nil ? .unavailable : .available,
                     remainingPercent: usage.weeklyRemainingPercent,
-                    usedPercent: max(0, 100 - usage.weeklyRemainingPercent),
-                    resetAt: usage.weeklyResetAt,
+                    usedPercent: usage.weeklyRemainingPercent.map { max(0, 100 - $0) },
+                    resetAt: usage.weeklyRemainingPercent == nil ? nil : usage.weeklyResetAt,
                     isDisplayedPrimary: false,
-                    resetText: usage.weeklyResetText
+                    resetText: usage.weeklyRemainingPercent == nil ? nil : usage.weeklyResetText
                 )
             ],
             health: .available
@@ -108,6 +113,7 @@ enum V1UsageAdapters {
             UsageMeter(
                 meterId: "grok.short",
                 window: .rollingCustom,
+                windowLabel: .shortWindow,
                 remainingPercent: usage.sessionRemainingPercent,
                 usedPercent: max(0, 100 - usage.sessionRemainingPercent),
                 resetAt: usage.sessionResetAt,
@@ -121,6 +127,7 @@ enum V1UsageAdapters {
                 UsageMeter(
                     meterId: "grok.weekly",
                     window: .weekly,
+                    windowLabel: .weeklyWindow,
                     remainingPercent: weekly,
                     usedPercent: max(0, 100 - weekly),
                     resetAt: usage.weeklyResetAt,

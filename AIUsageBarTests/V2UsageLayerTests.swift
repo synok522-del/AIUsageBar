@@ -86,6 +86,97 @@ struct V2UsageLayerTests {
         #expect(meter.window == .unknown)
     }
 
+    @Test("ChatGPT optional window carries neutral labels and unavailable state")
+    func chatGPTOptionalWindowIsExplicitInSnapshotAndPresentation() throws {
+        let reset = Date(timeIntervalSince1970: 1_700_000_000)
+        let snapshot = V1UsageAdapters.chatGPTSnapshot(
+            usage: ChatGPTUsage(
+                sessionRemainingPercent: 55,
+                resetText: "primary reset",
+                weeklyRemainingPercent: nil,
+                weeklyResetText: nil,
+                sessionResetAt: reset
+            ),
+            token: "tok",
+            asOf: reset.addingTimeInterval(-30)
+        )
+        let primary = try #require(snapshot.meters.first { $0.isDisplayedPrimary })
+        let secondary = try #require(snapshot.meters.first { $0.meterId == "chatgpt.secondary_window" })
+        #expect(primary.windowLabel == .primaryWindow)
+        #expect(primary.window == .unknown)
+        #expect(primary.resetAt == reset)
+        #expect(secondary.windowLabel == .secondaryWindow)
+        #expect(secondary.availability == .unavailable)
+        #expect(secondary.remainingPercent == nil)
+        #expect(secondary.resetAt == nil)
+        #expect(secondary.validity(observedAt: snapshot.asOf, now: snapshot.asOf, identityMatches: true) == .fresh)
+
+        let info = try #require(UsageInfoFromSnapshot.make(snapshot, stale: false, now: snapshot.asOf))
+        #expect(info.weeklyAvailable == false)
+        #expect(info.weeklyUnavailable)
+        #expect(info.sessionWindowLabel == .primaryWindow)
+        #expect(info.weeklyWindowLabel == .secondaryWindow)
+        #expect(info.resetText.hasPrefix(L10n.resetPrefix))
+        #expect(info.weeklyResetText.isEmpty)
+    }
+
+    @Test("Claude missing seven_day data preserves only its five_hour reset")
+    func claudeOptionalWindowDoesNotBorrowReset() throws {
+        let reset = Date(timeIntervalSince1970: 1_700_000_000)
+        let snapshot = V1UsageAdapters.claudeSnapshot(
+            usage: ClaudeUsage(
+                sessionRemainingPercent: 70,
+                weeklyRemainingPercent: nil,
+                resetText: "five-hour reset",
+                weeklyResetText: "",
+                sessionResetAt: reset,
+                weeklyResetAt: nil
+            ),
+            sessionKey: "session",
+            organizationID: "org",
+            asOf: reset.addingTimeInterval(-30)
+        )
+        let session = try #require(snapshot.meters.first { $0.meterId == "claude.five_hour" })
+        let secondary = try #require(snapshot.meters.first { $0.meterId == "claude.seven_day" })
+        #expect(session.windowLabel == .fiveHourWindow)
+        #expect(session.availability == .available)
+        #expect(session.resetAt == reset)
+        #expect(secondary.windowLabel == .sevenDayWindow)
+        #expect(secondary.availability == .unavailable)
+        #expect(secondary.remainingPercent == nil)
+        #expect(secondary.resetAt == nil)
+
+        let info = try #require(UsageInfoFromSnapshot.make(snapshot, stale: false, now: snapshot.asOf))
+        #expect(info.weeklyUnavailable)
+        #expect(info.sessionWindowLabel == .fiveHourWindow)
+        #expect(info.weeklyWindowLabel == .sevenDayWindow)
+        #expect(info.resetText.hasPrefix(L10n.resetPrefix))
+        #expect(info.weeklyResetText.isEmpty)
+    }
+
+    @Test("Optional-window card binding distinguishes unavailable zero from available zero")
+    func optionalWindowCardBindingKeepsUnavailableDistinctFromZero() {
+        let unavailable = OptionalMeterRowBinding(
+            isSupported: true,
+            info: UsageInfo(weeklyPercent: 0, weeklyUnavailable: true),
+            unavailableText: L10n.windowDataUnavailable,
+            resetText: "primary reset"
+        )
+        #expect(unavailable.percent == nil)
+        #expect(unavailable.unavailableText == L10n.windowDataUnavailable)
+        #expect(unavailable.resetText == nil)
+
+        let availableZero = OptionalMeterRowBinding(
+            isSupported: true,
+            info: UsageInfo(weeklyPercent: 0, weeklyAvailable: true),
+            unavailableText: L10n.windowDataUnavailable,
+            resetText: "secondary reset"
+        )
+        #expect(availableZero.percent == 0)
+        #expect(availableZero.unavailableText == nil)
+        #expect(availableZero.resetText == "secondary reset")
+    }
+
     @Test("Account switch invalidates cache and notification history")
     func accountSwitchInvalidatesCacheAndNotifications() {
         var cache = UsageAccountCache()
@@ -103,7 +194,7 @@ struct V2UsageLayerTests {
             provider: .chatGPT,
             accountKey: old.accountKey,
             meterId: "chatgpt.primary_window",
-            window: .rolling5Hour
+            window: .unknown
         )
         let decision1 = (notes.shouldNotify(
             identity: oldID,
@@ -126,7 +217,7 @@ struct V2UsageLayerTests {
             provider: .chatGPT,
             accountKey: new.accountKey,
             meterId: "chatgpt.primary_window",
-            window: .rolling5Hour
+            window: .unknown
         )
         let decision3 = (notes.shouldNotify(
             identity: newID,
@@ -231,6 +322,21 @@ struct V2UsageLayerTests {
         #expect(coordinator.state == .requiresUserAction)
         let decision12 = (coordinator.beginRecovery(scope: scope, now: now.addingTimeInterval(30)) == false)
         #expect(decision12)
+    }
+
+    @Test("Manual refresh clears requiresUserAction only once")
+    func manualRefreshResetsUserActionLatchOnce() {
+        var coordinator = RecoveryCoordinator()
+        coordinator.markRequiresUserAction()
+        let generationBeforeReset = coordinator.generation
+
+        let firstReset = coordinator.resetRequiresUserActionForManualRefresh()
+        #expect(firstReset)
+        #expect(coordinator.state == .healthy)
+        #expect(coordinator.generation == generationBeforeReset + 1)
+        let secondReset = coordinator.resetRequiresUserActionForManualRefresh()
+        #expect(secondReset == false)
+        #expect(coordinator.generation == generationBeforeReset + 1)
     }
 
     @Test("Recovery success requires fetch parse and identity not WebKit READY")
@@ -356,7 +462,7 @@ struct V2UsageLayerTests {
                 now: resetAt,
                 expectedAccountKey: secondaryExpired.accountKey,
                 meterId: "chatgpt.secondary_window",
-                window: .weekly
+                window: .unknown
             ) == .expired
         )
 
@@ -421,7 +527,7 @@ struct V2UsageLayerTests {
             token: "tok"
         )
         #expect(chat.meters.first { $0.isDisplayedPrimary }?.remainingPercent == 55)
-        #expect(chat.meters.contains(where: { $0.window == .weekly && $0.remainingPercent == 80 }))
+        #expect(chat.meters.contains(where: { $0.window == .unknown && $0.remainingPercent == 80 }))
         #expect(chat.displayedPrimaryMeter?.resetAt == nil)
 
         let reset = Date(timeIntervalSince1970: 1_700_000_000)
@@ -452,7 +558,9 @@ struct V2UsageLayerTests {
             sessionKey: "sk",
             organizationID: "org-1"
         )
-        #expect(claude.meters.first { $0.meterId == "claude.five_hour" }?.window == .rolling5Hour)
+        #expect(claude.meters.first { $0.meterId == "claude.five_hour" }?.window == .unknown)
+        #expect(claude.meters.first { $0.meterId == "claude.five_hour" }?.windowLabel == .fiveHourWindow)
+        #expect(claude.meters.first { $0.meterId == "claude.seven_day" }?.windowLabel == .sevenDayWindow)
 
         let claudeReset = Date(timeIntervalSince1970: 1_800_000_000)
         let claudeWithReset = V1UsageAdapters.claudeSnapshot(

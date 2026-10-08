@@ -82,7 +82,7 @@ final class InMemoryKeychainStorageBackend: KeychainStorageBackend {
 final class KeychainManager {
 
     static let shared = KeychainManager()
-    private static let service = "com.synok522.AIUsageBar"
+    private static let service = AppBuildIdentity.keychainService
     static let credentialAccessibility: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
     static var isTestProcess: Bool {
         NSClassFromString("XCTestCase") != nil

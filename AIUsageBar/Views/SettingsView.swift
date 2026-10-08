@@ -116,8 +116,9 @@ struct SettingsView: View {
                         }
                     )
                 )
+                .disabled(AppBuildIdentity.isLiveValidation)
 
-                Text(L10n.launchAtLoginHelp)
+                Text(AppBuildIdentity.isLiveValidation ? "Live Validation: launch at login is disabled." : L10n.launchAtLoginHelp)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -164,7 +165,7 @@ struct SettingsView: View {
             return ""
         }
 
-        var text = L10n.version(version, build)
+        var text = (AppBuildIdentity.isLiveValidation ? "Live Validation · " : "") + L10n.version(version, build)
         if let gitCommit {
             text += " · \(gitCommit)"
         }

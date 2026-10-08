@@ -18,6 +18,17 @@ struct UpdaterConfigurationTests {
         ]
     }
 
+    @Test("Validation metadata fails closed even with a valid production feed")
+    func validationCannotEnableUpdater() {
+        var info = validInfo
+        info["AIUsageBarLiveValidation"] = true
+        #expect(!UpdaterConfiguration(infoDictionary: info).isReady)
+        info.removeValue(forKey: "AIUsageBarLiveValidation")
+        info["CFBundleIdentifier"] = AppBuildIdentity.validationBundleID
+        #expect(!UpdaterConfiguration(infoDictionary: info).isReady)
+        #expect(AppBuildIdentity.keychainService == "com.synok522.AIUsageBar")
+    }
+
     @Test("A fully specified signed-feed policy enables the updater")
     func fullyConfiguredPolicyIsAccepted() {
         #expect(UpdaterConfiguration(infoDictionary: validInfo).isReady)

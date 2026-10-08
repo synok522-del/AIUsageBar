@@ -84,7 +84,7 @@ final class GrokWebKitSessionRestorer: NSObject, WKNavigationDelegate, GrokSessi
         teardownWebView()
 
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
+        configuration.websiteDataStore = AppBuildIdentity.websiteDataStore
 
         let webView = WKWebView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240),

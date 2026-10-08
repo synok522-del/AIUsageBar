@@ -216,7 +216,7 @@ final class WebSessionManager: GrokRefreshCookieSource, ChatGPTRefreshCookieSour
         // WKWebsiteDataStore.default() initializes WebKit and must run on the
         // main thread. This type is MainActor-isolated so startup refreshAll
         // cannot first-touch the default store on a cooperative executor.
-        let store = WKWebsiteDataStore.default().httpCookieStore
+        let store = AppBuildIdentity.websiteDataStore.httpCookieStore
         return await withCheckedContinuation { continuation in
             store.getAllCookies { cookies in
                 continuation.resume(
@@ -239,7 +239,7 @@ final class WebSessionManager: GrokRefreshCookieSource, ChatGPTRefreshCookieSour
         for provider: WebSessionProvider,
         completion: (() -> Void)? = nil
     ) {
-        let dataStore = WKWebsiteDataStore.default()
+        let dataStore = AppBuildIdentity.websiteDataStore
 
         dataStore.httpCookieStore.getAllCookies { cookies in
             let group = DispatchGroup()

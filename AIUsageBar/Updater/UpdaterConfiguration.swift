@@ -31,6 +31,12 @@ struct UpdaterConfiguration: Equatable {
     }
 
     init(infoDictionary: [String: Any]) {
+        guard AppBuildIdentity.permitsUpdater(info: infoDictionary) else {
+            feedURL = nil
+            publicEDKey = nil
+            signedFeedFailureExpirationInterval = nil
+            return
+        }
         let candidateFeedURL: URL?
         if let value = infoDictionary["SUFeedURL"] as? String {
             candidateFeedURL = URL(string: value)

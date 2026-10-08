@@ -7,8 +7,25 @@ struct AIUsageBarApp: App {
     @StateObject private var windowCoordinator = WindowCoordinator()
     @State private var didEvaluateWelcome = false
 
+    init() {
+        AppBuildIdentity.validateBundle()
+        #if LIVE_VALIDATION
+        if CommandLine.arguments.contains("--live-validation-smoke") {
+            precondition(AppBuildIdentity.keychainService == "com.synok522.AIUsageBar.LiveValidation")
+            precondition(!AppBuildIdentity.websiteDataStore.isPersistent)
+            precondition(!LaunchAtLoginManager.shared.isEnabled)
+            precondition(!UpdaterConfiguration(infoDictionary: Bundle.main.infoDictionary ?? [:]).isReady)
+            print("PASS: Live Validation bundle, Keychain, WebKit, login item and updater isolation")
+            exit(0)
+        }
+        #endif
+    }
+
     var body: some Scene {
         MenuBarExtra {
+            if AppBuildIdentity.isLiveValidation {
+                Text("AIUsageBar Live Validation").font(.caption).foregroundStyle(.orange)
+            }
             UsagePanelView(viewModel: viewModel, updater: updater)
         } label: {
             MenuBarStatusView(viewModel: viewModel)

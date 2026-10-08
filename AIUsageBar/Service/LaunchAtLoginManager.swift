@@ -19,10 +19,11 @@ final class LaunchAtLoginManager {
     private init() {}
 
     var isEnabled: Bool {
-        SMAppService.mainApp.status == .enabled
+        !AppBuildIdentity.isLiveValidation && SMAppService.mainApp.status == .enabled
     }
 
     func setEnabled(_ enabled: Bool) {
+        guard !AppBuildIdentity.isLiveValidation else { return }
 
         do {
 

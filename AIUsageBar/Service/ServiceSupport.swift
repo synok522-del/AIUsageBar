@@ -152,9 +152,7 @@ enum ServiceSupport {
     }
 
     static func usagePercent(_ value: Any?) throws -> Int {
-        let number = try usageNumber(value)
-        guard (0...100).contains(number) else { throw UsageReadError(reason: .malformed) }
-        return Int(number.rounded())
+        clampedPercent(try usageNumber(value))
     }
 
     static func resetText(_ value: Any?, now: Date = Date()) -> String {

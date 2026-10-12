@@ -106,7 +106,7 @@ enum GrokCreditsConfigDecoder {
         guard let usedRaw, let periodType, let periodEnd else {
             throw UsageReadError(reason: .absent)
         }
-        guard usedRaw.isFinite, (0...100).contains(usedRaw),
+        guard usedRaw.isFinite,
               periodType == weeklyPeriodType, isCurrentWeeklyReset(periodEnd, now: now) else {
             throw UsageReadError(reason: .malformed)
         }
@@ -270,7 +270,7 @@ enum GrokCreditsConfigDecoder {
         guard value.isFinite else {
             return 0
         }
-        return min(100, max(0, Int(value.rounded())))
+        return Int(min(100, max(0, value.rounded())))
     }
 }
 

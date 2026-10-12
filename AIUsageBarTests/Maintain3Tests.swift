@@ -7,7 +7,6 @@ struct Maintain3Tests {
         let cases: [(Any?, UsageUnavailableReason)] = [
             (nil, .absent), (NSNull(), .absent),
             (["used_percent": "25"], .malformed),
-            (["used_percent": 101], .malformed),
             (["used_percent": true], .malformed),
             ("wrong window type", .malformed),
             ([:], .absent)
@@ -49,7 +48,7 @@ struct Maintain3Tests {
 
     @Test func requiredFieldReasonsAndFetchFailurePreserveFreshness() throws {
         for (value, reason) in [(NSNull() as Any, UsageUnavailableReason.absent),
-                                ("0" as Any, .malformed), (-1 as Any, .malformed)] {
+                                ("0" as Any, .malformed), (true as Any, .malformed)] {
             do {
                 _ = try ChatGPTService.parseUsage(["rate_limit": ["primary_window": ["used_percent": value]]])
                 Issue.record("Invalid field accepted")
@@ -64,10 +63,6 @@ struct Maintain3Tests {
             _ = try ClaudeService.parseUsage(["five_hour": "wrong type"])
             Issue.record("Invalid Claude window accepted")
         } catch { #expect(UsageUnavailableReason.forError(error) == .malformed) }
-        do {
-            _ = try GrokService.parseRateLimits(["remainingQueries": 101, "totalQueries": 100])
-            Issue.record("Out-of-range Grok value accepted")
-        } catch { #expect(UsageUnavailableReason.forError(error) == .malformed) }
         let failure = try #require(UsageRefreshStatePolicy.state(afterFailure: UsageInfo(), error: URLError(.timedOut)))
         #expect(failure.unavailableReason == .fetchFailed)
         let previous = UsageInfo(sessionPercent: 42, isLoaded: true, observedAt: Date())
@@ -79,7 +74,7 @@ struct Maintain3Tests {
 
     @Test func grokWeeklyReasonsDistinguishMissingMalformedAndDecodeFailure() throws {
         let now = Date(timeIntervalSince1970: 1_788_000_000)
-        for (used, reason) in [(nil as Double?, UsageUnavailableReason.absent), (150.0, .malformed)] {
+        for (used, reason) in [(nil as Double?, UsageUnavailableReason.absent), (Double.infinity, .malformed), (Double.nan, .malformed)] {
             do {
                 _ = try GrokCreditsConfigDecoder.validatedWeekly(usedRaw: used,
                     periodType: 2, periodEnd: now.addingTimeInterval(3600), now: now)
@@ -103,6 +98,105 @@ struct Maintain3Tests {
         #expect(info.weeklyUnavailableReason == .absent)
         #expect(GrokCardPresentation.from(info).weeklyPercent == nil)
         #expect(GrokCardPresentation.from(info).showsWeeklyRow)
+    }
+
+    @Test func finiteUsageClampsAndKeepsProviderCardsAvailable() throws {
+        for (used, remaining) in [(102.0, 0), (100.4, 0), (-3.0, 100),
+                                  (Double.greatestFiniteMagnitude, 0),
+                                  (-Double.greatestFiniteMagnitude, 100), (42.5, 57)] {
+            let chatGPT = try ChatGPTService.parseUsage(["rate_limit": [
+                "primary_window": ["used_percent": used],
+                "secondary_window": ["used_percent": 105]
+            ]])
+            let chatInfo = try #require(UsageInfoFromSnapshot.make(
+                V1UsageAdapters.chatGPTSnapshot(usage: chatGPT, token: "synthetic"), stale: false))
+            #expect(chatInfo.isLoaded)
+            #expect(chatInfo.sessionPercent == remaining)
+            #expect(chatInfo.weeklyPercent == 0)
+            #expect(chatInfo.unavailableReason == nil)
+            #expect(chatInfo.weeklyUnavailableReason == nil)
+            let row = OptionalMeterRowBinding(isSupported: true, info: chatInfo,
+                unavailableText: L10n.windowDataUnavailable, resetText: nil)
+            #expect(row.percent == 0)
+            #expect(row.unavailableText == nil)
+
+            let claude = try ClaudeService.parseUsage([
+                "five_hour": ["utilization": used], "seven_day": ["utilization": 105]
+            ])
+            let claudeInfo = try #require(UsageInfoFromSnapshot.make(
+                V1UsageAdapters.claudeSnapshot(usage: claude, sessionKey: "synthetic", organizationID: nil), stale: false))
+            #expect(claudeInfo.isLoaded)
+            #expect(claudeInfo.sessionPercent == remaining)
+            #expect(claudeInfo.weeklyPercent == 0)
+            #expect(claudeInfo.unavailableReason == nil)
+            #expect(claudeInfo.weeklyUnavailableReason == nil)
+        }
+    }
+
+    @Test func usageTypeChecksRemainStrict() throws {
+        let invalid: [(Any?, UsageUnavailableReason)] = [
+            (nil, .absent), (NSNull(), .absent), ("42", .malformed),
+            (true, .malformed), (false, .malformed),
+            (Double.infinity, .malformed), (-Double.infinity, .malformed),
+            (Double.nan, .malformed), ([42], .malformed)
+        ]
+        for (value, reason) in invalid {
+            do { _ = try ServiceSupport.usagePercent(value); Issue.record("Invalid percent accepted") }
+            catch { #expect(UsageUnavailableReason.forError(error) == reason) }
+            let primary: [String: Any] = value.map { ["used_percent": $0] } ?? [:]
+            do {
+                _ = try ChatGPTService.parseUsage(["rate_limit": ["primary_window": primary]])
+                Issue.record("Invalid required usage accepted")
+            } catch {
+                #expect(UsageUnavailableReason.forError(error) == reason)
+                let info = try #require(UsageRefreshStatePolicy.state(afterFailure: UsageInfo(), error: error))
+                #expect(!info.isLoaded)
+                #expect(info.unavailableReason == reason)
+            }
+        }
+    }
+
+    @Test func grokRatioMatchesBuild5Boundaries() throws {
+        // Build 5 clamped the computed ratio but rejected nonpositive totals.
+        for (remaining, total, expected) in [(101.0, 100.0, 100), (-3.0, 100.0, 0),
+                                            (0.0, 100.0, 0), (1.0, 3.0, 33),
+                                            (Double.greatestFiniteMagnitude, 1.0, 0)] {
+            let session = try GrokService.parseRateLimits([
+                "remainingQueries": remaining, "totalQueries": total
+            ])
+            #expect(session.remainingPercent == expected)
+        }
+        // An overflowing ratio was non-finite and Build 5's percent helper returned 0.
+        for total in [0.0, -100.0] {
+            for remaining in [-3.0, 0.0, 101.0] {
+                do {
+                    _ = try GrokService.parseRateLimits([
+                        "remainingQueries": remaining, "totalQueries": total
+                    ])
+                    Issue.record("Nonpositive total accepted")
+                } catch { #expect(UsageUnavailableReason.forError(error) == .malformed) }
+            }
+        }
+        for invalid in ["42", true, Double.infinity, Double.nan] as [Any] {
+            for field in ["remainingQueries", "totalQueries"] {
+                var usage: [String: Any] = ["remainingQueries": 42, "totalQueries": 100]
+                usage[field] = invalid
+                do { _ = try GrokService.parseRateLimits(usage); Issue.record("Invalid ratio operand accepted") }
+                catch { #expect(UsageUnavailableReason.forError(error) == .malformed) }
+            }
+        }
+    }
+
+    @Test func grokWeeklyFiniteExtremesClampWithoutOverflow() throws {
+        let now = Date(timeIntervalSince1970: 1_788_000_000)
+        for (used, remaining) in [(105.0, 0), (-3.0, 100), (100.4, 0),
+                                  (Double.greatestFiniteMagnitude, 0),
+                                  (-Double.greatestFiniteMagnitude, 100)] {
+            let quota = try GrokCreditsConfigDecoder.validatedWeekly(usedRaw: used,
+                periodType: 2, periodEnd: now.addingTimeInterval(3600), now: now)
+            #expect(quota.remainingPercent == remaining)
+            #expect(quota.usedPercent == 100 - remaining)
+        }
     }
 
     @Test @MainActor func claudeFetchUsesFirstOrganizationAndSanitizedName() async throws {

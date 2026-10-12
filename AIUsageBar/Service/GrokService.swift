@@ -88,7 +88,7 @@ struct GrokService: GrokUsageFetching {
     ) {
         let remaining = try ServiceSupport.usageNumber(usage["remainingQueries"])
         let totalQueries = try ServiceSupport.usageNumber(usage["totalQueries"])
-        guard totalQueries > 0, remaining >= 0, remaining <= totalQueries else {
+        guard totalQueries > 0 else {
             throw UsageReadError(reason: .malformed)
         }
         let remainingPercent = ServiceSupport.percent((remaining / totalQueries) * 100)

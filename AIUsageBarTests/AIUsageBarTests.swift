@@ -1062,7 +1062,7 @@ struct AIUsageBarTests {
         #expect(fullyUsedParsed.weeklyResetText == nil)
     }
 
-    @Test("ChatGPT weekly percentage rejects wrong types and out-of-range values")
+    @Test("ChatGPT weekly percentage rejects numeric strings")
     func chatGPTWeeklyPercentageClampsValues() throws {
         let belowRange: [String: Any] = [
             "rate_limit": [
@@ -1967,15 +1967,15 @@ struct AIUsageBarTests {
         #expect(quota.remainingPercent == 37)
     }
 
-    @Test("T2 Grok weekly rejects out-of-range provider data")
-    func grokWeeklyUsedClampsToClosedRange() {
-        for used in [-4.0, 150.0] {
-            #expect(throws: UsageReadError.self) {
-                _ = try GrokCreditsConfigDecoder.validatedWeekly(
-                    usedRaw: used, periodType: 2,
-                    periodEnd: Date(timeIntervalSince1970: 1_788_592_260),
-                    now: Date(timeIntervalSince1970: 1_788_000_000))
-            }
+    @Test("T2 Grok weekly clamps out-of-range provider data")
+    func grokWeeklyUsedClampsToClosedRange() throws {
+        for (used, remaining) in [(-4.0, 100), (150.0, 0)] {
+            let quota = try GrokCreditsConfigDecoder.validatedWeekly(
+                usedRaw: used, periodType: 2,
+                periodEnd: Date(timeIntervalSince1970: 1_788_592_260),
+                now: Date(timeIntervalSince1970: 1_788_000_000))
+            #expect(quota.remainingPercent == remaining)
+            #expect(quota.usedPercent == 100 - remaining)
         }
     }
 

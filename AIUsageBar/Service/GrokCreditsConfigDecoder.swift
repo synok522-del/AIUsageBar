@@ -27,38 +27,45 @@ enum GrokCreditsConfigDecoder {
         grpcStatusHeader: String? = nil,
         now: Date = Date()
     ) -> GrokWeeklyQuota? {
-        // HTTP 429 must never become sign-out. Weekly overlay is optional, so
-        // any non-success status (including HTML 429) simply omits weekly.
-        guard (200..<300).contains(httpStatus) else {
-            return nil
-        }
-        if ServiceSupport.isNonJSONResponse(contentType: contentType, data: body) {
-            return nil
-        }
-        guard let frames = try? parseFrames(body) else {
-            return nil
-        }
-        guard frames.compressedCount == 0, let message = frames.message else {
-            return nil
+        try? weeklyQuotaResult(httpStatus: httpStatus, contentType: contentType,
+            body: body, grpcStatusHeader: grpcStatusHeader, now: now).get()
+    }
+
+    static func weeklyQuotaResult(
+        httpStatus: Int, contentType: String?, body: Data,
+        grpcStatusHeader: String? = nil, now: Date = Date()
+    ) -> Result<GrokWeeklyQuota, UsageReadError> {
+        guard (200..<300).contains(httpStatus),
+              !ServiceSupport.isNonJSONResponse(contentType: contentType, data: body),
+              let frames = try? parseFrames(body), frames.compressedCount == 0,
+              let message = frames.message else {
+            return .failure(UsageReadError(reason: .fetchFailed))
         }
         let grpc = grpcStatus(from: frames.trailerText)
             ?? grpcStatusHeader.map { $0 == "0" ? "OK" : $0 }
         guard grpc == nil || grpc == "OK" || grpc == "0" else {
-            return nil
+            return .failure(UsageReadError(reason: .fetchFailed))
         }
-        return try? decodeValidatedWeekly(message, now: now)
+        do {
+            return .success(try decodeValidatedWeekly(message, now: now))
+        } catch let error as UsageReadError {
+            return .failure(error)
+        } catch {
+            return .failure(UsageReadError(reason: .fetchFailed))
+        }
     }
 
     static func decodeValidatedWeekly(_ message: Data, now: Date = Date()) throws -> GrokWeeklyQuota {
         var reader = ProtoReader(data: message)
         var config: Data?
         while let field = try reader.next() {
-            if field.number == 1, field.wire == 2 {
+            if field.number == 1 {
+                guard field.wire == 2 else { throw UsageReadError(reason: .malformed) }
                 config = field.bytes
             }
         }
         guard let config else {
-            throw DecodeError.invalid
+            throw UsageReadError(reason: .absent)
         }
 
         var usedRaw: Float?
@@ -67,6 +74,9 @@ enum GrokCreditsConfigDecoder {
 
         var configReader = ProtoReader(data: config)
         while let field = try configReader.next() {
+            if (field.number == 1 && field.wire != 5) || (field.number == 8 && field.wire != 2) {
+                throw UsageReadError(reason: .malformed)
+            }
             switch (field.number, field.wire) {
             case (1, 5):
                 usedRaw = field.float32
@@ -93,14 +103,12 @@ enum GrokCreditsConfigDecoder {
         periodEnd: Date?,
         now: Date = Date()
     ) throws -> GrokWeeklyQuota {
-        guard let usedRaw, usedRaw.isFinite else {
-            throw DecodeError.invalid
+        guard let usedRaw, let periodType, let periodEnd else {
+            throw UsageReadError(reason: .absent)
         }
-        guard periodType == weeklyPeriodType else {
-            throw DecodeError.invalid
-        }
-        guard let periodEnd, isCurrentWeeklyReset(periodEnd, now: now) else {
-            throw DecodeError.invalid
+        guard usedRaw.isFinite, (0...100).contains(usedRaw),
+              periodType == weeklyPeriodType, isCurrentWeeklyReset(periodEnd, now: now) else {
+            throw UsageReadError(reason: .malformed)
         }
 
         let used = clampPercent(usedRaw)
@@ -191,6 +199,9 @@ enum GrokCreditsConfigDecoder {
         var type: Int?
         var end: Date?
         while let field = try reader.next() {
+            if (field.number == 1 && field.wire != 0) || (field.number == 3 && field.wire != 2) {
+                throw UsageReadError(reason: .malformed)
+            }
             switch (field.number, field.wire) {
             case (1, 0):
                 type = try requireInt(field.varint)

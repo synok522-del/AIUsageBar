@@ -245,7 +245,7 @@ struct UsagePanelView: View {
         let weeklyRow = OptionalMeterRowBinding(
             isSupported: supportsWeeklyQuota,
             info: info,
-            unavailableText: L10n.windowDataUnavailable,
+            unavailableText: L10n.windowDataUnavailable + (info.weeklyUnavailableReason.map { " · " + $0.localizedDescription } ?? ""),
             resetText: weeklyResetText
         )
 
@@ -262,7 +262,8 @@ struct UsagePanelView: View {
                 weeklyUnavailableText: weeklyRow.unavailableText,
                 sessionResetText: sessionResetText,
                 weeklyResetText: weeklyRow.resetText,
-                footnotes: diagnosticFootnotes + [info.providerFreshnessCaption()].compactMap { $0 }
+                footnotes: diagnosticFootnotes + [info.providerFreshnessCaption(),
+                    info.unavailableReason.map { L10n.windowDataUnavailable + " · " + $0.localizedDescription }].compactMap { $0 }
             )
 
         } else if let error = info.errorMessage {
@@ -273,6 +274,8 @@ struct UsagePanelView: View {
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
 
+                Text(L10n.windowDataUnavailable + (info.unavailableReason.map { " · " + $0.localizedDescription } ?? ""))
+                    .font(.caption)
                 Text(error)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.pink)

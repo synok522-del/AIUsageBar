@@ -128,7 +128,7 @@ final class UsageViewModel: ObservableObject {
         self.now = now
         self.wakeCoalesce = max(0, wakeCoalesce)
 
-        if !KeychainManager.isTestProcess { migrateToKeychain(defaults: .standard) }
+        if !KeychainManager.isTestProcess { migrateToKeychain() }
 
         self.claudeSessionKey =
             self.credentialStore.read(
@@ -193,39 +193,67 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - Keychain Migration
 
-    func migrateToKeychain(defaults: UserDefaults = .standard) {
-        let migrations: [(keychainKey: String, defaultsKeys: [String])] = [
-            (StorageKey.claudeSessionKey, [StorageKey.claudeSessionKey]),
-            (
-                StorageKey.chatGPTSessionToken,
-                [StorageKey.chatGPTSessionToken, StorageKey.oldChatGPTSessionToken]
-            ),
-            (StorageKey.chatGPTCookieHeader, [StorageKey.chatGPTCookieHeader]),
-            (StorageKey.grokSessionToken, [StorageKey.grokSessionToken]),
-            (StorageKey.grokCookieHeader, [StorageKey.grokCookieHeader])
-        ]
+    private func migrateToKeychain() {
 
-        for migration in migrations {
-            // An already readable canonical Keychain item is authoritative and
-            // permits cleanup of stale defaults residue. When importing from
-            // defaults, select only the highest-priority non-empty alias; a
-            // failed write must never fall through to an older credential.
-            let existingCredential = credentialStore.read(migration.keychainKey)
-            if existingCredential?.isEmpty ?? true {
-                guard let preferredValue = migration.defaultsKeys.lazy
-                    .compactMap({ defaults.string(forKey: $0) })
-                    .first(where: { !$0.isEmpty }),
-                      credentialStore.save(preferredValue, forKey: migration.keychainKey),
-                      credentialStore.read(migration.keychainKey) == preferredValue else {
-                    continue
-                }
+        let defaults = UserDefaults.standard
+
+
+        // Claude
+
+        if self.credentialStore.read(
+            StorageKey.claudeSessionKey
+        ) == nil {
+
+            if let oldValue = defaults.string(
+                forKey: StorageKey.claudeSessionKey
+            ) {
+
+                self.credentialStore.save(
+                    oldValue,
+                    forKey: StorageKey.claudeSessionKey
+                )
+
+                defaults.removeObject(
+                    forKey: StorageKey.claudeSessionKey
+                )
             }
+        }
 
-            // Cleanup is allowed only when the canonical item was already
-            // securely readable or the preferred defaults value was saved and
-            // confirmed as that exact canonical value.
-            for defaultsKey in migration.defaultsKeys {
-                defaults.removeObject(forKey: defaultsKey)
+
+        // ChatGPT 新 key
+
+        if self.credentialStore.read(
+            StorageKey.chatGPTSessionToken
+        ) == nil {
+
+
+            let newValue =
+            defaults.string(
+                forKey: StorageKey.chatGPTSessionToken
+            )
+
+
+            let oldValue =
+            defaults.string(
+                forKey: StorageKey.oldChatGPTSessionToken
+            )
+
+
+            if let token = newValue ?? oldValue {
+
+                self.credentialStore.save(
+                    token,
+                    forKey: StorageKey.chatGPTSessionToken
+                )
+
+
+                defaults.removeObject(
+                    forKey: StorageKey.chatGPTSessionToken
+                )
+
+                defaults.removeObject(
+                    forKey: StorageKey.oldChatGPTSessionToken
+                )
             }
         }
     }
@@ -1641,7 +1669,8 @@ final class UsageViewModel: ObservableObject {
             organizationDiagnostic: ClaudeOrganizationPresentation.diagnostic(
                 organizationID: usage.organizationID,
                 name: usage.organizationName
-            )
+            ),
+            weeklyUnavailableReason: usage.weeklyUnavailableReason
         )
         clearStatusMessage(for: "Claude")
     }
@@ -1660,7 +1689,8 @@ final class UsageViewModel: ObservableObject {
             isLoaded: true,
             errorMessage: nil,
             isStale: false,
-            observedAt: observedAt
+            observedAt: observedAt,
+            weeklyUnavailableReason: usage.weeklyUnavailableReason
         )
         clearStatusMessage(for: "ChatGPT")
     }
@@ -1681,7 +1711,8 @@ final class UsageViewModel: ObservableObject {
             isLoaded: true,
             errorMessage: nil,
             isStale: false,
-            observedAt: observedAt
+            observedAt: observedAt,
+            weeklyUnavailableReason: usage.weeklyUnavailableReason
         )
         clearStatusMessage(for: "Grok")
     }

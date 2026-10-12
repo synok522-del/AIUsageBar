@@ -21,6 +21,7 @@ struct PersistedLastGoodMeter: Codable, Equatable, Sendable {
     var window: String
     var windowLabel: String? = nil
     var availability: String? = nil
+    var unavailableReason: UsageUnavailableReason? = nil
     var remainingPercent: Int?
     var usedPercent: Int?
     var resetAt: Date?
@@ -104,6 +105,7 @@ final class LastGoodUsageStore: LastGoodUsageStoring, @unchecked Sendable {
                     window: meter.window.rawValue,
                     windowLabel: meter.windowLabel.rawValue,
                     availability: meter.availability.rawValue,
+                    unavailableReason: meter.unavailableReason,
                     remainingPercent: meter.remainingPercent,
                     usedPercent: meter.usedPercent,
                     resetAt: meter.resetAt,
@@ -162,6 +164,7 @@ final class LastGoodUsageStore: LastGoodUsageStoring, @unchecked Sendable {
                 window: window,
                 windowLabel: windowLabel,
                 availability: availability,
+                unavailableReason: meter.unavailableReason,
                 remainingPercent: meter.remainingPercent,
                 usedPercent: meter.usedPercent,
                 resetAt: meter.resetAt,
@@ -230,7 +233,8 @@ enum UsageInfoFromSnapshot {
                 isLoaded: true,
                 errorMessage: nil,
                 isStale: stale,
-                observedAt: snapshot.asOf
+                observedAt: snapshot.asOf,
+                weeklyUnavailableReason: weekly == nil ? (snapshot.meters.first { $0.meterId == "chatgpt.secondary_window" }?.unavailableReason ?? .absent) : nil
             )
         case .claude:
             let session = snapshot.meters.first(where: { $0.meterId == "claude.five_hour" })
@@ -252,7 +256,8 @@ enum UsageInfoFromSnapshot {
                 isLoaded: true,
                 errorMessage: nil,
                 isStale: stale,
-                observedAt: snapshot.asOf
+                observedAt: snapshot.asOf,
+                weeklyUnavailableReason: weekly == nil ? (snapshot.meters.first { $0.meterId == "claude.seven_day" }?.unavailableReason ?? .absent) : nil
             )
         case .grok:
             let short = snapshot.meters.first(where: { $0.meterId == "grok.short" })
@@ -277,7 +282,8 @@ enum UsageInfoFromSnapshot {
                 isLoaded: true,
                 errorMessage: nil,
                 isStale: stale,
-                observedAt: snapshot.asOf
+                observedAt: snapshot.asOf,
+                weeklyUnavailableReason: weekly == nil ? (snapshot.meters.first { $0.meterId == "grok.weekly" }?.unavailableReason ?? .absent) : nil
             )
         default:
             return nil

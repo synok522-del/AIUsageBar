@@ -18,6 +18,8 @@ struct ClaudeUsage {
     let organizationID: String?
     let organizationName: String?
 
+    let weeklyUnavailableReason: UsageUnavailableReason?
+
     init(
         sessionRemainingPercent: Int,
         weeklyRemainingPercent: Int?,
@@ -26,8 +28,10 @@ struct ClaudeUsage {
         sessionResetAt: Date? = nil,
         weeklyResetAt: Date? = nil,
         organizationID: String? = nil,
-        organizationName: String? = nil
+        organizationName: String? = nil,
+        weeklyUnavailableReason: UsageUnavailableReason? = nil
     ) {
+        self.weeklyUnavailableReason = weeklyRemainingPercent == nil ? (weeklyUnavailableReason ?? .absent) : nil
         self.sessionRemainingPercent = sessionRemainingPercent
         self.weeklyRemainingPercent = weeklyRemainingPercent
         self.resetText = resetText

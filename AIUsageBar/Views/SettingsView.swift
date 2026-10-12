@@ -39,6 +39,7 @@ struct SettingsView: View {
 
             providerRow(
                 title: "Claude",
+                detail: viewModel.claude.organizationDiagnostic,
                 isLoggedIn: !viewModel.claudeSessionKey.isEmpty,
                 loginAction: onLoginClaude,
                 logoutAction: {
@@ -197,6 +198,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func providerRow(
         title: String,
+        detail: String? = nil,
         isLoggedIn: Bool,
         loginAction: @escaping () -> Void,
         logoutAction: @escaping () -> Void
@@ -204,8 +206,12 @@ struct SettingsView: View {
 
         HStack {
 
-            Text(title)
-                .font(.headline)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                if isLoggedIn, let detail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+            }
 
             Spacer()
 

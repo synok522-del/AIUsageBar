@@ -118,23 +118,18 @@ enum GrokSessionRecoveryPolicy {
 }
 
 enum GrokRedirectPolicy {
-    static func permits(original: URL?, destination: URL?) -> Bool {
-        guard let original,
-              original.scheme?.lowercased() == "https",
-              original.host?.lowercased() == "grok.com" else {
-            return false
-        }
-
-        return QuotaRedirectDelegate.permits(original: original, destination: destination)
-    }
-
-    static func requestAfterRedirect(
-        _ request: URLRequest,
-        originalURL: URL?
-    ) -> URLRequest? {
-        guard permits(original: originalURL, destination: request.url) else {
+    static func requestAfterRedirect(_ request: URLRequest) -> URLRequest? {
+        guard request.url?.scheme == "https", let host = request.url?.host, !host.isEmpty else {
             return nil
         }
+
+        guard WebSessionProvider.matchesGrokProductHost(host) else {
+            var stripped = request
+            stripped.setValue(nil, forHTTPHeaderField: "Cookie")
+            stripped.setValue(nil, forHTTPHeaderField: "Authorization")
+            return stripped
+        }
+
         return request
     }
 }
@@ -149,8 +144,6 @@ final class GrokURLSessionRedirectDelegate: NSObject, URLSessionTaskDelegate, @u
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        completionHandler(
-            GrokRedirectPolicy.requestAfterRedirect(request, originalURL: response.url)
-        )
+        completionHandler(GrokRedirectPolicy.requestAfterRedirect(request))
     }
 }

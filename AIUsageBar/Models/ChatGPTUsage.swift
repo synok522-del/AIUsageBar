@@ -17,6 +17,8 @@ struct ChatGPTUsage {
     let weeklyResetAt: Date?
     let weeklyUnavailable: Bool
 
+    let weeklyUnavailableReason: UsageUnavailableReason?
+
     init(
         sessionRemainingPercent: Int,
         resetText: String,
@@ -24,8 +26,10 @@ struct ChatGPTUsage {
         weeklyResetText: String?,
         sessionResetAt: Date? = nil,
         weeklyResetAt: Date? = nil,
-        weeklyUnavailable: Bool? = nil
+        weeklyUnavailable: Bool? = nil,
+        weeklyUnavailableReason: UsageUnavailableReason? = nil
     ) {
+        self.weeklyUnavailableReason = weeklyRemainingPercent == nil ? (weeklyUnavailableReason ?? .absent) : nil
         self.sessionRemainingPercent = sessionRemainingPercent
         self.resetText = resetText
         self.weeklyRemainingPercent = weeklyRemainingPercent

@@ -25,6 +25,7 @@ enum V1UsageAdapters {
                 window: .unknown,
                 windowLabel: .secondaryWindow,
                 availability: usage.weeklyUnavailable ? .unavailable : .available,
+                unavailableReason: usage.weeklyUnavailableReason,
                 remainingPercent: secondaryRemaining,
                 usedPercent: secondaryRemaining.map { max(0, 100 - $0) },
                 resetAt: usage.weeklyUnavailable ? nil : usage.weeklyResetAt,
@@ -74,6 +75,7 @@ enum V1UsageAdapters {
                     window: .unknown,
                     windowLabel: .sevenDayWindow,
                     availability: usage.weeklyRemainingPercent == nil ? .unavailable : .available,
+                    unavailableReason: usage.weeklyUnavailableReason,
                     remainingPercent: usage.weeklyRemainingPercent,
                     usedPercent: usage.weeklyRemainingPercent.map { max(0, 100 - $0) },
                     resetAt: usage.weeklyRemainingPercent == nil ? nil : usage.weeklyResetAt,
@@ -136,6 +138,13 @@ enum V1UsageAdapters {
                     weeklyRelativeResetText: usage.weeklyRelativeResetText
                 )
             )
+        }
+        if usage.weeklyRemainingPercent == nil {
+            meters.append(UsageMeter(
+                meterId: "grok.weekly", window: .weekly, windowLabel: .weeklyWindow,
+                availability: .unavailable, unavailableReason: usage.weeklyUnavailableReason,
+                remainingPercent: nil, usedPercent: nil, resetAt: nil, isDisplayedPrimary: false
+            ))
         }
         let accountKey = UsageIdentity.accountKey(from: sso)
         return UsageSnapshot(

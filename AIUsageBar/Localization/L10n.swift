@@ -47,6 +47,14 @@ enum L10n {
     static var secondaryWindow: String { tr("meter.secondaryWindow", "Secondary window") }
     static var fiveHourWindow: String { tr("meter.fiveHourWindow", "5-hour window") }
     static var sevenDayWindow: String { tr("meter.sevenDayWindow", "7-day window") }
+    static func unavailableReason(_ reason: UsageUnavailableReason) -> String {
+        switch reason {
+        case .absent: tr("meter.reason.absent", "Data missing")
+        case .malformed: tr("meter.reason.malformed", "Unexpected data")
+        case .fetchFailed: tr("meter.reason.fetchFailed", "Fetch failed")
+        }
+    }
+
     static var windowDataUnavailable: String {
         tr("meter.windowDataUnavailable", "Window data unavailable")
     }

@@ -41,6 +41,23 @@ enum UsageWindowLabel: String, Codable, Hashable, Sendable {
     case weeklyWindow
 }
 
+enum UsageUnavailableReason: String, Codable, Equatable, Sendable {
+    case absent
+    case malformed
+    case fetchFailed
+
+    var localizedDescription: String { L10n.unavailableReason(self) }
+
+    static func forError(_ error: Error) -> Self {
+        (error as? UsageReadError)?.reason ?? .fetchFailed
+    }
+}
+
+struct UsageReadError: Error, LocalizedError {
+    let reason: UsageUnavailableReason
+    var errorDescription: String? { L10n.windowDataUnavailable + " · " + reason.localizedDescription }
+}
+
 enum UsageMeterAvailability: String, Codable, Hashable, Sendable {
     case available
     case unavailable
@@ -64,6 +81,7 @@ struct UsageMeter: Equatable, Sendable {
     var window: UsageWindow
     var windowLabel: UsageWindowLabel = .primaryWindow
     var availability: UsageMeterAvailability = .available
+    var unavailableReason: UsageUnavailableReason? = nil
     var remainingPercent: Int?
     var usedPercent: Int?
     var resetAt: Date?

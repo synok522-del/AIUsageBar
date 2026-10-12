@@ -51,7 +51,7 @@ struct GrokService: GrokUsageFetching {
                 sessionResetAt: session.resetAt,
                 weeklyResetAt: quota.resetAt
             )
-        case .omitted:
+        case .unavailable(let reason):
             return GrokUsage(
                 sessionRemainingPercent: session.remainingPercent,
                 resetText: session.resetText,
@@ -60,7 +60,8 @@ struct GrokService: GrokUsageFetching {
                 weeklyResetText: nil,
                 weeklyRelativeResetText: nil,
                 sessionResetAt: session.resetAt,
-                weeklyResetAt: nil
+                weeklyResetAt: nil,
+                weeklyUnavailableReason: reason
             )
         case .rateLimited(let retryAfter):
             return GrokUsage(
@@ -73,7 +74,8 @@ struct GrokService: GrokUsageFetching {
                 sessionResetAt: session.resetAt,
                 weeklyResetAt: nil,
                 weeklyRateLimited: true,
-                weeklyRateLimitRetryAfter: retryAfter
+                weeklyRateLimitRetryAfter: retryAfter,
+                weeklyUnavailableReason: .fetchFailed
             )
         }
     }
@@ -84,20 +86,15 @@ struct GrokService: GrokUsageFetching {
         windowSeconds: Int,
         resetAt: Date?
     ) {
-        guard let remaining = ServiceSupport.parsedNumber(usage["remainingQueries"]) else {
-            throw AIUsageServiceError.invalidPayload("Grok remainingQueries")
+        let remaining = try ServiceSupport.usageNumber(usage["remainingQueries"])
+        let totalQueries = try ServiceSupport.usageNumber(usage["totalQueries"])
+        guard totalQueries > 0, remaining >= 0, remaining <= totalQueries else {
+            throw UsageReadError(reason: .malformed)
         }
-
-        let totalQueries = ServiceSupport.parsedNumber(usage["totalQueries"])
-
-        guard let totalQueries, totalQueries > 0 else {
-            throw AIUsageServiceError.invalidPayload("Grok totalQueries")
-        }
-
         let remainingPercent = ServiceSupport.percent((remaining / totalQueries) * 100)
         let rawWindow = ServiceSupport.parsedNumber(usage["windowSizeSeconds"])?.rounded() ?? 0
         guard rawWindow >= 0, rawWindow < Double(Int.max) else {
-            throw AIUsageServiceError.invalidPayload("Grok windowSizeSeconds")
+            throw UsageReadError(reason: .malformed)
         }
         let windowSeconds = Int(rawWindow)
 
@@ -220,7 +217,7 @@ struct GrokService: GrokUsageFetching {
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                return .omitted
+                return .unavailable(.fetchFailed)
             }
 
             if http.statusCode == 429 {
@@ -236,31 +233,31 @@ struct GrokService: GrokUsageFetching {
                     if error.isRateLimitedError {
                         return .rateLimited(retryAfter: error.rateLimitedRetryAfter)
                     }
-                    return .omitted
+                    return .unavailable(.fetchFailed)
                 }
-                return .omitted
+                return .unavailable(.fetchFailed)
             }
 
-            guard let quota = GrokCreditsConfigDecoder.weeklyQuota(
+            switch GrokCreditsConfigDecoder.weeklyQuotaResult(
                 httpStatus: http.statusCode,
                 contentType: http.value(forHTTPHeaderField: "Content-Type"),
                 body: data,
                 grpcStatusHeader: http.value(forHTTPHeaderField: "Grpc-Status")
-            ) else {
-                return .omitted
+            ) {
+            case .success(let quota): return .quota(quota)
+            case .failure(let error): return .unavailable(error.reason)
             }
-            return .quota(quota)
         } catch {
             if error is CancellationError || (error as? URLError)?.code == .cancelled {
                 throw error
             }
-            return .omitted
+            return .unavailable(.fetchFailed)
         }
     }
 }
 
 enum GrokWeeklyFetchOutcome: Equatable, Sendable {
     case quota(GrokWeeklyQuota)
-    case omitted
+    case unavailable(UsageUnavailableReason)
     case rateLimited(retryAfter: TimeInterval?)
 }

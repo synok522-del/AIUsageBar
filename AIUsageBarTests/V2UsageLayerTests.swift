@@ -625,7 +625,8 @@ struct V2UsageLayerTests {
             sso: "sso"
         )
         #expect(grokFree.meters.first { $0.isDisplayedPrimary }?.meterId == "grok.short")
-        #expect(grokFree.meters.count == 1)
+        #expect(grokFree.meters.count == 2)
+        #expect(grokFree.meters.last?.unavailableReason == .absent)
     }
 
     @Test("Same-meter equivalence helper stays strict")
@@ -687,7 +688,7 @@ struct V2UsageLayerTests {
             asOf: now
         )
         #expect(snapshot.displayedPrimaryMeter?.meterId == "grok.short")
-        #expect(snapshot.meters.contains(where: { $0.meterId == "grok.weekly" }) == false)
+        #expect(snapshot.meters.first(where: { $0.meterId == "grok.weekly" })?.availability == .unavailable)
         #expect(
             snapshot.validity(now: now, expectedAccountKey: snapshot.accountKey) == .fresh
         )

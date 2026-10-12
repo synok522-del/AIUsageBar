@@ -1,6 +1,9 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "meter.reason.absent": {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Data missing"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "資料缺失"}}}},
+    "meter.reason.malformed": {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Unexpected data"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "資料格式異常"}}}},
+    "meter.reason.fetchFailed": {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Fetch failed"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "讀取失敗"}}}},
     "settings.title": {
       "extractionState": "manual",
       "localizations": {

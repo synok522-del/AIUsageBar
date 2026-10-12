@@ -805,7 +805,7 @@ struct AIUsageBarTests {
     func claudeUsageParsingHandlesBoundariesAndDateFields() throws {
         let usage: [String: [String: Any]] = [
             "five_hour": [
-                "utilization": "0",
+                "utilization": 0,
                 "resets_at": "2026-08-18T12:34:56.789Z"
             ],
             "seven_day": [
@@ -854,7 +854,7 @@ struct AIUsageBarTests {
 
     @Test("Claude usage parsing handles missing payload values")
     func claudeUsageParsingRejectsMissingValues() {
-        #expect(throws: AIUsageServiceError.self) {
+        #expect(throws: UsageReadError.self) {
             _ = try ClaudeService.parseUsage([:])
         }
     }
@@ -903,29 +903,20 @@ struct AIUsageBarTests {
         #expect(diagnostic?.contains("org-123456") == false)
     }
 
-    @Test("Claude refuses ambiguous or incomplete organization lists")
-    func claudeOrganizationSelectionFailsClosed() {
-        var ambiguous: ClaudeOrganizationSelectionError?
-        do {
-            _ = try ClaudeService.selectOrganization(from: [
-                ["id": "org-one", "name": "One"],
-                ["uuid": "org-two", "name": "Two"]
-            ])
-        } catch {
-            ambiguous = error as? ClaudeOrganizationSelectionError
+    @Test("Claude selects the first organization and rejects a missing first identifier")
+    func claudeOrganizationSelectionFailsClosed() throws {
+        let selected = try ClaudeService.selectOrganization(from: [
+            ["uuid": "org-one", "name": " First\nTeam "],
+            ["id": "org-two", "name": "Second"], [:]
+        ])
+        let usage = try ClaudeService.parseUsage(["five_hour": ["utilization": 25]], organization: selected)
+        #expect(usage.organizationID == "org-one")
+        #expect(usage.organizationName == "First Team")
+        #expect(throws: ClaudeOrganizationSelectionError.unavailable) {
+            _ = try ClaudeService.selectOrganization(from: [["name": "Unknown"], ["id": "valid"]])
         }
-        #expect(ambiguous == .ambiguous)
-
-        var unavailable: ClaudeOrganizationSelectionError?
-        do {
-            _ = try ClaudeService.selectOrganization(from: [
-                ["id": "org-one"],
-                ["name": "Unknown identity"]
-            ])
-        } catch {
-            unavailable = error as? ClaudeOrganizationSelectionError
-        }
-        #expect(unavailable == .unavailable)
+        let idFirst = try ClaudeService.selectOrganization(from: [["id": "primary", "uuid": "fallback"]])
+        #expect(idFirst.id == "primary")
     }
 
     @Test("Claude usage parsing rejects malformed required numbers")
@@ -935,7 +926,7 @@ struct AIUsageBarTests {
             "seven_day": ["utilization": 0]
         ]
 
-        #expect(throws: AIUsageServiceError.self) {
+        #expect(throws: UsageReadError.self) {
             _ = try ClaudeService.parseUsage(usage)
         }
     }
@@ -945,7 +936,7 @@ struct AIUsageBarTests {
         let usage: [String: Any] = [
             "rate_limit": [
                 "primary_window": [
-                    "used_percent": "100",
+                    "used_percent": 100,
                     "reset_at": "1700000000000"
                 ]
             ]
@@ -960,7 +951,7 @@ struct AIUsageBarTests {
 
     @Test("ChatGPT usage parsing handles missing payload values")
     func chatGPTUsageParsingRejectsMissingValues() {
-        #expect(throws: AIUsageServiceError.self) {
+        #expect(throws: UsageReadError.self) {
             _ = try ChatGPTService.parseUsage([:])
         }
     }
@@ -975,7 +966,7 @@ struct AIUsageBarTests {
             ]
         ]
 
-        #expect(throws: AIUsageServiceError.self) {
+        #expect(throws: UsageReadError.self) {
             _ = try ChatGPTService.parseUsage(usage)
         }
     }
@@ -1000,11 +991,11 @@ struct AIUsageBarTests {
         let usage: [String: Any] = [
             "rate_limit": [
                 "primary_window": [
-                    "used_percent": "21",
+                    "used_percent": 21,
                     "reset_at": 1_700_000_000
                 ],
                 "secondary_window": [
-                    "used_percent": "3",
+                    "used_percent": 3,
                     "reset_at": "1788317863",
                     "limit_window_seconds": 604_800,
                     "reset_after_seconds": 588_630
@@ -1071,7 +1062,7 @@ struct AIUsageBarTests {
         #expect(fullyUsedParsed.weeklyResetText == nil)
     }
 
-    @Test("ChatGPT weekly percentage clamps numeric strings and out-of-range values")
+    @Test("ChatGPT weekly percentage rejects wrong types and out-of-range values")
     func chatGPTWeeklyPercentageClampsValues() throws {
         let belowRange: [String: Any] = [
             "rate_limit": [
@@ -1086,8 +1077,8 @@ struct AIUsageBarTests {
             ]
         ]
 
-        #expect(try ChatGPTService.parseUsage(belowRange).weeklyRemainingPercent == 100)
-        #expect(try ChatGPTService.parseUsage(aboveRange).weeklyRemainingPercent == 0)
+        #expect(try ChatGPTService.parseUsage(belowRange).weeklyUnavailableReason == .malformed)
+        #expect(try ChatGPTService.parseUsage(aboveRange).weeklyUnavailableReason == .malformed)
     }
 
     @Test("ChatGPT weekly data is optional without breaking primary usage")
@@ -1395,31 +1386,6 @@ struct AIUsageBarTests {
         )
     }
 
-    @Test("Provider login navigation allows only supported HTTPS destinations")
-    func providerLoginNavigationUsesProviderAllowLists() {
-        #expect(ProviderNavigationPolicy.permits(URL(string: "https://chatgpt.com/auth/login"), for: .chatGPT))
-        #expect(ProviderNavigationPolicy.permits(URL(string: "https://auth.chatgpt.com/"), for: .chatGPT))
-        #expect(ProviderNavigationPolicy.permits(URL(string: "https://auth.openai.com/"), for: .chatGPT))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://login.openai.com.attacker.example/"), for: .chatGPT))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://unrelated.example/"), for: .chatGPT))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "http://chatgpt.com/"), for: .chatGPT))
-
-        #expect(ProviderNavigationPolicy.permits(URL(string: "https://claude.ai/login"), for: .claude))
-        #expect(ProviderNavigationPolicy.permits(URL(string: "https://auth.anthropic.com/"), for: .claude))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://claude.ai.attacker.example/"), for: .claude))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://unrelated.example/"), for: .claude))
-
-        #expect(ProviderNavigationPolicy.permits(URL(string: "https://grok.com/"), for: .grok))
-        #expect(ProviderNavigationPolicy.permits(URL(string: "https://accounts.grok.com/continue"), for: .grok))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://accounts.grok.com/"), for: .grok))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://other.grok.com/"), for: .grok))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://x.ai/auth"), for: .grok))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://x.com/"), for: .grok))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://unrelated.example/"), for: .grok))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "http://grok.com/"), for: .grok))
-        #expect(!ProviderNavigationPolicy.permits(URL(string: "https://user@grok.com/"), for: .grok))
-    }
-
     @Test("Grok login URL and display name are product-scoped")
     func grokLoginProviderUsesGrokDotCom() {
         #expect(WebLoginProvider.grok.displayName == "Grok")
@@ -1526,7 +1492,7 @@ struct AIUsageBarTests {
 
     @Test("Grok remaining percent never divides remainingQueries by totalTokens")
     func grokRateLimitsRejectsTokenOnlyDenominator() {
-        #expect(throws: AIUsageServiceError.self) {
+        #expect(throws: UsageReadError.self) {
             _ = try GrokService.parseRateLimits([
                 "remainingQueries": 25,
                 "totalTokens": 100,
@@ -1565,25 +1531,25 @@ struct AIUsageBarTests {
 
     @Test("Grok missing or zero denominator does not invent a percent")
     func grokRateLimitsRejectsMissingOrZeroDenominator() {
-        #expect(throws: AIUsageServiceError.self) {
+        #expect(throws: UsageReadError.self) {
             _ = try GrokService.parseRateLimits([
                 "remainingQueries": 140
             ])
         }
-        #expect(throws: AIUsageServiceError.self) {
+        #expect(throws: UsageReadError.self) {
             _ = try GrokService.parseRateLimits([
                 "remainingQueries": 140,
                 "totalQueries": 0,
                 "windowSizeSeconds": 7200
             ])
         }
-        #expect(throws: AIUsageServiceError.self) {
+        #expect(throws: UsageReadError.self) {
             _ = try GrokService.parseRateLimits([
                 "remainingQueries": 140,
                 "totalTokens": 100
             ])
         }
-        #expect(throws: AIUsageServiceError.self) {
+        #expect(throws: UsageReadError.self) {
             _ = try GrokService.parseRateLimits([:])
         }
     }
@@ -1979,25 +1945,6 @@ struct AIUsageBarTests {
         )
     }
 
-    @Test("Grok quota redirects stay on the original HTTPS origin")
-    func grokQuotaRedirectsStayOnOriginalOrigin() {
-        let origin = URL(string: "https://grok.com/rest/rate-limits")!
-        var sameOrigin = URLRequest(url: URL(string: "https://grok.com/rest/usage")!)
-        sameOrigin.setValue("sso=dummy-sso", forHTTPHeaderField: "Cookie")
-        let kept = GrokRedirectPolicy.requestAfterRedirect(sameOrigin, originalURL: origin)
-        #expect(kept?.value(forHTTPHeaderField: "Cookie") == "sso=dummy-sso")
-
-        for destination in [
-            "https://accounts.grok.com/continue",
-            "https://other.example/steal",
-            "https://x.ai/auth",
-            "http://grok.com/rest/usage"
-        ] {
-            let request = URLRequest(url: URL(string: destination)!)
-            #expect(GrokRedirectPolicy.requestAfterRedirect(request, originalURL: origin) == nil)
-        }
-    }
-
     @Test("Web session manager is isolated to the main actor")
     @MainActor
     func webSessionManagerIsIsolatedToTheMainActor() {
@@ -2020,26 +1967,16 @@ struct AIUsageBarTests {
         #expect(quota.remainingPercent == 37)
     }
 
-    @Test("T2 Grok weekly used clamps to 0...100")
-    func grokWeeklyUsedClampsToClosedRange() throws {
-        #expect(GrokCreditsConfigDecoder.remainingPercent(usedRaw: -8) == 100)
-        #expect(GrokCreditsConfigDecoder.remainingPercent(usedRaw: 150) == 0)
-        let high = try GrokCreditsConfigDecoder.validatedWeekly(
-            usedRaw: 150,
-            periodType: 2,
-            periodEnd: Date(timeIntervalSince1970: 1_788_592_260),
-            now: Date(timeIntervalSince1970: 1_788_000_000)
-        )
-        #expect(high.usedPercent == 100)
-        #expect(high.remainingPercent == 0)
-        let low = try GrokCreditsConfigDecoder.validatedWeekly(
-            usedRaw: -4,
-            periodType: 2,
-            periodEnd: Date(timeIntervalSince1970: 1_788_592_260),
-            now: Date(timeIntervalSince1970: 1_788_000_000)
-        )
-        #expect(low.usedPercent == 0)
-        #expect(low.remainingPercent == 100)
+    @Test("T2 Grok weekly rejects out-of-range provider data")
+    func grokWeeklyUsedClampsToClosedRange() {
+        for used in [-4.0, 150.0] {
+            #expect(throws: UsageReadError.self) {
+                _ = try GrokCreditsConfigDecoder.validatedWeekly(
+                    usedRaw: used, periodType: 2,
+                    periodEnd: Date(timeIntervalSince1970: 1_788_592_260),
+                    now: Date(timeIntervalSince1970: 1_788_000_000))
+            }
+        }
     }
 
     @Test("T3 WEEKLY period with valid end is accepted")

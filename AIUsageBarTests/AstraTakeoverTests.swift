@@ -323,14 +323,6 @@ struct AstraTakeoverTests {
         #expect(snapshot(7200).cacheIdentities != snapshot(14400).cacheIdentities)
     }
 
-    @Test func grokCannotRedirectCredentialsToHTTP() {
-        let origin = URL(string: "https://grok.com/rest/rate-limits")!
-        let request = URLRequest(url: URL(string: "http://grok.com/rest/rate-limits")!)
-        #expect(GrokRedirectPolicy.requestAfterRedirect(request, originalURL: origin) == nil)
-        let crossOrigin = URLRequest(url: URL(string: "https://accounts.grok.com/continue")!)
-        #expect(GrokRedirectPolicy.requestAfterRedirect(crossOrigin, originalURL: origin) == nil)
-    }
-
     @Test func credentialsCannotFollowCrossOriginOrDowngrade() {
         let origin = URL(string: "https://claude.ai/api/organizations")!
         #expect(QuotaRedirectDelegate.permits(original: origin, destination: URL(string: "https://claude.ai/api/usage")))

@@ -21,39 +21,24 @@ struct ChatGPTService: ChatGPTUsageFetching {
     }
 
     static func parseUsage(_ usage: [String: Any]) throws -> ChatGPTUsage {
-        guard let rateLimit = usage["rate_limit"] as? [String: Any],
-              let primaryWindow = rateLimit["primary_window"] as? [String: Any] else {
-            throw AIUsageServiceError.invalidPayload(
-                "ChatGPT rate_limit.primary_window"
-            )
-        }
-
-        let usedPercent = try ServiceSupport.requiredPercent(
-            primaryWindow["used_percent"],
-            serviceName: "ChatGPT",
-            field: "rate_limit.primary_window.used_percent"
-        )
+        let rateLimit = try ServiceSupport.usageDictionary(usage["rate_limit"])
+        let primaryWindow = try ServiceSupport.usageDictionary(rateLimit["primary_window"])
+        let usedPercent = try ServiceSupport.usagePercent(primaryWindow["used_percent"])
 
         var weeklyRemainingPercent: Int?
         var weeklyResetText: String?
         var weeklyResetAt: Date?
 
-        if let secondaryWindow = rateLimit["secondary_window"] as? [String: Any],
-           let weeklyUsedPercent = try? ServiceSupport.requiredPercent(
-               secondaryWindow["used_percent"],
-               serviceName: "ChatGPT",
-               field: "rate_limit.secondary_window.used_percent"
-           ) {
-            weeklyRemainingPercent = max(0, 100 - weeklyUsedPercent)
+        var weeklyReason: UsageUnavailableReason?
+        do {
+            let secondaryWindow = try ServiceSupport.usageDictionary(rateLimit["secondary_window"])
+            let weeklyUsedPercent = try ServiceSupport.usagePercent(secondaryWindow["used_percent"])
+            weeklyRemainingPercent = 100 - weeklyUsedPercent
             weeklyResetAt = ServiceSupport.resetDate(secondaryWindow["reset_at"])
-
-            let formattedReset = ServiceSupport.absoluteResetText(
-                secondaryWindow["reset_at"]
-            )
+            let formattedReset = ServiceSupport.absoluteResetText(secondaryWindow["reset_at"])
             weeklyResetText = formattedReset.isEmpty ? nil : formattedReset
-        } else {
-            weeklyRemainingPercent = nil
-            weeklyResetText = nil
+        } catch {
+            weeklyReason = .forError(error)
         }
 
         return ChatGPTUsage(
@@ -63,7 +48,8 @@ struct ChatGPTService: ChatGPTUsageFetching {
             weeklyResetText: weeklyResetText,
             sessionResetAt: ServiceSupport.resetDate(primaryWindow["reset_at"]),
             weeklyResetAt: weeklyResetAt,
-            weeklyUnavailable: weeklyRemainingPercent == nil
+            weeklyUnavailable: weeklyRemainingPercent == nil,
+            weeklyUnavailableReason: weeklyReason
         )
     }
 

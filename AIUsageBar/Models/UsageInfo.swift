@@ -26,6 +26,8 @@ struct UsageInfo {
     var isStale: Bool = false
     var observedAt: Date?
     var organizationDiagnostic: String? = nil
+    var weeklyUnavailableReason: UsageUnavailableReason? = nil
+    var unavailableReason: UsageUnavailableReason? = nil
 
     var primaryRemainingPercent: Int {
         weeklyAvailable ? weeklyPercent : sessionPercent
@@ -240,11 +242,12 @@ enum UsageRefreshStatePolicy {
             : error.localizedDescription
 
         guard current.isLoaded else {
-            return UsageInfo(errorMessage: message)
+            return UsageInfo(errorMessage: message, unavailableReason: .forError(error))
         }
 
         var preserved = current
         preserved.errorMessage = message
+        preserved.unavailableReason = .forError(error)
         if let observedAt = current.observedAt,
            now.timeIntervalSince(observedAt) >= UsageValidityPolicy.freshnessTTL {
             preserved.isStale = true

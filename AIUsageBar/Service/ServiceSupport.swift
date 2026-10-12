@@ -136,6 +136,27 @@ enum ServiceSupport {
         return clampedPercent(value)
     }
 
+    static func usageDictionary(_ value: Any?) throws -> [String: Any] {
+        guard let value, !(value is NSNull) else { throw UsageReadError(reason: .absent) }
+        guard let dictionary = value as? [String: Any] else { throw UsageReadError(reason: .malformed) }
+        return dictionary
+    }
+
+    static func usageNumber(_ value: Any?) throws -> Double {
+        guard let value, !(value is NSNull) else { throw UsageReadError(reason: .absent) }
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else {
+            throw UsageReadError(reason: .malformed)
+        }
+        return number.doubleValue
+    }
+
+    static func usagePercent(_ value: Any?) throws -> Int {
+        let number = try usageNumber(value)
+        guard (0...100).contains(number) else { throw UsageReadError(reason: .malformed) }
+        return Int(number.rounded())
+    }
+
     static func resetText(_ value: Any?, now: Date = Date()) -> String {
         guard let date = resetDate(value) else {
             return ""

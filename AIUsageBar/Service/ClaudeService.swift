@@ -49,6 +49,10 @@ enum ClaudeOrganizationSelectionError: Error, Equatable, LocalizedError {
 struct ClaudeService: ClaudeUsageFetching {
     private let baseURL = URL(string: "https://claude.ai")!
 
+    private let session: URLSession
+
+    init(session: URLSession = ServiceSupport.quotaSession) { self.session = session }
+
     func fetchUsage(sessionKey: String) async throws -> ClaudeUsage {
         let organization = try await fetchOrganization(sessionKey: sessionKey)
         let usage = try await fetchUsage(organizationID: organization.id, sessionKey: sessionKey)
@@ -57,74 +61,48 @@ struct ClaudeService: ClaudeUsageFetching {
     }
 
     static func parseUsage(
-        _ usage: [String: [String: Any]],
+        _ usage: [String: Any],
         organization: ClaudeOrganization? = nil
     ) throws -> ClaudeUsage {
-        let sessionUsed = try ServiceSupport.requiredPercent(
-            usage["five_hour"]?["utilization"],
-            serviceName: "Claude",
-            field: "five_hour.utilization"
-        )
-        let weeklyUsed = try? ServiceSupport.requiredPercent(
-            usage["seven_day"]?["utilization"],
-            serviceName: "Claude",
-            field: "seven_day.utilization"
-        )
-        let sessionReset = ServiceSupport.resetText(usage["five_hour"]?["resets_at"])
+        let session = try ServiceSupport.usageDictionary(usage["five_hour"])
+        let sessionUsed = try ServiceSupport.usagePercent(session["utilization"])
+        var weeklyUsed: Int?
+        var weeklyReason: UsageUnavailableReason?
+        do {
+            let weekly = try ServiceSupport.usageDictionary(usage["seven_day"])
+            weeklyUsed = try ServiceSupport.usagePercent(weekly["utilization"])
+        } catch {
+            weeklyReason = .forError(error)
+        }
+        let sessionReset = ServiceSupport.resetText((usage["five_hour"] as? [String: Any])?["resets_at"])
         let weeklyAbsoluteReset = weeklyUsed == nil
             ? ""
-            : ServiceSupport.absoluteResetText(usage["seven_day"]?["resets_at"])
+            : ServiceSupport.absoluteResetText((usage["seven_day"] as? [String: Any])?["resets_at"])
 
         return ClaudeUsage(
             sessionRemainingPercent: max(0, 100 - sessionUsed),
             weeklyRemainingPercent: weeklyUsed.map { max(0, 100 - $0) },
             resetText: sessionReset,
             weeklyResetText: weeklyAbsoluteReset,
-            sessionResetAt: ServiceSupport.resetDate(usage["five_hour"]?["resets_at"]),
+            sessionResetAt: ServiceSupport.resetDate((usage["five_hour"] as? [String: Any])?["resets_at"]),
             weeklyResetAt: weeklyUsed == nil
                 ? nil
-                : ServiceSupport.resetDate(usage["seven_day"]?["resets_at"]),
+                : ServiceSupport.resetDate((usage["seven_day"] as? [String: Any])?["resets_at"]),
             organizationID: organization?.id,
-            organizationName: organization?.displayName
+            organizationName: organization?.displayName,
+            weeklyUnavailableReason: weeklyReason
         )
     }
 
     static func selectOrganization(from organizations: [[String: Any]]) throws -> ClaudeOrganization {
-        guard !organizations.isEmpty else {
+        guard let first = organizations.first,
+              let id = ClaudeOrganization.normalizedID(first["id"] as? String)
+                ?? ClaudeOrganization.normalizedID(first["uuid"] as? String) else {
             throw ClaudeOrganizationSelectionError.unavailable
         }
-
-        let parsed = try organizations.map { organization -> ClaudeOrganization in
-            var identifiers: [String] = []
-            for key in ["id", "uuid"] {
-                guard let rawValue = organization[key] else { continue }
-                guard let rawID = rawValue as? String else {
-                    throw ClaudeOrganizationSelectionError.unavailable
-                }
-                guard let id = ClaudeOrganization.normalizedID(rawID) else {
-                    throw ClaudeOrganizationSelectionError.unavailable
-                }
-                identifiers.append(id)
-            }
-
-            guard let id = identifiers.first,
-                  identifiers.allSatisfy({ $0 == id }) else {
-                throw ClaudeOrganizationSelectionError.unavailable
-            }
-            return ClaudeOrganization(
-                id: id,
-                displayName: ClaudeOrganization.sanitizedName(organization["name"] as? String)
-            )
-        }
-
-        let uniqueIDs = Set(parsed.map(\.id))
-        guard uniqueIDs.count == 1, let id = uniqueIDs.first else {
-            throw ClaudeOrganizationSelectionError.ambiguous
-        }
-        let names = Set(parsed.compactMap(\.displayName))
         return ClaudeOrganization(
             id: id,
-            displayName: names.count == 1 ? names.first : nil
+            displayName: ClaudeOrganization.sanitizedName(first["name"] as? String)
         )
     }
 
@@ -134,14 +112,14 @@ struct ClaudeService: ClaudeUsageFetching {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
 
-        let data = try await ServiceSupport.data(for: request, serviceName: "Claude")
+        let data = try await ServiceSupport.data(for: request, serviceName: "Claude", session: session)
         guard let organizations = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw AIUsageServiceError.invalidPayload("Claude organization")
         }
         return try Self.selectOrganization(from: organizations)
     }
 
-    private func fetchUsage(organizationID: String, sessionKey: String) async throws -> [String: [String: Any]] {
+    private func fetchUsage(organizationID: String, sessionKey: String) async throws -> [String: Any] {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         components.path = "/api/organizations/\(organizationID)/usage"
         guard let url = components.url else {
@@ -151,13 +129,9 @@ struct ClaudeService: ClaudeUsageFetching {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
 
-        let data = try await ServiceSupport.data(for: request, serviceName: "Claude")
+        let data = try await ServiceSupport.data(for: request, serviceName: "Claude", session: session)
         let object = try ServiceSupport.jsonObject(from: data, serviceName: "Claude")
 
-        return object.reduce(into: [String: [String: Any]]()) { result, item in
-            if let dictionary = item.value as? [String: Any] {
-                result[item.key] = dictionary
-            }
-        }
+        return object
     }
 }

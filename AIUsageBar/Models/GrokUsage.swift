@@ -17,6 +17,8 @@ struct GrokUsage {
     let weeklyRateLimited: Bool
     let weeklyRateLimitRetryAfter: TimeInterval?
 
+    let weeklyUnavailableReason: UsageUnavailableReason?
+
     init(
         sessionRemainingPercent: Int,
         resetText: String,
@@ -27,8 +29,10 @@ struct GrokUsage {
         sessionResetAt: Date? = nil,
         weeklyResetAt: Date? = nil,
         weeklyRateLimited: Bool = false,
-        weeklyRateLimitRetryAfter: TimeInterval? = nil
+        weeklyRateLimitRetryAfter: TimeInterval? = nil,
+        weeklyUnavailableReason: UsageUnavailableReason? = nil
     ) {
+        self.weeklyUnavailableReason = weeklyRemainingPercent == nil ? (weeklyUnavailableReason ?? .absent) : nil
         self.sessionRemainingPercent = sessionRemainingPercent
         self.resetText = resetText
         self.sessionWindowSeconds = sessionWindowSeconds
